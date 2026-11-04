@@ -36,12 +36,12 @@ async fn connect_url(url: &str) -> anyhow::Result<PgPool> {
         .await?)
 }
 
-pub async fn tenant_transaction(
+pub async fn interviewer_transaction(
     pool: &PgPool,
     tenant: Uuid,
 ) -> Result<Transaction<'_, Postgres>, sqlx::Error> {
     let mut tx = pool.begin().await?;
-    sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
+    sqlx::query("SELECT set_config('app.interviewer_id', $1, true)")
         .bind(tenant.to_string())
         .execute(&mut *tx)
         .await?;
@@ -51,40 +51,41 @@ pub async fn tenant_transaction(
 /// Short transactional jobs: crashes roll back work and acknowledgement together.
 /// Savepoints retain retry metadata; concurrent workers skip locked jobs.
 pub async fn process_expiry_job(pool: &PgPool) -> Result<bool, sqlx::Error> {
-    use sqlx::{Acquire, Row};
-    let mut tx = pool.begin().await?;
-    let Some(job) = sqlx::query("SELECT id,organization_id,session_id,attempts FROM background_jobs WHERE status='pending' AND available_at<=now() ORDER BY available_at,id FOR UPDATE SKIP LOCKED LIMIT 1")
-        .fetch_optional(&mut *tx).await? else { tx.commit().await?; return Ok(false); };
-    let id: Uuid = job.get("id");
-    let org: Uuid = job.get("organization_id");
-    let session: Uuid = job.get("session_id");
-    let attempts: i32 = job.get("attempts");
-    sqlx::query("SELECT set_config('app.tenant_id',$1,true)")
-        .bind(org.to_string())
-        .execute(&mut *tx)
-        .await?;
-    let mut work = tx.begin().await?;
-    let result = async {
-        let expired = sqlx::query("UPDATE interview_sessions SET state='expired' WHERE id=$1 AND state IN ('invited','ready','in_progress') AND least(expires_at,coalesce(deadline_at,expires_at))<=now()")
-            .bind(session).execute(&mut *work).await?.rows_affected();
-        if expired == 1 {
-            sqlx::query("INSERT INTO audit_events(id,organization_id,entity_id,action,metadata) VALUES($1,$2,$3,'session.expired','{\"actor\":\"worker\"}')")
-                .bind(Uuid::new_v4()).bind(org).bind(session).execute(&mut *work).await?;
+    let interviewers: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM users WHERE role='interviewer' ORDER BY id")
+            .fetch_all(pool)
+            .await?;
+    for interviewer in interviewers {
+        let mut tx = interviewer_transaction(pool, interviewer).await?;
+        let session: Option<Uuid> = sqlx::query_scalar("SELECT id FROM interview_sessions WHERE state IN ('invited','ready','in_progress') AND least(expires_at,coalesce(deadline_at,expires_at))<=now() ORDER BY expires_at,id FOR UPDATE SKIP LOCKED LIMIT 1")
+            .fetch_optional(&mut *tx).await?;
+        if let Some(session) = session {
+            finalize_due_session(&mut tx, interviewer, session).await?;
+            tx.commit().await?;
+            return Ok(true);
         }
-        Ok::<(),sqlx::Error>(())
-    }.await;
-    match result {
-        Ok(()) => {
-            work.commit().await?;
-            sqlx::query("UPDATE background_jobs SET status='completed',attempts=attempts+1,last_error=NULL WHERE id=$1").bind(id).execute(&mut *tx).await?;
-        }
-        Err(error) => {
-            tracing::error!(job_id=%id, %error, "session expiry failed");
-            work.rollback().await?;
-            sqlx::query("UPDATE background_jobs SET attempts=attempts+1,status=CASE WHEN attempts>=4 THEN 'failed' ELSE 'pending' END,available_at=now()+($2*interval '10 seconds'),last_error='Session expiry failed; inspect worker/database logs' WHERE id=$1")
-                .bind(id).bind((attempts+1).min(5)).execute(&mut *tx).await?;
-        }
+        tx.commit().await?;
     }
-    tx.commit().await?;
-    Ok(true)
+    Ok(false)
+}
+
+/// Finalize once under a row lock; late answer writes cannot race submission.
+pub async fn finalize_due_session(
+    tx: &mut Transaction<'_, Postgres>,
+    interviewer: Uuid,
+    session: Uuid,
+) -> Result<(), sqlx::Error> {
+    use sqlx::Row;
+    sqlx::query("SELECT id FROM interview_sessions WHERE id=$1 FOR UPDATE")
+        .bind(session)
+        .fetch_optional(&mut **tx)
+        .await?;
+    let row=sqlx::query("UPDATE interview_sessions SET submitted_at=CASE WHEN state='in_progress' THEN least(expires_at,coalesce(deadline_at,expires_at)) ELSE submitted_at END,state=CASE WHEN state='in_progress' THEN 'submitted' ELSE 'expired' END WHERE id=$1 AND state IN ('invited','ready','in_progress') AND least(expires_at,coalesce(deadline_at,expires_at))<=clock_timestamp() RETURNING state")
+        .bind(session).fetch_optional(&mut **tx).await?;
+    if let Some(row) = row {
+        let state: String = row.get("state");
+        sqlx::query("INSERT INTO audit_events(id,interviewer_id,entity_id,action,metadata) VALUES($1,$2,$3,$4,'{\"actor\":\"system\",\"reason\":\"deadline\"}')")
+            .bind(Uuid::new_v4()).bind(interviewer).bind(session).bind(if state=="submitted" {"session.timed_out"} else {"session.expired"}).execute(&mut **tx).await?;
+    }
+    Ok(())
 }

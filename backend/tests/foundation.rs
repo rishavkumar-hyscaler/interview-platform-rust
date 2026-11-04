@@ -2,7 +2,7 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
-use platform_api::infrastructure::tenant_transaction;
+use platform_api::infrastructure::interviewer_transaction;
 use serde_json::{Value, json};
 use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
@@ -56,7 +56,7 @@ async fn authentication_and_tenant_isolation() {
     .await
     .unwrap();
     assert!(!bypass, "tests must use the restricted runtime role");
-    let app = platform_api::router(pool.clone());
+    let app = platform_api::router_with_ai(pool.clone(), None);
     let email = format!("{}@example.test", Uuid::new_v4());
     let credentials = json!({"email":email,"password":"a-strong-test-password"});
     let (status, a) = call(
@@ -68,38 +68,29 @@ async fn authentication_and_tenant_isolation() {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(a["role"], "recruiter");
+    assert_eq!(a["role"], "interviewer");
     let token = a["token"].as_str().unwrap();
-    let org: Uuid = a["organization_id"].as_str().unwrap().parse().unwrap();
+    let recruiter: Uuid = a["user_id"].as_str().unwrap().parse().unwrap();
     let (status, _) = call(&app, "POST", "/api/auth/register", credentials, None).await;
     assert_eq!(status, StatusCode::CONFLICT);
     let (status, b) = call(&app,"POST","/api/auth/register",json!({"email":format!("{}@example.test",Uuid::new_v4()),"password":"another-strong-password"}),None).await;
     assert_eq!(status, StatusCode::CREATED);
-    let other = b["organization_id"].as_str().unwrap();
-    assert_eq!(
-        call(
-            &app,
-            "GET",
-            &format!("/api/organizations/{org}"),
-            Value::Null,
-            Some(token)
-        )
-        .await
-        .0,
-        StatusCode::OK
-    );
-    assert_eq!(
-        call(
-            &app,
-            "GET",
-            &format!("/api/organizations/{other}"),
-            Value::Null,
-            Some(token)
-        )
-        .await
-        .0,
-        StatusCode::NOT_FOUND
-    );
+    let other: Uuid = b["user_id"].as_str().unwrap().parse().unwrap();
+    let job_input = json!({"title":"Backend engineer","description":"Build reliable Rust services and PostgreSQL APIs.","request_key":Uuid::new_v4()});
+    let (status, job) = call(&app, "POST", "/api/v1/jobs", job_input, Some(token)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (_, mine) = call(&app, "GET", "/api/v1/jobs", Value::Null, Some(token)).await;
+    assert_eq!(mine["items"][0]["id"], job["id"]);
+    let (_, theirs) = call(
+        &app,
+        "GET",
+        "/api/v1/jobs",
+        Value::Null,
+        b["token"].as_str(),
+    )
+    .await;
+    assert!(theirs["items"].as_array().unwrap().is_empty());
+    assert!(a.get("organization_id").is_none());
     assert_eq!(
         call(&app, "GET", "/api/me", Value::Null, None).await.0,
         StatusCode::UNAUTHORIZED
@@ -137,33 +128,33 @@ async fn authentication_and_tenant_isolation() {
         None,
     )
     .await;
-    assert_eq!(signed_in["organization_id"], a["organization_id"]);
-    assert_eq!(signed_in["role"], "recruiter");
+    assert_eq!(signed_in["user_id"], a["user_id"]);
+    assert_eq!(signed_in["role"], "interviewer");
     let (_, profile) = call(&app, "GET", "/api/me", Value::Null, Some(token)).await;
-    assert_eq!(profile["organization_id"], a["organization_id"]);
-    assert_eq!(profile["role"], "recruiter");
-    // Raw SQL with no tenant cannot read either organization.
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM organizations")
+    assert_eq!(profile["user_id"], a["user_id"]);
+    assert_eq!(profile["role"], "interviewer");
+    // Raw SQL without authenticated recruiter context cannot read owned records.
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
         .fetch_one(&pool)
         .await
         .unwrap();
     assert_eq!(count, 0);
-    let mut tx = tenant_transaction(&pool, org).await.unwrap();
-    let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM organizations")
+    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let ids: Vec<Uuid> = sqlx::query_scalar("SELECT interviewer_id FROM jobs")
         .fetch_all(&mut *tx)
         .await
         .unwrap();
-    assert_eq!(ids, vec![org]);
+    assert_eq!(ids, vec![recruiter]);
     tx.commit().await.unwrap();
     // Transaction-local context must not leak through the connection pool.
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM organizations")
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
         .fetch_one(&pool)
         .await
         .unwrap();
     assert_eq!(count, 0);
-    let mut tx = tenant_transaction(&pool, org).await.unwrap();
-    let denied = sqlx::query("INSERT INTO organizations(id,name) VALUES ($1,'Forbidden')")
-        .bind(Uuid::new_v4())
+    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let denied = sqlx::query("INSERT INTO jobs(id,interviewer_id,request_key,title,created_by) VALUES($1,$2,$3,'Forbidden',$2)")
+        .bind(Uuid::new_v4()).bind(other).bind(Uuid::new_v4())
         .execute(&mut *tx)
         .await;
     assert!(denied.is_err());

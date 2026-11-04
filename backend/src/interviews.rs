@@ -1,9 +1,9 @@
 //! Interview orchestration. Every staff operation verifies membership before tenant data access.
-use crate::infrastructure::tenant_transaction;
+use crate::infrastructure::interviewer_transaction;
 use crate::invitations::InvitationCipher;
 use crate::{ApiError, Result, authenticate, digest, new_token};
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
@@ -15,25 +15,16 @@ use uuid::Uuid;
 
 pub fn routes() -> Router<PgPool> {
     Router::new()
-        .route("/api/v1/organizations/{org}/summary", get(summary))
+        .route("/api/v1/summary", get(summary))
+        .route("/api/v1/jobs", get(list_jobs).post(create_job))
+        .route("/api/v1/jobs/{job}/invitations", post(invite))
+        .route("/api/v1/sessions", get(list_sessions))
+        .route("/api/v1/sessions/{session}", get(session_detail))
         .route(
-            "/api/v1/organizations/{org}/jobs",
-            get(list_jobs).post(create_job),
-        )
-        .route(
-            "/api/v1/organizations/{org}/jobs/{job}/invitations",
-            post(invite),
-        )
-        .route("/api/v1/organizations/{org}/sessions", get(list_sessions))
-        .route(
-            "/api/v1/organizations/{org}/sessions/{session}",
-            get(session_detail),
-        )
-        .route(
-            "/api/v1/organizations/{org}/sessions/{session}/invitation",
+            "/api/v1/sessions/{session}/invitation",
             post(retrieve_invitation),
         )
-        .route("/api/v1/organizations/{org}/audit", get(audit_log))
+        .route("/api/v1/audit", get(audit_log))
         .route("/api/v1/candidate/session", get(candidate_session))
         .route(
             "/api/v1/candidate/session/{action}",
@@ -49,38 +40,23 @@ fn missing() -> ApiError {
 fn conflict(message: &'static str) -> ApiError {
     ApiError(StatusCode::CONFLICT, message)
 }
-async fn staff<'a>(
+pub(crate) async fn staff<'a>(
     pool: &'a PgPool,
     headers: &HeaderMap,
-    org: Uuid,
 ) -> Result<(Uuid, Transaction<'a, Postgres>)> {
     let (user, _) = authenticate(pool, headers).await?;
-    let mut tx = tenant_transaction(pool, org).await?;
-    let role: String =
-        sqlx::query_scalar("SELECT role FROM memberships WHERE organization_id=$1 AND user_id=$2")
-            .bind(org)
-            .bind(user)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(missing)?;
-    if role != "recruiter" {
-        return Err(ApiError(
-            StatusCode::FORBIDDEN,
-            "Recruiter access is required",
-        ));
-    }
-    Ok((user, tx))
+    Ok((user, interviewer_transaction(pool, user).await?))
 }
-async fn audit(
+pub(crate) async fn audit(
     tx: &mut Transaction<'_, Postgres>,
-    org: Uuid,
+    recruiter: Uuid,
     actor: Option<Uuid>,
     entity: Uuid,
     action: &str,
     metadata: Value,
 ) -> Result<()> {
-    sqlx::query("INSERT INTO audit_events(id,organization_id,actor_id,entity_id,action,metadata) VALUES($1,$2,$3,$4,$5,$6)")
-        .bind(Uuid::new_v4()).bind(org).bind(actor).bind(entity).bind(action).bind(metadata).execute(&mut **tx).await?;
+    sqlx::query("INSERT INTO audit_events(id,interviewer_id,actor_id,entity_id,action,metadata) VALUES($1,$2,$3,$4,$5,$6)")
+        .bind(Uuid::new_v4()).bind(recruiter).bind(actor).bind(entity).bind(action).bind(metadata).execute(&mut **tx).await?;
     Ok(())
 }
 #[derive(Deserialize)]
@@ -115,7 +91,6 @@ struct NewJob {
 }
 async fn create_job(
     State(pool): State<PgPool>,
-    Path(org): Path<Uuid>,
     headers: HeaderMap,
     Json(input): Json<NewJob>,
 ) -> Result<(StatusCode, Json<Value>)> {
@@ -130,16 +105,15 @@ async fn create_job(
             "Title must be 1–160 characters and job description 20–20000 characters",
         ));
     }
-    let (user, mut tx) = staff(&pool, &headers, org).await?;
+    let (user, mut tx) = staff(&pool, &headers).await?;
+    let recruiter = user;
     let id = Uuid::new_v4();
-    let created = sqlx::query("INSERT INTO jobs(id,organization_id,request_key,title,created_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT(organization_id,request_key) DO NOTHING")
-        .bind(id).bind(org).bind(input.request_key).bind(title).bind(user).execute(&mut *tx).await?.rows_affected() == 1;
+    let created = sqlx::query("INSERT INTO jobs(id,interviewer_id,request_key,title,created_by,description) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(interviewer_id,request_key) DO NOTHING")
+        .bind(id).bind(recruiter).bind(input.request_key).bind(title).bind(user).bind(description).execute(&mut *tx).await?.rows_affected() == 1;
     if created {
-        sqlx::query("INSERT INTO job_description_versions(id,organization_id,job_id,version,description) VALUES($1,$2,$3,1,$4)")
-            .bind(Uuid::new_v4()).bind(org).bind(id).bind(description).execute(&mut *tx).await?;
         audit(
             &mut tx,
-            org,
+            recruiter,
             Some(user),
             id,
             "job.created",
@@ -147,8 +121,8 @@ async fn create_job(
         )
         .await?;
     }
-    let result: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',j.id,'title',j.title,'description',d.description,'jd_version_id',d.id,'version',d.version,'created_at',j.created_at) FROM jobs j JOIN job_description_versions d ON d.job_id=j.id AND d.version=1 WHERE j.organization_id=$1 AND j.request_key=$2")
-        .bind(org).bind(input.request_key).fetch_one(&mut *tx).await?;
+    let result: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',j.id,'title',j.title,'description',j.description,'created_at',j.created_at) FROM jobs j WHERE j.interviewer_id=$1 AND j.request_key=$2")
+        .bind(recruiter).bind(input.request_key).fetch_one(&mut *tx).await?;
     if result["title"] != title || result["description"] != description {
         return Err(conflict(
             "Request key was already used with different job details",
@@ -166,14 +140,13 @@ async fn create_job(
 }
 async fn list_jobs(
     State(pool): State<PgPool>,
-    Path(org): Path<Uuid>,
     headers: HeaderMap,
     Query(page): Query<Page>,
 ) -> Result<Json<Value>> {
     let limit = page.limit()?;
-    let (_, mut tx) = staff(&pool, &headers, org).await?;
-    let items: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',j.id,'title',j.title,'description',d.description,'jd_version_id',d.id,'version',d.version,'created_at',j.created_at,'session_count',(SELECT count(*) FROM interview_sessions s WHERE s.job_id=j.id)) FROM jobs j JOIN job_description_versions d ON d.job_id=j.id AND d.version=(SELECT max(version) FROM job_description_versions WHERE job_id=j.id) WHERE j.organization_id=$1 AND ($2::uuid IS NULL OR (j.created_at,j.id)<(SELECT created_at,id FROM jobs WHERE id=$2)) ORDER BY j.created_at DESC,j.id DESC LIMIT $3")
-        .bind(org).bind(page.cursor).bind(limit+1).fetch_all(&mut *tx).await?;
+    let (recruiter, mut tx) = staff(&pool, &headers).await?;
+    let items: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',j.id,'title',j.title,'description',j.description,'created_at',j.created_at,'session_count',(SELECT count(*) FROM interview_sessions s WHERE s.job_id=j.id)) FROM jobs j WHERE j.interviewer_id=$1 AND ($2::uuid IS NULL OR (j.created_at,j.id)<(SELECT created_at,id FROM jobs WHERE id=$2)) ORDER BY j.created_at DESC,j.id DESC LIMIT $3")
+        .bind(recruiter).bind(page.cursor).bind(limit+1).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(paginated(items, limit)))
 }
@@ -186,7 +159,8 @@ struct Invitation {
 }
 async fn invite(
     State(pool): State<PgPool>,
-    Path((org, job)): Path<(Uuid, Uuid)>,
+    Path(job): Path<Uuid>,
+    Extension(automatic): Extension<crate::generation::AutomaticPreparation>,
     headers: HeaderMap,
     Json(input): Json<Invitation>,
 ) -> Result<(StatusCode, Json<Value>)> {
@@ -204,14 +178,32 @@ async fn invite(
             "Provide a candidate name, email, and a duration of 5–180 minutes",
         ));
     }
-    let (user, mut tx) = staff(&pool, &headers, org).await?;
-    let jd: Uuid = sqlx::query_scalar("SELECT id FROM job_description_versions WHERE organization_id=$1 AND job_id=$2 ORDER BY version DESC LIMIT 1")
-        .bind(org).bind(job).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
+    let (user, mut tx) = staff(&pool, &headers).await?;
+    let recruiter = user;
+    let _job: Uuid = sqlx::query_scalar("SELECT id FROM jobs WHERE interviewer_id=$1 AND id=$2")
+        .bind(recruiter)
+        .bind(job)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(missing)?;
+    sqlx::query("INSERT INTO users(id,email,role) VALUES($1,$2,'interviewee') ON CONFLICT(email,role) DO NOTHING")
+        .bind(Uuid::new_v4()).bind(&email).execute(&mut *tx).await?;
+    let interviewee: Uuid =
+        sqlx::query_scalar("SELECT id FROM users WHERE email=$1 AND role='interviewee'")
+            .bind(&email)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(conflict(
+                "This email belongs to an interviewer. Use the interviewee's email address.",
+            ))?;
     let id = Uuid::new_v4();
-    let inserted = sqlx::query("INSERT INTO interview_sessions(id,organization_id,job_id,jd_version_id,request_key,candidate_name,candidate_email,duration_minutes,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(organization_id,request_key) DO NOTHING")
-        .bind(id).bind(org).bind(job).bind(jd).bind(input.request_key).bind(name).bind(&email).bind(input.duration_minutes).bind(user).execute(&mut *tx).await?.rows_affected()==1;
-    let result: Value = sqlx::query_scalar("SELECT to_jsonb(s)-'request_key'-'created_by' FROM interview_sessions s WHERE organization_id=$1 AND request_key=$2")
-        .bind(org).bind(input.request_key).fetch_one(&mut *tx).await?;
+    let inserted = sqlx::query("INSERT INTO interview_sessions(id,interviewer_id,job_id,request_key,candidate_name,candidate_email,duration_minutes,created_by,interviewee_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(interviewer_id,request_key) DO NOTHING")
+        .bind(id).bind(recruiter).bind(job).bind(input.request_key).bind(name).bind(&email).bind(input.duration_minutes).bind(user).bind(interviewee).execute(&mut *tx).await?.rows_affected()==1;
+    if inserted {
+        crate::generation::prepare_automatically(&mut tx, recruiter, id, automatic.0).await?;
+    }
+    let result: Value = sqlx::query_scalar("SELECT to_jsonb(s)-'request_key'-'created_by' FROM interview_sessions s WHERE interviewer_id=$1 AND request_key=$2")
+        .bind(recruiter).bind(input.request_key).fetch_one(&mut *tx).await?;
     if result["job_id"] != job.to_string()
         || result["candidate_name"] != name
         || result["candidate_email"] != email
@@ -224,15 +216,13 @@ async fn invite(
     let token = if inserted {
         let token = new_token();
         let sealed = cipher()?
-            .seal(&token, org, id)
+            .seal(&token, recruiter, id)
             .map_err(|_| link_unavailable())?;
-        sqlx::query("INSERT INTO candidate_access(token_hash,organization_id,session_id,expires_at,sealed_token) SELECT $1,organization_id,id,expires_at,$3 FROM interview_sessions WHERE id=$2")
+        sqlx::query("INSERT INTO auth_sessions(token_hash,user_id,interviewer_id,interview_session_id,expires_at,sealed_token) SELECT $1,interviewee_id,interviewer_id,id,expires_at,$3 FROM interview_sessions WHERE id=$2")
             .bind(digest(&token)).bind(id).bind(sealed).execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO background_jobs(id,organization_id,session_id,kind,available_at) SELECT $1,organization_id,id,'expire_session',expires_at FROM interview_sessions WHERE id=$2")
-            .bind(Uuid::new_v4()).bind(id).execute(&mut *tx).await?;
         audit(
             &mut tx,
-            org,
+            recruiter,
             Some(user),
             id,
             "session.invited",
@@ -247,16 +237,16 @@ async fn invite(
             .parse()
             .map_err(|_| link_unavailable())?;
         let sealed: Option<String> = sqlx::query_scalar(
-            "SELECT sealed_token FROM candidate_access WHERE session_id=$1 AND organization_id=$2",
+            "SELECT sealed_token FROM auth_sessions WHERE interview_session_id=$1 AND interviewer_id=$2",
         )
         .bind(session_id)
-        .bind(org)
+        .bind(recruiter)
         .fetch_one(&mut *tx)
         .await?;
         sealed
             .map(|value| {
                 cipher()?
-                    .open(&value, org, session_id)
+                    .open(&value, recruiter, session_id)
                     .map_err(|_| link_unavailable())
             })
             .transpose()?
@@ -282,12 +272,13 @@ fn cipher() -> Result<InvitationCipher> {
 }
 async fn retrieve_invitation(
     State(pool): State<PgPool>,
-    Path((org, id)): Path<(Uuid, Uuid)>,
+    Path(id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<Value>> {
-    let (user, mut tx) = staff(&pool, &headers, org).await?;
-    let session = sqlx::query("SELECT state, expires_at>now() AND least(expires_at,coalesce(deadline_at,expires_at))>now() AS active FROM interview_sessions WHERE id=$1 AND organization_id=$2 FOR UPDATE")
-        .bind(id).bind(org).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
+    let (user, mut tx) = staff(&pool, &headers).await?;
+    let recruiter = user;
+    let session = sqlx::query("SELECT state, expires_at>now() AND least(expires_at,coalesce(deadline_at,expires_at))>now() AS active FROM interview_sessions WHERE id=$1 AND interviewer_id=$2 FOR UPDATE")
+        .bind(id).bind(recruiter).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
     if !session.get::<bool, _>("active")
         || !matches!(
             session.get::<String, _>("state").as_str(),
@@ -298,15 +289,15 @@ async fn retrieve_invitation(
             "Invitation links are unavailable for expired or submitted sessions",
         ));
     }
-    let row = sqlx::query("SELECT token_hash,sealed_token,expires_at::text AS expires_at FROM candidate_access WHERE session_id=$1 AND organization_id=$2 AND expires_at>now() FOR UPDATE")
-        .bind(id).bind(org).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
+    let row = sqlx::query("SELECT token_hash,sealed_token,expires_at::text AS expires_at FROM auth_sessions WHERE interview_session_id=$1 AND interviewer_id=$2 AND expires_at>now() FOR UPDATE")
+        .bind(id).bind(recruiter).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
     let sealed: Option<String> = row.get("sealed_token");
     let replaced_legacy_link = sealed.is_none();
     // Historical hashes cannot be reversed. Explicit recovery reissues legacy links
     // atomically; new invitations always return the exact original token.
     let token = if let Some(sealed) = sealed {
         let token = cipher()?
-            .open(&sealed, org, id)
+            .open(&sealed, recruiter, id)
             .map_err(|_| link_unavailable())?;
         if digest(&token) != row.get::<String, _>("token_hash") {
             return Err(link_unavailable());
@@ -320,15 +311,15 @@ async fn retrieve_invitation(
         }
         let token = new_token();
         let sealed = cipher()?
-            .seal(&token, org, id)
+            .seal(&token, recruiter, id)
             .map_err(|_| link_unavailable())?;
-        sqlx::query("UPDATE candidate_access SET token_hash=$1,sealed_token=$2 WHERE session_id=$3 AND organization_id=$4")
-            .bind(digest(&token)).bind(sealed).bind(id).bind(org).execute(&mut *tx).await?;
+        sqlx::query("UPDATE auth_sessions SET token_hash=$1,sealed_token=$2 WHERE interview_session_id=$3 AND interviewer_id=$4")
+            .bind(digest(&token)).bind(sealed).bind(id).bind(recruiter).execute(&mut *tx).await?;
         token
     };
     audit(
         &mut tx,
-        org,
+        recruiter,
         Some(user),
         id,
         if replaced_legacy_link {
@@ -347,42 +338,40 @@ async fn retrieve_invitation(
 }
 async fn list_sessions(
     State(pool): State<PgPool>,
-    Path(org): Path<Uuid>,
     headers: HeaderMap,
     Query(page): Query<Page>,
 ) -> Result<Json<Value>> {
     let limit = page.limit()?;
-    let (_, mut tx) = staff(&pool, &headers, org).await?;
-    let items: Vec<Value> = sqlx::query_scalar("SELECT (to_jsonb(s)-'request_key'-'created_by') || jsonb_build_object('job_title',j.title) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.organization_id=$1 AND ($2::uuid IS NULL OR (s.created_at,s.id)<(SELECT created_at,id FROM interview_sessions WHERE id=$2)) ORDER BY s.created_at DESC,s.id DESC LIMIT $3")
-        .bind(org).bind(page.cursor).bind(limit+1).fetch_all(&mut *tx).await?;
+    let (recruiter, mut tx) = staff(&pool, &headers).await?;
+    let items: Vec<Value> = sqlx::query_scalar("SELECT (to_jsonb(s)-'request_key'-'created_by') || jsonb_build_object('job_title',j.title) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.interviewer_id=$1 AND ($2::uuid IS NULL OR (s.created_at,s.id)<(SELECT created_at,id FROM interview_sessions WHERE id=$2)) ORDER BY s.created_at DESC,s.id DESC LIMIT $3")
+        .bind(recruiter).bind(page.cursor).bind(limit+1).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(paginated(items, limit)))
 }
 async fn session_detail(
     State(pool): State<PgPool>,
-    Path((org, id)): Path<(Uuid, Uuid)>,
+    Path(id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<Value>> {
-    let (_, mut tx) = staff(&pool, &headers, org).await?;
-    let result: Value=sqlx::query_scalar("SELECT (to_jsonb(s)-'request_key'-'created_by') || jsonb_build_object('job_title',j.title,'description',d.description,'jd_version',d.version,'question_count',(SELECT count(*) FROM interview_questions q WHERE q.session_id=s.id),'answer_count',(SELECT count(*) FROM interview_answers a WHERE a.session_id=s.id),'invitation_recoverable',coalesce((SELECT sealed_token IS NOT NULL FROM candidate_access c WHERE c.session_id=s.id),false),'invitation_active',s.state IN ('invited','ready','in_progress') AND least(s.expires_at,coalesce(s.deadline_at,s.expires_at))>now()) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id JOIN job_description_versions d ON d.id=s.jd_version_id WHERE s.id=$1 AND s.organization_id=$2")
-        .bind(id).bind(org).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
+    let (recruiter, mut tx) = staff(&pool, &headers).await?;
+    let result: Value=sqlx::query_scalar("SELECT (to_jsonb(s)-'request_key'-'created_by') || jsonb_build_object('job_title',j.title,'description',j.description,'question_count',(SELECT count(*) FROM interview_questions q WHERE q.session_id=s.id),'answer_count',(SELECT count(*) FROM interview_answers a WHERE a.session_id=s.id),'invitation_recoverable',coalesce((SELECT sealed_token IS NOT NULL FROM auth_sessions c WHERE c.interview_session_id=s.id),false),'invitation_active',s.state IN ('invited','ready','in_progress') AND least(s.expires_at,coalesce(s.deadline_at,s.expires_at))>now()) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1 AND s.interviewer_id=$2")
+        .bind(id).bind(recruiter).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
     tx.commit().await?;
     Ok(Json(result))
 }
 async fn audit_log(
     State(pool): State<PgPool>,
-    Path(org): Path<Uuid>,
     headers: HeaderMap,
     Query(page): Query<Page>,
 ) -> Result<Json<Value>> {
     let limit = page.limit()?;
-    let (_, mut tx) = staff(&pool, &headers, org).await?;
-    let items: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(a) FROM audit_events a WHERE organization_id=$1 AND ($2::uuid IS NULL OR entity_id=$2) AND ($3::uuid IS NULL OR (created_at,id)<(SELECT created_at,id FROM audit_events WHERE id=$3)) ORDER BY created_at DESC,id DESC LIMIT $4")
-        .bind(org).bind(page.entity_id).bind(page.cursor).bind(limit+1).fetch_all(&mut *tx).await?;
+    let (recruiter, mut tx) = staff(&pool, &headers).await?;
+    let items: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(a) FROM audit_events a WHERE interviewer_id=$1 AND ($2::uuid IS NULL OR entity_id=$2) AND ($3::uuid IS NULL OR (created_at,id)<(SELECT created_at,id FROM audit_events WHERE id=$3)) ORDER BY created_at DESC,id DESC LIMIT $4")
+        .bind(recruiter).bind(page.entity_id).bind(page.cursor).bind(limit+1).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(paginated(items, limit)))
 }
-async fn candidate<'a>(
+pub(crate) async fn candidate<'a>(
     pool: &'a PgPool,
     headers: &HeaderMap,
 ) -> Result<(Uuid, Uuid, Transaction<'a, Postgres>)> {
@@ -392,20 +381,31 @@ async fn candidate<'a>(
         .and_then(|v| v.strip_prefix("Bearer "))
         .filter(|v| v.len() == 64)
         .ok_or_else(crate::unauthorized)?;
-    let row=sqlx::query("SELECT organization_id,session_id FROM candidate_access WHERE token_hash=$1 AND expires_at>now()")
+    let row=sqlx::query("SELECT a.interviewer_id,a.interview_session_id AS session_id FROM auth_sessions a JOIN users u ON u.id=a.user_id WHERE a.token_hash=$1 AND a.expires_at>now() AND a.interview_session_id IS NOT NULL AND u.role='interviewee'")
         .bind(digest(token)).fetch_optional(pool).await?.ok_or_else(crate::unauthorized)?;
-    let org: Uuid = row.get("organization_id");
+    let recruiter: Uuid = row.get("interviewer_id");
     let id: Uuid = row.get("session_id");
-    Ok((org, id, tenant_transaction(pool, org).await?))
+    Ok((
+        recruiter,
+        id,
+        interviewer_transaction(pool, recruiter).await?,
+    ))
 }
-async fn candidate_view(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<Value> {
+pub(crate) async fn candidate_view(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<Value> {
     // Deliberately excludes rubrics, other candidates, email, and internal audit data.
-    Ok(sqlx::query_scalar("SELECT jsonb_build_object('id',s.id,'job_title',j.title,'state',CASE WHEN s.state IN ('invited','ready','in_progress') AND least(s.expires_at,coalesce(s.deadline_at,s.expires_at))<=now() THEN 'expired' ELSE s.state END,'duration_minutes',s.duration_minutes,'expires_at',s.expires_at,'deadline_at',s.deadline_at,'server_time',now(),'question_count',(SELECT count(*) FROM interview_questions WHERE session_id=s.id)) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1")
+    Ok(sqlx::query_scalar("SELECT jsonb_build_object('id',s.id,'role','interviewee','interviewee_id',s.interviewee_id,'job_title',j.title,'state',CASE WHEN s.state IN ('invited','ready','in_progress') AND least(s.expires_at,coalesce(s.deadline_at,s.expires_at))<=now() THEN CASE WHEN s.state='in_progress' THEN 'submitted' ELSE 'expired' END ELSE s.state END,'duration_minutes',s.duration_minutes,'expires_at',s.expires_at,'deadline_at',s.deadline_at,'server_time',now(),'started_at',s.started_at,'submitted_at',s.submitted_at,'generation_status',s.generation_status,'answer_count',(SELECT count(*) FROM interview_answers WHERE session_id=s.id AND length(btrim(content))>0),'question_count',(SELECT count(*) FROM interview_questions WHERE session_id=s.id)) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1")
         .bind(id).fetch_one(&mut **tx).await?)
 }
-async fn candidate_session(State(pool): State<PgPool>, headers: HeaderMap) -> Result<Json<Value>> {
-    let (_, id, mut tx) = candidate(&pool, &headers).await?;
-    let result = candidate_view(&mut tx, id).await?;
+async fn candidate_session(
+    State(pool): State<PgPool>,
+    Extension(automatic): Extension<crate::generation::AutomaticPreparation>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    let (owner, id, mut tx) = candidate(&pool, &headers).await?;
+    crate::infrastructure::finalize_due_session(&mut tx, owner, id).await?;
+    crate::generation::prepare_automatically(&mut tx, owner, id, automatic.0).await?;
+    let mut result = candidate_view(&mut tx, id).await?;
+    result["preparation_available"] = json!(automatic.0);
     tx.commit().await?;
     Ok(Json(result))
 }
@@ -419,14 +419,12 @@ fn next_state(current: &str, action: &str) -> Result<&'static str> {
 }
 async fn candidate_transition(
     State(pool): State<PgPool>,
+    Extension(automatic): Extension<crate::generation::AutomaticPreparation>,
     Path(action): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>> {
-    let (org, id, mut tx) = candidate(&pool, &headers).await?;
-    sqlx::query("SELECT id FROM background_jobs WHERE session_id=$1 FOR UPDATE")
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await?;
+    let (recruiter, id, mut tx) = candidate(&pool, &headers).await?;
+    crate::infrastructure::finalize_due_session(&mut tx, recruiter, id).await?;
     let row=sqlx::query("SELECT state,least(expires_at,coalesce(deadline_at,expires_at))>now() AS active FROM interview_sessions WHERE id=$1 FOR UPDATE")
         .bind(id).fetch_one(&mut *tx).await?;
     let current: String = row.get("state");
@@ -447,12 +445,9 @@ async fn candidate_transition(
         }
         sqlx::query("UPDATE interview_sessions SET state=$2,started_at=CASE WHEN $2='in_progress' THEN now() ELSE started_at END,deadline_at=CASE WHEN $2='in_progress' THEN least(expires_at,now()+duration_minutes*interval '1 minute') ELSE deadline_at END,submitted_at=CASE WHEN $2='submitted' THEN now() ELSE submitted_at END WHERE id=$1")
             .bind(id).bind(next).execute(&mut *tx).await?;
-        if action == "start" {
-            sqlx::query("UPDATE background_jobs SET available_at=(SELECT deadline_at FROM interview_sessions WHERE id=$1) WHERE session_id=$1 AND kind='expire_session' AND status='pending'").bind(id).execute(&mut *tx).await?;
-        }
         audit(
             &mut tx,
-            org,
+            recruiter,
             None,
             id,
             &format!("session.{next}"),
@@ -460,16 +455,16 @@ async fn candidate_transition(
         )
         .await?;
     }
-    let result = candidate_view(&mut tx, id).await?;
+    if action == "ready" {
+        crate::generation::prepare_automatically(&mut tx, recruiter, id, automatic.0).await?;
+    }
+    let mut result = candidate_view(&mut tx, id).await?;
+    result["preparation_available"] = json!(automatic.0);
     tx.commit().await?;
     Ok(Json(result))
 }
-async fn summary(
-    State(pool): State<PgPool>,
-    Path(org): Path<Uuid>,
-    headers: HeaderMap,
-) -> Result<Json<Value>> {
-    let (_, mut tx) = staff(&pool, &headers, org).await?;
+async fn summary(State(pool): State<PgPool>, headers: HeaderMap) -> Result<Json<Value>> {
+    let (_, mut tx) = staff(&pool, &headers).await?;
     let result: Value=sqlx::query_scalar("SELECT jsonb_build_object('jobs',(SELECT count(*) FROM jobs),'sessions',count(*),'active',count(*) FILTER(WHERE state IN ('ready','in_progress') AND least(expires_at,coalesce(deadline_at,expires_at))>now()),'reviewable',count(*) FILTER(WHERE state IN ('submitted','scoring','completed'))) FROM interview_sessions")
         .fetch_one(&mut *tx).await?;
     tx.commit().await?;

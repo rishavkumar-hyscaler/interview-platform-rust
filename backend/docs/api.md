@@ -1,53 +1,63 @@
-# Phase 1 API contract
+# API contract
 
-Staff endpoints use opaque auth-session tokens in `Authorization: Bearer <token>`. Candidate capability tokens work only on candidate endpoints. All resources are scoped to the authorized organization. Errors use `{ "error": "Human-readable message", "code": "conflict" }`; extractor errors are normalized without echoing request bodies.
+There are two user types: interviewer and interviewee. There are no organization IDs, memberships, or workspace-selection endpoints. Errors use `{error, code}`. Success responses disable caching.
 
-## Access
+## Authentication
 
-The product has recruiter/reviewer accounts and candidate invitation access. A recruiter account can create jobs, invite candidates, and inspect interviews and evidence. There is no owner/admin role or separate read-only reviewer role. Registration accepts only `{email, password}`. Registration, login, and `/api/me` return `role: "recruiter"` and an automatically selected internal `organization_id`; the client never asks users to enter it.
+- `POST /api/auth/register`: `{email,password}` creates an interviewer, when registration is enabled.
+- `POST /api/auth/login`: `{email,password}` signs in an interviewer.
+- Both return `{token,user_id,role:"interviewer"}`.
+- `GET /api/me` validates an interviewer bearer token and returns `{user_id,role}`.
+- `POST /api/auth/logout` revokes that login token.
 
-Existing account passwords and interview records are preserved by a compatibility migration. Existing owner/interviewer/reviewer memberships become recruiter memberships. Organization IDs and membership tables remain internal record-isolation details, with no organization-management workflow. Candidate capabilities cannot authenticate to recruiter endpoints.
+Interviewees use private invitation capabilities and do not need a password. Invitation access cannot authenticate to interviewer endpoints.
 
-## Staff routes
+## Interviewer endpoints
 
-All below are prefixed `/api/v1/organizations/{organization_id}`.
+All routes below are prefixed `/api/v1`. Ownership comes from the authenticated user, never an ownership ID in the URL.
 
-| Method | Path | Input / output |
+| Method | Path | Purpose |
 |---|---|---|
-| GET | `/summary` | Total jobs, sessions, active sessions, reviewable sessions |
-| GET | `/jobs` | Cursor page of job descriptions and invitation counts |
-| POST | `/jobs` | `{title, description, request_key: UUID}` → job with pinned JD version |
-| POST | `/jobs/{job_id}/invitations` | `{candidate_name, candidate_email, duration_minutes, request_key: UUID}` → `{session, invitation_token}` |
-| GET | `/sessions` | Cursor page of candidate sessions |
-| POST | `/sessions/{session_id}/invitation` | Recover saved link token for manual sharing; explicit replacement for unaccepted legacy invitations |
-| GET | `/sessions/{session_id}` | Session, pinned JD, question/answer counts; no computed scores yet |
-| GET | `/audit` | Cursor page; optional `entity_id=UUID` filter |
+| GET | `/summary` | Counts for the authenticated interviewer |
+| GET, POST | `/jobs` | List jobs / create `{title,description,request_key:UUID}` |
+| POST | `/jobs/{id}/invitations` | Create `{candidate_name,candidate_email,duration_minutes,request_key:UUID}` |
+| GET | `/sessions` | List owned interviews |
+| GET | `/sessions/{id}` | Details and invitation availability |
+| POST | `/sessions/{id}/invitation` | Recover the saved link token, or explicitly replace an unaccepted legacy link |
+| GET, POST | `/sessions/{id}/generation` | Inspect question preparation / enqueue or retry |
+| GET | `/audit` | Audit history, optionally filtered by `entity_id` |
 
-Lists accept `limit` (1–100, default 20) and `cursor` (UUID returned as `next_cursor`). Responses are `{items: [...], next_cursor: UUID | null}` ordered by creation time and UUID descending. Counts in `/summary` are recruiter totals, independent of pagination. Cursors must come from the same collection and filters; unavailable cursors produce an empty page. Timestamp ties use UUID order, not insertion order.
+Lists use `limit=1..100` and UUID cursors, returning `{items,next_cursor}`. Job/invitation creation is idempotent per interviewer and request key. Identical retries return 200; new records return 201; conflicting reuse returns 409.
 
-Creating a job or invitation returns 201, or 200 on an identical retry. Reusing a key with different input returns 409. Job and invitation keys are scoped per organization and resource type. The first JD is version 1; editing/version creation APIs are reserved for a later phase. An invitation pins its JD version permanently.
+Jobs store their description and competency blueprint directly. There is no JD-version or separate blueprint table. The current API does not edit job descriptions after invitations are created.
 
-An invitation capability is random, expires after seven days, and is validated using its SHA-256 hash. A second copy is stored as ChaCha20-Poly1305 authenticated ciphertext in `candidate_access.sealed_token`, with organization/session IDs bound as associated data. `INVITATION_ENCRYPTION_KEY` is a stable private 32-byte hex key held outside the database. Back it up privately; changing or losing it makes saved links unrecoverable. Never commit it or silently replace it.
+## Invitations
 
-The first creation and identical retries return the same `invitation_token`. The UI creates `/#invite=<token>` using the current candidate-facing frontend origin and retains the fragment so refreshing or reopening the URL restores candidate access. The candidate entry auto-validates the capability; hash/history changes switch candidate context even within an already-open recruiter tab. Session details expose only `invitation_recoverable` and `invitation_active`, never ciphertext or a token. `POST /sessions/{id}/invitation` verifies recruiter access and active session state, returns `{invitation_token, expires_at, replaced_legacy_link}`, and audits the retrieval without recording the secret. Successful API responses disable caching. Expired/submitted sessions cannot retrieve links, and retrieval never extends expiry.
+Creation returns `{session,invitation_token}`. New invitation tokens are hashed for validation and encrypted for recovery in `auth_sessions`. The UI builds `/#invite=<token>`. The fragment stays in the URL so refresh and same-tab navigation retain interviewee access. Opening the link automatically validates it.
 
-Pre-upgrade invitations only have hashes. Their original secrets cannot be recovered. The UI explicitly offers a replacement for still-unaccepted (`invited`) legacy sessions. This atomically replaces the old hash and stores encrypted recovery material, invalidating the old link without changing expiry. Accepted/in-progress legacy sessions cannot replace links, preserving candidate access. New saved links remain reusable after invitation acceptance. No email is sent automatically; recruiters can copy the recovered link for manual resending.
+Recovery is interviewer-authorized and audited, never extends expiry, and cannot share expired/submitted interviews. Old hash-only links cannot be reversed: replacing an unaccepted legacy link invalidates it explicitly. Accepted legacy links are not replaced. Retrieval/replacement never sends email automatically. Keep `INVITATION_ENCRYPTION_KEY` privately backed up.
 
-## Candidate routes
+## Interviewee endpoints
 
-- `GET /api/v1/candidate/session`: session ID, role title, state, duration, deadline, server time, question count. No other candidate data or rubrics.
-- `POST /api/v1/candidate/session/ready`: invited → ready.
-- `POST /api/v1/candidate/session/start`: ready → in_progress; requires prepared questions; sets a server deadline once.
-- `POST /api/v1/candidate/session/submit`: in_progress → submitted.
+- `GET /api/v1/candidate/session`: the assigned session only, without rubrics or other participants' data.
+- `POST /api/v1/candidate/session/ready`: accepts the invitation.
+- `POST /api/v1/candidate/session/start`: requires prepared questions and sets the deadline once.
+- `POST /api/v1/candidate/session/submit`: submits an in-progress interview.
 
-Repeating an already completed action is idempotent. Invalid or backwards transitions return 409. Expired capabilities return 401. Past invitation/deadline times reject new transitions even if the expiry worker has not run. Expired active states are also reflected by the candidate read response. Scoring/completed states are reserved for later worker implementations; no public endpoint can set them.
+Transitions are guarded and retries do not reset deadlines or duplicate audit events. `GET /api/v1/candidate/room?position=N` returns exactly one question and its saved answer/revision, never the rubric. Omitting position restores the latest served question from the audit trail. Reading before start returns 409; after submission it returns the receipt with no editable question.
 
-## Durable jobs and audit
+`POST /api/v1/candidate/answers/{question_id}` accepts `{content,revision}` (revision 0 for a new answer). Content is bounded to 48000 UTF-8 bytes. Changed answers advance their revision; identical retries retain it and produce no duplicate save audit event. Conflicting edits return 409. The question must belong to the capability's assigned session.
 
-Invitations enqueue an `expire_session` job transactionally. Starting changes its due time to the interview deadline. The background loop runs inside the HTTP backend process (no separate worker executable) and polls every two seconds, locks jobs with `FOR UPDATE SKIP LOCKED`, enters tenant scope, expires eligible sessions, and writes an audit event atomically. A crash rolls back work and acknowledgement. Failures retry with increasing delay and stop after five attempts (`status=failed`). Alerting/manual retry tooling is not implemented yet.
+All answer writes, navigation, and submission serialize on the interview row. Server clock time is checked after acquiring the lock. At deadline, an in-progress session becomes submitted at its persisted deadline; unstarted invitations expire. Saved answers remain available to the interviewer, while late writes are rejected. Refresh/reconnect never reset time. Back/next navigation is allowed throughout the overall interview; per-question elapsed and suggested time are shown without separate per-question lockouts.
 
-The capability lookup and operational job tables are global trusted-backend tables, like auth sessions; jobs hold routing IDs, not candidate text. Domain tables use forced RLS and composite tenant foreign keys. Runtime audit records cannot be updated/deleted. Candidate audit actors are identified in metadata; null actor IDs mean candidate/system, not a recruiter.
+Scoring, adaptive difficulty, camera/audio answers, fullscreen enforcement, and browser proctoring remain later work.
 
-## Reserved schema
+## Question preparation
 
-Competency blueprints, question/rubric snapshots, and revisioned answers have tenant-scoped schema for the next phases. Generation, autosave endpoints, answer submission rules, scoring, media, and proctoring are not implemented in Phase 1.
+Configuration uses `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-5-mini`, `LLM_API_KEY`, `EMBEDDING_MODEL=text-embedding-3-small`, and `EMBEDDING_API_KEY`. `LLM_BASE_URL` defaults to `https://api.openai.com/v1`.
+
+When AI is configured, creating an invitation automatically queues question preparation in the same transaction. Opening or accepting an older, unprepared invitation also queues it once. Repeated candidate polls do not duplicate jobs, regenerate prepared questions, or reset failed attempts. Failed generation still requires an explicit interviewer retry. With missing configuration, the candidate sees a setup message rather than a promise of progress.
+
+A preparation request moves the session's generation status through pending/running/completed/failed. A five-minute lease and fencing token support recovery. Failures retry up to three attempts; explicit retry resets the attempt budget. Schema, evidence quotations, rubric totals, and embedding output are validated before publishing. Exact fingerprints and pgvector cosine similarity reject repeats across sessions for the same job. Each question stores its rubric snapshot and generation provenance.
+
+Provider request formats follow the official [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses) and [embeddings](https://developers.openai.com/api/reference/resources/embeddings/methods/create) documentation. No raw provider response or API secret is written to audit records.

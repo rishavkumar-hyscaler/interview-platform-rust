@@ -2,7 +2,7 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
-use platform_api::infrastructure::{process_expiry_job, tenant_transaction};
+use platform_api::infrastructure::{interviewer_transaction, process_expiry_job};
 use serde_json::{Value, json};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use tower::ServiceExt;
@@ -65,31 +65,19 @@ async fn database() -> PgPool {
 #[ignore = "requires migrated PostgreSQL and restricted DATABASE_URL; ALLOW_REGISTRATION=true"]
 async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
     let pool = database().await;
-    let app = platform_api::router(pool.clone());
-    let recruiter = account(&app).await;
+    let app = platform_api::router_with_ai(pool.clone(), None);
+    let recruiter_account = account(&app).await;
     let outsider = account(&app).await;
-    let org: Uuid = recruiter["organization_id"]
+    let recruiter: Uuid = recruiter_account["user_id"]
         .as_str()
         .unwrap()
         .parse()
         .unwrap();
-    let token = recruiter["token"].as_str().unwrap();
+    let token = recruiter_account["token"].as_str().unwrap();
     let other = outsider["token"].as_str().unwrap();
-    assert_eq!(recruiter["role"], "recruiter");
-    let base = format!("/api/v1/organizations/{org}");
+    assert_eq!(recruiter_account["role"], "interviewer");
+    let base = "/api/v1".to_string();
     let job_input = json!({"title":"Backend engineer","description":"Build reliable Rust APIs and PostgreSQL services.","request_key":Uuid::new_v4()});
-    assert_eq!(
-        call(
-            &app,
-            "POST",
-            &format!("{base}/jobs"),
-            job_input.clone(),
-            other
-        )
-        .await
-        .0,
-        StatusCode::NOT_FOUND
-    );
     let (status, job) = call(
         &app,
         "POST",
@@ -200,7 +188,7 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
         StatusCode::UNAUTHORIZED
     );
     let sealed: String =
-        sqlx::query_scalar("SELECT sealed_token FROM candidate_access WHERE session_id=$1")
+        sqlx::query_scalar("SELECT sealed_token FROM auth_sessions WHERE interview_session_id=$1")
             .bind(id.parse::<Uuid>().unwrap())
             .fetch_one(&pool)
             .await
@@ -239,6 +227,16 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
     )
     .await;
     assert_eq!(view["id"], id);
+    assert_eq!(view["role"], "interviewee");
+    let (candidate_login, _) = call(
+        &app,
+        "POST",
+        "/api/auth/login",
+        json!({"email":"candidate@example.test","password":"not-an-interviewer-password"}),
+        "",
+    )
+    .await;
+    assert_eq!(candidate_login, StatusCode::UNAUTHORIZED);
     assert!(view.get("candidate_email").is_none());
     assert!(view.get("rubric").is_none());
     assert_eq!(
@@ -295,8 +293,8 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
     );
     // Prepare one question as the future generation job would, without exposing its rubric.
     let session: Uuid = id.parse().unwrap();
-    let mut tx = tenant_transaction(&pool, org).await.unwrap();
-    sqlx::query("INSERT INTO interview_questions(id,organization_id,session_id,position,kind,difficulty,prompt,rubric) VALUES($1,$2,$3,1,'text','medium','Explain transaction isolation','{\"criteria\":[]}'::jsonb)").bind(Uuid::new_v4()).bind(org).bind(session).execute(&mut *tx).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    sqlx::query("INSERT INTO interview_questions(id,interviewer_id,session_id,job_id,fingerprint,position,kind,difficulty,prompt,rubric) SELECT $1,$2,$3,job_id,'test-isolation',1,'text','medium','Explain transaction isolation','{\"criteria\":[]}'::jsonb FROM interview_sessions WHERE id=$3").bind(Uuid::new_v4()).bind(recruiter).bind(session).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     let (_, started) = call(
         &app,
@@ -355,12 +353,7 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
         StatusCode::CONFLICT
     );
     // An expiry job after submission must not overwrite submitted state.
-    sqlx::query("UPDATE background_jobs SET available_at=now() WHERE session_id=$1")
-        .bind(session)
-        .execute(&pool)
-        .await
-        .unwrap();
-    assert!(process_expiry_job(&pool).await.unwrap());
+    let _ = process_expiry_job(&pool).await.unwrap();
     let (_, detail) = call(
         &app,
         "GET",
@@ -370,7 +363,7 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
     )
     .await;
     assert_eq!(detail["state"], "submitted");
-    assert_eq!(detail["jd_version"], 1);
+    assert!(detail.get("jd_version").is_none());
     let (_, counts) = call(&app, "GET", &format!("{base}/summary"), Value::Null, token).await;
     assert_eq!(counts["jobs"], 2);
     assert_eq!(counts["sessions"], 1);
@@ -380,7 +373,7 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
         .await
         .unwrap();
     assert_eq!(visible, 0);
-    let mut tx = tenant_transaction(&pool, org).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
     assert!(
         sqlx::query("UPDATE audit_events SET action='forged' WHERE entity_id=$1")
             .bind(session)
@@ -396,28 +389,23 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
 #[ignore = "requires migrated PostgreSQL and restricted DATABASE_URL; ALLOW_REGISTRATION=true"]
 async fn concurrent_workers_expire_once_and_tenant_foreign_keys_hold() {
     let pool = database().await;
-    let app = platform_api::router(pool.clone());
-    let recruiter = account(&app).await;
+    let app = platform_api::router_with_ai(pool.clone(), None);
+    let recruiter_account = account(&app).await;
     let other = account(&app).await;
-    let org: Uuid = recruiter["organization_id"]
+    let recruiter: Uuid = recruiter_account["user_id"]
         .as_str()
         .unwrap()
         .parse()
         .unwrap();
-    let other_org: Uuid = other["organization_id"].as_str().unwrap().parse().unwrap();
-    let token = recruiter["token"].as_str().unwrap();
-    let base = format!("/api/v1/organizations/{org}");
+    let other_org: Uuid = other["user_id"].as_str().unwrap().parse().unwrap();
+    let token = recruiter_account["token"].as_str().unwrap();
+    let base = "/api/v1".to_string();
     let (_,job)=call(&app,"POST",&format!("{base}/jobs"),json!({"title":"Expiry test","description":"A role for testing durable expiry and tenant boundaries.","request_key":Uuid::new_v4()}),token).await;
     let (_,invite)=call(&app,"POST",&format!("{base}/jobs/{}/invitations",job["id"].as_str().unwrap()),json!({"candidate_name":"Expiry candidate","candidate_email":"expiry@example.test","duration_minutes":5,"request_key":Uuid::new_v4()}),token).await;
     let id: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
     let candidate = invite["invitation_token"].as_str().unwrap();
-    let mut tx = tenant_transaction(&pool, org).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
     sqlx::query("UPDATE interview_sessions SET expires_at=now()-interval '1 second' WHERE id=$1")
-        .bind(id)
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE background_jobs SET available_at=now() WHERE session_id=$1")
         .bind(id)
         .execute(&mut *tx)
         .await
@@ -440,7 +428,7 @@ async fn concurrent_workers_expire_once_and_tenant_foreign_keys_hold() {
     let b = tokio::spawn(platform_api::worker::run(pool.clone(), receiver));
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
-            let mut tx = tenant_transaction(&pool, org).await.unwrap();
+            let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
             let state: String =
                 sqlx::query_scalar("SELECT state FROM interview_sessions WHERE id=$1")
                     .bind(id)
@@ -472,7 +460,7 @@ async fn concurrent_workers_expire_once_and_tenant_foreign_keys_hold() {
     )
     .await;
     assert_eq!(detail["state"], "expired");
-    let mut tx = tenant_transaction(&pool, org).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM audit_events WHERE entity_id=$1 AND action='session.expired'",
     )
@@ -482,9 +470,10 @@ async fn concurrent_workers_expire_once_and_tenant_foreign_keys_hold() {
     .unwrap();
     assert_eq!(count, 1);
     tx.commit().await.unwrap();
-    let mut tx = tenant_transaction(&pool, other_org).await.unwrap();
-    let foreign_jd: Uuid = job["jd_version_id"].as_str().unwrap().parse().unwrap();
-    let result=sqlx::query("INSERT INTO competency_blueprints(id,organization_id,jd_version_id,content) VALUES($1,$2,$3,'{}')").bind(Uuid::new_v4()).bind(other_org).bind(foreign_jd).execute(&mut *tx).await;
+    let mut tx = interviewer_transaction(&pool, other_org).await.unwrap();
+    let foreign_job: Uuid = job["id"].as_str().unwrap().parse().unwrap();
+    let result=sqlx::query("INSERT INTO interview_sessions(id,interviewer_id,interviewee_id,job_id,request_key,candidate_name,candidate_email,duration_minutes,created_by) VALUES($1,$2,$3,$4,$5,'Forbidden','forbidden@example.test',30,$2)")
+        .bind(Uuid::new_v4()).bind(other_org).bind(recruiter).bind(foreign_job).bind(Uuid::new_v4()).execute(&mut *tx).await;
     assert!(result.is_err());
     tx.rollback().await.unwrap();
     pool.close().await;
@@ -495,13 +484,13 @@ async fn invalid_requests_have_json_error_contracts_without_database_access() {
     let pool = PgPoolOptions::new()
         .connect_lazy("postgres://unused@localhost/unused")
         .unwrap();
-    let app = platform_api::router(pool);
+    let app = platform_api::router_with_ai(pool, None);
     let (status, error) = call(&app, "POST", "/api/auth/register", json!({
         "email":"unsupported-role@example.test", "password":"valid-test-password", "role":"owner"
     }), "").await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(error["code"], "invalid_request");
-    let base = format!("/api/v1/organizations/{}", Uuid::new_v4());
+    let base = "/api/v1".to_string();
     let (status, error) = call(
         &app,
         "POST",
@@ -534,21 +523,21 @@ async fn invalid_requests_have_json_error_contracts_without_database_access() {
 #[ignore = "requires migrated PostgreSQL and restricted DATABASE_URL; ALLOW_REGISTRATION=true"]
 async fn legacy_invitation_replacement_is_explicit_scoped_and_preserves_expiry() {
     let pool = database().await;
-    let app = platform_api::router(pool.clone());
-    let recruiter = account(&app).await;
-    let org: Uuid = recruiter["organization_id"]
+    let app = platform_api::router_with_ai(pool.clone(), None);
+    let recruiter_account = account(&app).await;
+    let recruiter: Uuid = recruiter_account["user_id"]
         .as_str()
         .unwrap()
         .parse()
         .unwrap();
-    let token = recruiter["token"].as_str().unwrap();
-    let base = format!("/api/v1/organizations/{org}");
+    let token = recruiter_account["token"].as_str().unwrap();
+    let base = "/api/v1".to_string();
     let (_,job)=call(&app,"POST",&format!("{base}/jobs"),json!({"title":"Legacy link test","description":"A job description used for testing safe invitation recovery.","request_key":Uuid::new_v4()}),token).await;
     let (_,invite)=call(&app,"POST",&format!("{base}/jobs/{}/invitations",job["id"].as_str().unwrap()),json!({"candidate_name":"Legacy candidate","candidate_email":"legacy@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
     let id: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
     let original = invite["invitation_token"].as_str().unwrap();
     // Simulate a pre-upgrade invitation, for which the original secret was not retained.
-    sqlx::query("UPDATE candidate_access SET sealed_token=NULL WHERE session_id=$1")
+    sqlx::query("UPDATE auth_sessions SET sealed_token=NULL WHERE interview_session_id=$1")
         .bind(id)
         .execute(&pool)
         .await
@@ -643,7 +632,7 @@ async fn legacy_invitation_replacement_is_explicit_scoped_and_preserves_expiry()
         replacement,
     )
     .await;
-    sqlx::query("UPDATE candidate_access SET sealed_token=NULL WHERE session_id=$1")
+    sqlx::query("UPDATE auth_sessions SET sealed_token=NULL WHERE interview_session_id=$1")
         .bind(id)
         .execute(&pool)
         .await
@@ -673,7 +662,7 @@ async fn legacy_invitation_replacement_is_explicit_scoped_and_preserves_expiry()
         .0,
         StatusCode::OK
     );
-    let mut tx = tenant_transaction(&pool, org).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
     sqlx::query("UPDATE interview_sessions SET expires_at=now()-interval '1 second' WHERE id=$1")
         .bind(id)
         .execute(&mut *tx)

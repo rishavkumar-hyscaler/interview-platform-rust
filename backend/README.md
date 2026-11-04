@@ -1,6 +1,6 @@
 # AI Interview & Proctoring Platform — backend
 
-One Rust/Axum backend executable serving HTTP and processing durable PostgreSQL background jobs. Phase 1 includes authentication, tenant isolation, jobs with versioned JDs, candidate invitations, guarded session transitions, audit history, and cursor pagination. The independent React frontend is in `../frontend`.
+One Rust/Axum backend executable serving HTTP and processing durable PostgreSQL background jobs. The backend supports interviewer/interviewee access, direct job ownership, private invitations, AI question preparation, rubric snapshots, timed interviews, revisioned autosave, resumable navigation, submission, and audit history. The independent React frontend is in `../frontend`.
 
 ## Local setup
 
@@ -23,9 +23,13 @@ The API defaults to `127.0.0.1:8080`. Set `FRONTEND_ORIGIN` to the frontend's ex
 
 An optional Compose database remains available via `docker compose -f compose.yaml up -d db` on port 55432. Its database is named `interview`; update connection URLs explicitly if choosing it instead of your existing PostgreSQL.
 
-## Migration policy
+## Schema
 
-Keep the existing foundation migration and one cohesive Phase 1 domain migration. Add future migrations only for meaningful schema changes. Never rewrite an already applied migration: SQLx verifies checksums and existing installations must upgrade safely. No automatic database reset is performed.
+One baseline migration: `migrations/202611040001_initial_schema.sql`.
+
+Seven application tables: `users`, `auth_sessions`, `jobs`, `interview_sessions`, `interview_questions`, `interview_answers`, and `audit_events`. Users are either interviewers or interviewees. Jobs store descriptions/blueprints; interviews store generation state; questions also serve as the embedding-backed question bank. Organizations, memberships, and separate queue/JD/blueprint/bank/access tables are absent.
+
+The existing local database was preserved and its migration history aligned only after fresh-schema equivalence and record-count checks. Fresh databases use the same normal `cargo run -- --migrate` command. Keep private backups before changing schema history; production upgrades should use explicit migrations rather than rewriting an applied baseline.
 
 ## Verification
 
@@ -36,7 +40,7 @@ cargo test --locked
 ALLOW_REGISTRATION=true cargo test --tests --locked -- --ignored --test-threads=1
 ```
 
-Integration tests load `.env`, prefer `RUNTIME_DATABASE_URL`, and add uniquely named test accounts/jobs/sessions. Use a dedicated database when testing on shared infrastructure. Tests cover authentication, revocation, tenant isolation, recruiter/candidate access boundaries, idempotent creation, cursor pagination, private candidate capabilities, guarded transitions, immutable audit records, composite tenant foreign keys, and concurrent expiry workers.
+Integration tests load `.env`, prefer `RUNTIME_DATABASE_URL`, and add uniquely named test accounts/jobs/sessions. Use a dedicated database when testing on shared infrastructure. Tests cover authentication, revocation, interviewer ownership isolation, recruiter/candidate access boundaries, idempotent creation, cursor pagination, private candidate capabilities, guarded transitions, immutable audit records, composite ownership foreign keys, and concurrent expiry workers.
 
 ## Backend layout
 
@@ -59,8 +63,10 @@ backend/
 
 See [API contract](docs/api.md) for endpoints and limitations and [architecture](docs/architecture.md) for security and release boundaries.
 
-Recruiters sign in with email and password directly. The same account manages interviews and reviews evidence. Candidates use invitation links. There is no owner account, workspace-ID entry, or organization-creation form. Internal scope IDs preserve record isolation and existing data.
+Interviewers sign in with email and password directly. The interviewer account manages interviews and reviews evidence. Candidates use invitation links. There is no owner account, workspace-ID entry, or organization-creation form. Ownership is derived directly from the authenticated interviewer.
 
 ## Saved invitation links
 
 `INVITATION_ENCRYPTION_KEY` in `.env` must contain a stable 64-character hex key (`openssl rand -hex 32`). The local configuration has been provisioned privately. Keep this key backed up separately from PostgreSQL; do not change it without a key migration. New invitation secrets are stored encrypted and can be retrieved by the authorized recruiter from session details. Existing hash-only invitations require an explicit replacement before acceptance. Retrieval and replacement are audited; expiry is preserved. This enables manual resharing, not automatic email delivery.
+
+After changing backend code, stop the running cargo process with Ctrl-C and start `cargo run` again. Rust is not hot-reloaded by Vite. The timed room uses the existing schema; no additional migration is required.

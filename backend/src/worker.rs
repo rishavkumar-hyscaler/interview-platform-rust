@@ -2,7 +2,40 @@
 use sqlx::PgPool;
 use tokio::sync::watch;
 
-pub async fn run(pool: PgPool, mut shutdown: watch::Receiver<bool>) {
+pub async fn run(pool: PgPool, shutdown: watch::Receiver<bool>) {
+    let generation_pool = pool.clone();
+    let generation_shutdown = shutdown.clone();
+    tokio::join!(
+        expiry_loop(pool, shutdown),
+        generation_loop(generation_pool, generation_shutdown)
+    );
+}
+async fn generation_loop(pool: PgPool, mut shutdown: watch::Receiver<bool>) {
+    let provider = crate::generation::provider::AiProvider::from_environment().ok();
+    if provider.is_none() {
+        tracing::info!("AI generation not configured; expiry jobs remain active");
+    }
+    loop {
+        if *shutdown.borrow() {
+            break;
+        }
+        if let Some(provider) = &provider {
+            tokio::select! {
+                _ = shutdown.changed() => break,
+                result = crate::generation::process_next(&pool, provider) => match result {
+                    Ok(true) => continue,
+                    Ok(false) => {},
+                    Err(_) => tracing::error!("question generation polling failed"),
+                }
+            }
+        }
+        tokio::select! {
+            _ = shutdown.changed() => break,
+            _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {},
+        }
+    }
+}
+async fn expiry_loop(pool: PgPool, mut shutdown: watch::Receiver<bool>) {
     tracing::info!("background jobs ready; processing durable session expiry jobs");
     loop {
         if *shutdown.borrow() {

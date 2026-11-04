@@ -1,7 +1,7 @@
 // Per-tab persistence survives refresh without keeping credentials after the tab
 // closes. Persist only the opaque token; identity and scope come from /api/me.
 import { apiBaseUrl } from './api';
-const sessionKey = `interview:recruiter:${apiBaseUrl}`;
+const sessionKey = `interview:recruiter:${apiBaseUrl || 'http://localhost:8080'}`;
 export function savedToken(): string | null {
   try {
     const token = sessionStorage.getItem(sessionKey);

@@ -19,17 +19,17 @@ impl InvitationCipher {
             .map_err(|_| anyhow::anyhow!("Invalid invitation encryption key"))?;
         Ok(Self(LessSafeKey::new(key)))
     }
-    fn context(org: Uuid, session: Uuid) -> String {
-        format!("interview-invitation:v1:{org}:{session}")
+    fn context(recruiter: Uuid, session: Uuid) -> String {
+        format!("interview-invitation:v1:{recruiter}:{session}")
     }
-    pub fn seal(&self, token: &str, org: Uuid, session: Uuid) -> anyhow::Result<String> {
+    pub fn seal(&self, token: &str, recruiter: Uuid, session: Uuid) -> anyhow::Result<String> {
         let mut nonce = [0u8; 12];
         OsRng.fill_bytes(&mut nonce);
         let mut ciphertext = token.as_bytes().to_vec();
         self.0
             .seal_in_place_append_tag(
                 Nonce::assume_unique_for_key(nonce),
-                Aad::from(Self::context(org, session).as_bytes()),
+                Aad::from(Self::context(recruiter, session).as_bytes()),
                 &mut ciphertext,
             )
             .map_err(|_| anyhow::anyhow!("Invitation encryption failed"))?;
@@ -39,7 +39,7 @@ impl InvitationCipher {
             hex::encode(ciphertext)
         ))
     }
-    pub fn open(&self, sealed: &str, org: Uuid, session: Uuid) -> anyhow::Result<String> {
+    pub fn open(&self, sealed: &str, recruiter: Uuid, session: Uuid) -> anyhow::Result<String> {
         let parts: Vec<_> = sealed.split(':').collect();
         anyhow::ensure!(
             parts.len() == 3 && parts[0] == "v1",
@@ -53,7 +53,7 @@ impl InvitationCipher {
             .0
             .open_in_place(
                 Nonce::assume_unique_for_key(nonce),
-                Aad::from(Self::context(org, session).as_bytes()),
+                Aad::from(Self::context(recruiter, session).as_bytes()),
                 &mut ciphertext,
             )
             .map_err(|_| anyhow::anyhow!("Invitation authentication failed"))?;
@@ -71,23 +71,23 @@ mod tests {
     #[test]
     fn tokens_are_recoverable_and_bound_to_their_session() {
         let cipher = InvitationCipher::from_hex(&"ab".repeat(32)).unwrap();
-        let org = Uuid::new_v4();
+        let recruiter = Uuid::new_v4();
         let session = Uuid::new_v4();
         let token = "12".repeat(32);
-        let sealed = cipher.seal(&token, org, session).unwrap();
+        let sealed = cipher.seal(&token, recruiter, session).unwrap();
         assert!(!sealed.contains(&token));
-        assert_eq!(cipher.open(&sealed, org, session).unwrap(), token);
-        assert_ne!(sealed, cipher.seal(&token, org, session).unwrap());
+        assert_eq!(cipher.open(&sealed, recruiter, session).unwrap(), token);
+        assert_ne!(sealed, cipher.seal(&token, recruiter, session).unwrap());
         assert!(cipher.open(&sealed, Uuid::new_v4(), session).is_err());
-        assert!(cipher.open(&sealed, org, Uuid::new_v4()).is_err());
+        assert!(cipher.open(&sealed, recruiter, Uuid::new_v4()).is_err());
         let wrong_key = InvitationCipher::from_hex(&"cd".repeat(32)).unwrap();
-        assert!(wrong_key.open(&sealed, org, session).is_err());
+        assert!(wrong_key.open(&sealed, recruiter, session).is_err());
         let mut tampered = sealed.into_bytes();
         let last = tampered.last_mut().unwrap();
         *last = if *last == b'0' { b'1' } else { b'0' };
         assert!(
             cipher
-                .open(&String::from_utf8(tampered).unwrap(), org, session)
+                .open(&String::from_utf8(tampered).unwrap(), recruiter, session)
                 .is_err()
         );
     }

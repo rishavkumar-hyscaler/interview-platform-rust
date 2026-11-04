@@ -1,12 +1,14 @@
+pub mod generation;
 pub mod infrastructure;
+mod interview_room;
 mod interviews;
 pub mod invitations;
 pub mod worker;
-use crate::infrastructure::tenant_transaction;
+use crate::infrastructure::interviewer_transaction;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Path, State},
+    extract::{DefaultBodyLimit, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -48,6 +50,13 @@ fn unauthorized() -> ApiError {
 }
 
 pub fn router(pool: PgPool) -> Router {
+    router_with_ai(
+        pool,
+        generation::provider::AiProvider::from_environment().ok(),
+    )
+}
+pub fn router_with_ai(pool: PgPool, provider: Option<generation::provider::AiProvider>) -> Router {
+    let automatic = generation::AutomaticPreparation(provider.is_some());
     Router::new()
         .route(
             "/health/live",
@@ -58,15 +67,17 @@ pub fn router(pool: PgPool) -> Router {
         .route("/api/auth/login", post(login))
         .route("/api/auth/logout", post(logout))
         .route("/api/me", get(me))
-        .route("/api/organizations/{id}", get(organization))
         .merge(interviews::routes())
+        .merge(interview_room::routes())
+        .merge(generation::routes(provider))
         .layer(
             tower_http::set_header::SetResponseHeaderLayer::if_not_present(
                 axum::http::header::CACHE_CONTROL,
                 axum::http::HeaderValue::from_static("no-store"),
             ),
         )
-        .layer(DefaultBodyLimit::max(128 * 1024))
+        .layer(axum::Extension(automatic))
+        .layer(DefaultBodyLimit::max(512 * 1024))
         .layer(axum::middleware::map_response(normalize_errors))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(pool)
@@ -147,16 +158,14 @@ async fn register(
         )
     })?;
     let user = Uuid::new_v4();
-    let org = Uuid::new_v4();
     let token = new_token();
-    let mut tx = tenant_transaction(&pool, org).await?;
+    let mut tx = interviewer_transaction(&pool, user).await?;
     let inserted = sqlx::query(
-        "INSERT INTO users(id,email,password_hash,interview_scope_id) VALUES ($1,$2,$3,$4) ON CONFLICT(email) DO NOTHING",
+        "INSERT INTO users(id,email,password_hash) VALUES ($1,$2,$3) ON CONFLICT(email,role) DO NOTHING",
     )
     .bind(user)
     .bind(&email)
     .bind(hash)
-    .bind(org)
     .execute(&mut *tx)
     .await?;
     if inserted.rows_affected() == 0 {
@@ -165,36 +174,27 @@ async fn register(
             "Account could not be created",
         ));
     }
-    sqlx::query("INSERT INTO organizations(id,name) VALUES ($1,$2)")
-        .bind(org)
-        .bind("Interview records")
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("INSERT INTO memberships(organization_id,user_id,role) VALUES ($1,$2,'recruiter')")
-        .bind(org)
-        .bind(user)
-        .execute(&mut *tx)
-        .await?;
     sqlx::query("INSERT INTO auth_sessions(token_hash,user_id) VALUES ($1,$2)")
         .bind(digest(&token))
         .bind(user)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO audit_events(id,organization_id,actor_id,action) VALUES ($1,$2,$3,'recruiter.registered')")
-        .bind(Uuid::new_v4()).bind(org).bind(user).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO audit_events(id,interviewer_id,actor_id,action) VALUES ($1,$2,$3,'recruiter.registered')")
+        .bind(Uuid::new_v4()).bind(user).bind(user).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok((
         StatusCode::CREATED,
-        Json(json!({"token":token,"user_id":user,"organization_id":org,"role":"recruiter"})),
+        Json(json!({"token":token,"user_id":user,"role":"interviewer"})),
     ))
 }
 async fn login(State(pool): State<PgPool>, Json(input): Json<Credentials>) -> Result<Json<Value>> {
     let email = input.email.trim().to_lowercase();
     validate(&email, &input.password).map_err(|_| unauthorized())?;
-    let row = sqlx::query("SELECT id,password_hash,interview_scope_id FROM users WHERE email=$1")
-        .bind(email)
-        .fetch_optional(&pool)
-        .await?;
+    let row =
+        sqlx::query("SELECT id,password_hash FROM users WHERE email=$1 AND role='interviewer'")
+            .bind(email)
+            .fetch_optional(&pool)
+            .await?;
     // Always run Argon2, including for unknown accounts, to reduce account timing leakage.
     let hash = row.as_ref().map(|r| r.get::<String, _>("password_hash"));
     let valid = tokio::task::spawn_blocking(move || match hash {
@@ -216,7 +216,6 @@ async fn login(State(pool): State<PgPool>, Json(input): Json<Credentials>) -> Re
     }
     let row = row.ok_or_else(unauthorized)?;
     let user: Uuid = row.get("id");
-    let org: Uuid = row.get("interview_scope_id");
     let token = new_token();
     sqlx::query("INSERT INTO auth_sessions(token_hash,user_id) VALUES ($1,$2)")
         .bind(digest(&token))
@@ -224,7 +223,7 @@ async fn login(State(pool): State<PgPool>, Json(input): Json<Credentials>) -> Re
         .execute(&pool)
         .await?;
     Ok(Json(
-        json!({"token":token,"user_id":user,"organization_id":org,"role":"recruiter"}),
+        json!({"token":token,"user_id":user,"role":"interviewer"}),
     ))
 }
 async fn authenticate(pool: &PgPool, headers: &HeaderMap) -> Result<(Uuid, String)> {
@@ -236,7 +235,7 @@ async fn authenticate(pool: &PgPool, headers: &HeaderMap) -> Result<(Uuid, Strin
         .ok_or_else(unauthorized)?;
     let hash = digest(token);
     let user = sqlx::query_scalar(
-        "SELECT user_id FROM auth_sessions WHERE token_hash=$1 AND expires_at>now()",
+        "SELECT s.user_id FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.role='interviewer' AND s.interview_session_id IS NULL",
     )
     .bind(&hash)
     .fetch_optional(pool)
@@ -246,13 +245,7 @@ async fn authenticate(pool: &PgPool, headers: &HeaderMap) -> Result<(Uuid, Strin
 }
 async fn me(State(pool): State<PgPool>, headers: HeaderMap) -> Result<Json<Value>> {
     let (user, _) = authenticate(&pool, &headers).await?;
-    let org: Uuid = sqlx::query_scalar("SELECT interview_scope_id FROM users WHERE id=$1")
-        .bind(user)
-        .fetch_one(&pool)
-        .await?;
-    Ok(Json(
-        json!({"user_id":user,"organization_id":org,"role":"recruiter"}),
-    ))
+    Ok(Json(json!({"user_id":user,"role":"interviewer"})))
 }
 async fn logout(State(pool): State<PgPool>, headers: HeaderMap) -> Result<StatusCode> {
     let (_, hash) = authenticate(&pool, &headers).await?;
@@ -262,21 +255,6 @@ async fn logout(State(pool): State<PgPool>, headers: HeaderMap) -> Result<Status
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
-async fn organization(
-    State(pool): State<PgPool>,
-    Path(org): Path<Uuid>,
-    headers: HeaderMap,
-) -> Result<Json<Value>> {
-    let (user, _) = authenticate(&pool, &headers).await?;
-    let mut tx = tenant_transaction(&pool, org).await?;
-    let row = sqlx::query("SELECT o.id,o.name,m.role FROM organizations o JOIN memberships m ON m.organization_id=o.id WHERE o.id=$1 AND m.user_id=$2")
-        .bind(org).bind(user).fetch_optional(&mut *tx).await?
-        .ok_or(ApiError(StatusCode::NOT_FOUND, "Organization not found"))?;
-    let result = json!({"id":row.get::<Uuid,_>("id"),"name":row.get::<String,_>("name"),"role":row.get::<String,_>("role")});
-    tx.commit().await?;
-    Ok(Json(result))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
