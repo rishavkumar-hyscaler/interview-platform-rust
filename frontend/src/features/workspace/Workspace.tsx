@@ -7,7 +7,7 @@ const message = (error: unknown) => error instanceof Error ? error.message : 'So
 const date = (value: string | null) => value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 export function Status({ state }: { state: string }) { return <span className={`status status-${state}`}>{state.replaceAll('_', ' ')}</span>; }
 function Timeline({ events }: { events: Audit[] }) {
-  return events.length ? <ol className="timeline">{events.map(event => <li key={event.id}><span className="timeline-dot" /><div><strong>{event.action.replaceAll('.', ' · ').replaceAll('_', ' ')}</strong><p>{date(event.created_at)} · {event.actor_id ? 'Interviewer' : String(event.metadata.actor ?? 'System')}</p><code>{event.entity_id ?? event.id}</code></div></li>)}</ol> : <div className="empty compact">No audit events for this session yet.</div>;
+  return events.length ? <ol className="timeline">{events.map(event => <li key={event.id}><span className="timeline-dot" /><div><strong>{event.action.replaceAll('.', ' · ').replaceAll('_', ' ')}</strong><p>{date(event.created_at)} · {event.actor_id ? 'Interviewer' : String(event.metadata.actor ?? 'System')}</p>{event.action === 'proctor.observed' && <p><strong>{String(event.metadata.kind ?? '').replaceAll('_', ' ')}</strong> · Browser observation, unverified{event.metadata.character_count != null && <> · {String(event.metadata.character_count)} characters</>}</p>}<code>{event.entity_id ?? event.id}</code></div></li>)}</ol> : <div className="empty compact">No audit events for this session yet.</div>;
 }
 function Dialog({ children, title, onClose, busy = false }: { children: ReactNode; title: string; onClose: () => void; busy?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);

@@ -3,6 +3,7 @@ pub mod infrastructure;
 mod interview_room;
 mod interviews;
 pub mod invitations;
+mod proctoring;
 pub mod worker;
 use crate::infrastructure::interviewer_transaction;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
@@ -69,6 +70,7 @@ pub fn router_with_ai(pool: PgPool, provider: Option<generation::provider::AiPro
         .route("/api/me", get(me))
         .merge(interviews::routes())
         .merge(interview_room::routes())
+        .merge(proctoring::routes())
         .merge(generation::routes(provider))
         .layer(
             tower_http::set_header::SetResponseHeaderLayer::if_not_present(

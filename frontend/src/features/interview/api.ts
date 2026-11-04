@@ -5,6 +5,7 @@ export type Room = { session: CandidateSession; question: Question | null; quest
 export type SaveReceipt = { question_id: string; revision: number; saved_at: string; answer_count: number };
 export function candidateApi(token: string) {
   return {
+    events: (events: { id: string; kind: string; client_time: number; count?: number }[]) => request('/api/v1/candidate/events', { method: 'POST', body: JSON.stringify(events) }, token),
     session: (signal?: AbortSignal) => request<CandidateSession>('/api/v1/candidate/session', { signal }, token),
     transition: (action: 'ready' | 'start' | 'submit') => request<CandidateSession>(`/api/v1/candidate/session/${action}`, { method: 'POST' }, token),
     room: (position?: number) => request<Room>(`/api/v1/candidate/room${position ? `?position=${position}` : ''}`, {}, token),

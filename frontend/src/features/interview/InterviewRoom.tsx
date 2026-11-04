@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '../../api';
 import { candidateApi, type CandidateSession, type Question } from './api';
+import { Proctoring } from './Proctoring';
+import { InterviewMedia } from './InterviewMedia';
 import { clearDraft, readDraft, writeDraft } from './drafts';
 const time = (ms: number) => { const seconds = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`; };
 
@@ -9,6 +11,9 @@ export function InterviewRoom({ token, initial, onSession }: { token: string; in
   const [session, setSession] = useState(initial);
   const [question, setQuestion] = useState<Question | null>(null);
   const [content, setContent] = useState('');
+  const [submittedContent, setSubmittedContent] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [mediaControls, setMediaControls] = useState<HTMLDivElement | null>(null);
   const [saving, setSaving] = useState('Loading saved answers…');
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
@@ -50,7 +55,7 @@ export function InterviewRoom({ token, initial, onSession }: { token: string; in
       const value = recover ? draft.content : result.question.answer;
       if (draft && !recover) clearDraft(result.session.id, result.question.id, draft.content);
       textRef.current = value; dirtyRef.current = recover; conflictRef.current = changedElsewhere;
-      setContent(value); setQuestion(result.question); setQuestionStarted(Date.parse(result.question_started_at ?? result.session.server_time));
+      setContent(value); setSubmittedContent(result.question.answer); setQuestion(result.question); setQuestionStarted(Date.parse(result.question_started_at ?? result.session.server_time));
       setConflict(changedElsewhere);
       setSaving(changedElsewhere ? 'Resolve the saved version below.' : recover ? 'Recovered an unsaved draft. Saving…' : 'All changes saved');
       if (changedElsewhere) setError('This answer changed in another tab. Your local draft is preserved.');
@@ -149,12 +154,23 @@ export function InterviewRoom({ token, initial, onSession }: { token: string; in
     textRef.current = value; dirtyRef.current = true; setContent(value); retain(value); setSaving('Unsaved changes');
   }
   return <main className="interview-shell">
-    <header className="interview-header"><div><p className="eyebrow">INTERVIEW IN PROGRESS</p><h1>{session.job_title}</h1></div><div className={`interview-clock ${remaining <= 60000 ? 'urgent' : ''}`} role="timer" aria-label="Time remaining"><small>Time remaining</small><strong>{time(remaining)}</strong></div></header>
-    <div className="interview-progress"><span>{session.answer_count} of {session.question_count} answered</span><progress max={session.question_count} value={session.answer_count} aria-label="Answered questions" /></div>
+    <header className="room-title"><div><p className="eyebrow">INTERVIEW IN PROGRESS</p><h1>{session.job_title}</h1></div><button className="button secondary" disabled={loading || finishing || conflict} onClick={() => setConfirm(true)}>Finish interview</button></header>
+    <Proctoring token={token} sessionId={session.id} />
     {error && <p className="error" role="alert">{error}</p>}{localWarning && <p className="configuration-note">{localWarning}</p>}
-    {remaining <= 0 ? <section className="panel empty"><h2>Time is up</h2><p>Confirming submission of your saved answers.</p><button className="button" disabled={finishing} onClick={() => void finish(true)}>{finishing ? 'Confirming…' : 'Retry confirmation'}</button></section> : <div className="interview-layout">
-      <aside className="question-navigation"><h2>Questions</h2><div>{Array.from({ length: session.question_count }, (_, index) => <button key={index} className={question?.position === index + 1 ? 'current' : ''} aria-current={question?.position === index + 1 ? 'step' : undefined} disabled={loading || finishing || conflict} onClick={() => void navigate(index + 1)}>{index + 1}</button>)}</div><p>You may revisit questions before submitting. The interview timer continues while disconnected.</p><button className="button secondary" disabled={loading || finishing || conflict} onClick={() => setConfirm(true)}>Submit interview</button></aside>
-      <section className="question-panel">{loading ? <p role="status">Loading question and saved answer…</p> : question ? <><div className="question-meta"><span>Question {question.position} of {session.question_count} · {question.kind} · {question.difficulty}</span><span>On this question {time(now - questionStarted)}</span></div><h2 className="preserve">{question.prompt}</h2><p className="muted">Suggested time: {Math.max(1, Math.round(session.duration_minutes / session.question_count))} minutes. You can use your remaining time across all questions.</p><label>{question.kind === 'code' ? 'Your code' : 'Your answer'}<textarea aria-label={question.kind === 'code' ? 'Your code' : 'Your answer'} className={question.kind === 'code' ? 'code-editor' : ''} rows={question.kind === 'code' ? 16 : 11} spellCheck={question.kind !== 'code'} autoCapitalize={question.kind === 'code' ? 'off' : 'sentences'} value={content} disabled={finishing} onChange={event => change(event.target.value)} placeholder={question.kind === 'code' ? '// Write your solution here. Code is saved as text and is not executed.' : 'Explain your reasoning and include relevant examples…'} /></label><div className="save-status" role="status">{saving}</div>{conflict && <div className="conflict-actions"><button className="button secondary" onClick={() => void resolve(false)}>Use saved answer</button><button className="button" onClick={() => void resolve(true)}>Save my draft instead</button></div>}<div className="question-actions"><button className="button secondary" disabled={question.position === 1 || finishing || conflict} onClick={() => void navigate(question.position - 1)}>← Previous</button><button className="button secondary" disabled={finishing || conflict} onClick={() => void flush().catch(() => {})}>Save now</button>{question.position < session.question_count ? <button className="button" disabled={finishing || conflict} onClick={() => void navigate(question.position + 1)}>Save & next →</button> : <button className="button" disabled={finishing || conflict} onClick={() => setConfirm(true)}>Review & submit →</button>}</div></> : <button className="button" onClick={() => void load()}>Retry loading interview</button>}</section>
+    {remaining <= 0 ? <section className="panel empty"><h2>Time is up</h2><p>Confirming submission of your saved answers.</p><button className="button" disabled={finishing} onClick={() => void finish(true)}>{finishing ? 'Confirming…' : 'Retry confirmation'}</button></section> : <div className="simple-room">
+      <section className="room-left">
+        <div className="room-question">
+          <div className="room-question-top"><span>Question {question?.position ?? '–'} / {session.question_count}</span><div className={`room-timer ${remaining <= 60000 ? 'urgent' : ''}`} role="timer" aria-label="Time remaining"><small>Time remaining</small><strong>{time(remaining)}</strong></div></div>
+          {loading ? <p role="status">Loading question…</p> : question ? <h2 className="preserve">{question.prompt}</h2> : <button className="button" onClick={() => void load()}>Retry loading</button>}
+          <div className="room-navigation" aria-label="Questions">{Array.from({ length: session.question_count }, (_, index) => <button key={index} className={question?.position === index + 1 ? 'current' : ''} aria-label={`Question ${index + 1}`} aria-current={question?.position === index + 1 ? 'step' : undefined} disabled={loading || finishing || conflict || posting} onClick={() => void navigate(index + 1)}>{index + 1}</button>)}<small>{session.answer_count} of {session.question_count} answered</small></div>
+        </div>
+        <InterviewMedia controlsTarget={mediaControls} />
+      </section>
+      <section className="room-right">
+        <div className="room-answer-top"><span>Answer type <strong>{question?.kind === 'code' ? 'Code' : question?.kind === 'scenario' ? 'Scenario' : 'Text'}</strong></span><span>On this question <strong>{time(now - questionStarted)}</strong></span></div>
+        <section className="room-submitted" aria-label="Submitted answer"><p className="eyebrow">YOUR SUBMITTED ANSWER</p>{submittedContent ? <pre className={question?.kind === 'code' ? 'submitted-code' : ''}>{submittedContent}</pre> : <p className="muted">Your answer will appear here when you click Submit answer.</p>}</section>
+        <section className="room-composer"><div ref={setMediaControls} /><label htmlFor="room-answer">{question?.kind === 'code' ? 'Write your code' : 'Write your answer'}</label><textarea id="room-answer" aria-label={question?.kind === 'code' ? 'Your code' : 'Your answer'} className={question?.kind === 'code' ? 'code-editor' : ''} spellCheck={question?.kind !== 'code'} value={content} disabled={loading || finishing || posting || !question} onChange={event => change(event.target.value)} placeholder={question?.kind === 'code' ? '// Write your solution…' : 'Type your answer…'} /><div className="room-composer-footer"><span className="save-status" role="status">{saving}</span><button className="button" disabled={loading || finishing || conflict || posting || !question || !content.trim()} onClick={() => { setPosting(true); void flush().then(() => setSubmittedContent(textRef.current)).catch(() => {}).finally(() => setPosting(false)); }}>{posting ? 'Submitting…' : 'Submit answer ↑'}</button></div><small className="muted">Drafts save automatically. You can edit answers until you finish the interview.</small>{conflict && <div className="conflict-actions"><button className="button secondary" onClick={() => void resolve(false)}>Use saved answer</button><button className="button" onClick={() => void resolve(true)}>Save my draft instead</button></div>}</section>
+      </section>
     </div>}
     <dialog ref={submitDialog} className="submit-dialog" onCancel={() => setConfirm(false)}><h2>Submit your interview?</h2><p>Your latest answer will be saved first. Submitted answers cannot be edited. You may submit with unanswered questions.</p><div className="actions"><button className="button secondary" disabled={finishing} onClick={() => setConfirm(false)}>Keep working</button><button className="button" disabled={finishing} onClick={() => { setConfirm(false); void finish(); }}>{finishing ? 'Submitting…' : 'Confirm submission'}</button></div></dialog>
   </main>;
