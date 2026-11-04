@@ -1,0 +1,37 @@
+name: Backend CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: interview
+          POSTGRES_PASSWORD: local_admin_password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d interview"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://platform_app:local_app_password@localhost:5432/interview
+      ALLOW_REGISTRATION: "true"
+      INVITATION_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000" # Test only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Provision runtime role
+        run: psql postgres://postgres:local_admin_password@localhost:5432/interview -v ON_ERROR_STOP=1 -f infra/postgres/init.sql
+      - name: Migrate with admin role
+        run: cargo run --locked -- --migrate
+        env:
+          DATABASE_URL: postgres://postgres:local_admin_password@localhost:5432/interview
+      - run: cargo test --locked
+      - run: cargo test --tests --locked -- --ignored --test-threads=1
