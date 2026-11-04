@@ -4,13 +4,13 @@ export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); this.name = 'ApiError'; }
 }
 
-export async function request<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+export async function request<T>(path: string, options: RequestInit = {}, token?: string, timeoutMs = 15000): Promise<T> {
   let response: Response;
   const controller = new AbortController();
   const cancel = () => controller.abort();
   if (options.signal?.aborted) controller.abort();
   options.signal?.addEventListener('abort', cancel, { once: true });
-  const timeout = setTimeout(cancel, 15000);
+  const timeout = setTimeout(cancel, timeoutMs);
   try {
     response = await fetch(`${apiBaseUrl}${path}`, {
       ...options,

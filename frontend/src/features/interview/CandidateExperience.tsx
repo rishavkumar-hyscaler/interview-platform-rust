@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ApiError } from '../../api';
 import { candidateApi, type CandidateSession } from './api';
+import { SingleTab } from './SingleTab';
 import { InterviewRoom } from './InterviewRoom';
 import { pendingDrafts } from './drafts';
 
 export function CandidateExperience({ token }: { token: string }) {
+  return <SingleTab key={token} token={token}><CandidateSessionView token={token} /></SingleTab>;
+}
+function CandidateSessionView({ token }: { token: string }) {
   const api = useMemo(() => candidateApi(token), [token]);
   const [session, setSession] = useState<CandidateSession | null>(null);
   const [error, setError] = useState('');

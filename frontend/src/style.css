@@ -47,3 +47,4 @@ dialog.modal-backdrop{border:0;background:transparent;backdrop-filter:none;posit
   .room-composer{padding:12px 16px}.room-composer .button{padding:8px 12px}.room-submitted{padding:16px}
 }
 .proctor-status{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none;margin:0 0 12px;color:#52614c}.proctor-status small{font-size:11px}.proctor-status .button{padding:7px 12px;font-size:12px}
+.review-reply{border:1px solid #dce4d7;border-radius:10px;background:#fafbf8;padding:18px;margin:16px 0}.review-reply pre,.question-preparation pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;max-height:260px;overflow:auto}.review-reply blockquote{margin:12px 0;padding-left:12px;border-left:3px solid #a9bda0}.review-reply code{font-size:11px;overflow-wrap:anywhere}.question-preparation select{max-width:100%}.room-composer-footer{flex-wrap:wrap}.room-composer-footer .button{font-size:12px;padding:9px 12px}

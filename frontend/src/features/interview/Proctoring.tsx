@@ -33,14 +33,29 @@ export function Proctoring({ token, sessionId }: { token: string; sessionId: str
     const copy = () => record('copy');
     const paste = (event: ClipboardEvent) => record('paste', event.clipboardData?.getData('text').length ?? 0);
     const context = () => record('context_menu');
-    const device = (event: Event) => { const kind = (event as CustomEvent<string>).detail; record(kind); };
+    let lastInput = performance.now(); let rapidCharacters = 0; let lastBurst = 0;
+    const input = (event: Event) => {
+      const typed = event as InputEvent; if (typed.isComposing || typed.inputType !== 'insertText') return;
+      const now = performance.now();
+      rapidCharacters = now - lastInput < 20 ? rapidCharacters + (typed.data?.length ?? 0) : 0; lastInput = now;
+      if (rapidCharacters >= 20 && now - lastBurst > 10000) { record('typing_burst', rapidCharacters); lastBurst = now; rapidCharacters = 0; }
+    };
+    let toolsSuspected = false;
+    const inspect = () => {
+      const suspected = Math.max(window.outerWidth - window.innerWidth, window.outerHeight - window.innerHeight) > 220;
+      if (suspected && !toolsSuspected) record('devtools_suspected', Math.max(window.outerWidth - window.innerWidth, window.outerHeight - window.innerHeight)); toolsSuspected = suspected;
+    };
+    const device = (event: Event) => { const detail = (event as CustomEvent<string | { kind: string; count?: number }>).detail; if (typeof detail === 'string') record(detail); else record(detail.kind, detail.count); };
+    document.addEventListener('input', input); window.addEventListener('resize', inspect);
+    if ((window.screen as Screen & { isExtended?: boolean }).isExtended) record('multiple_displays', 2);
+    record('monitoring_capability', 'isExtended' in window.screen ? 1 : 0);
     window.addEventListener('blur', blur); window.addEventListener('focus', focus);
     document.addEventListener('visibilitychange', visibility); document.addEventListener('fullscreenchange', full);
     document.addEventListener('copy', copy); document.addEventListener('paste', paste); document.addEventListener('contextmenu', context);
     window.addEventListener('interview-device', device); window.addEventListener('online', send);
     const timer = setInterval(() => void send(), 5000); void send();
     return () => {
-      active = false; clearInterval(timer); window.removeEventListener('blur', blur); window.removeEventListener('focus', focus);
+      active = false; clearInterval(timer); document.removeEventListener('input', input); window.removeEventListener('resize', inspect); window.removeEventListener('blur', blur); window.removeEventListener('focus', focus);
       document.removeEventListener('visibilitychange', visibility); document.removeEventListener('fullscreenchange', full);
       document.removeEventListener('copy', copy); document.removeEventListener('paste', paste); document.removeEventListener('contextmenu', context);
       window.removeEventListener('interview-device', device); window.removeEventListener('online', send);

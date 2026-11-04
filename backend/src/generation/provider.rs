@@ -141,6 +141,88 @@ impl AiProvider {
         serde_json::from_str(&text)
             .map_err(|_| anyhow::anyhow!("AI output did not match the required schema"))
     }
+    pub async fn structured_stream<T: JsonSchema + DeserializeOwned, F, Fut>(
+        &self,
+        name: &str,
+        instructions: &str,
+        input: Value,
+        mut on_delta: F,
+    ) -> Result<T>
+    where
+        F: FnMut(String) -> Fut,
+        Fut: std::future::Future<Output = Result<()>>,
+    {
+        let mut schema = serde_json::to_value(schemars::schema_for!(T))?;
+        clean_schema(&mut schema);
+        let mut response=self.client.post(format!("{}/responses",self.base)).bearer_auth(&self.llm_key).json(&json!({"model":self.model,"store":false,"stream":true,"max_output_tokens":12000,"instructions":instructions,"input":[{"role":"user","content":input.to_string()}],"text":{"format":{"type":"json_schema","name":name,"strict":true,"schema":schema}}})).send().await.map_err(|_|anyhow::anyhow!("AI streaming connection failed"))?;
+        ensure!(
+            response.status().is_success(),
+            "AI streaming request failed"
+        );
+        let mut buffer = Vec::new();
+        let mut text = String::new();
+        let mut completed = false;
+        let mut bytes = 0;
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| anyhow::anyhow!("AI stream interrupted"))?
+        {
+            bytes += chunk.len();
+            ensure!(bytes <= 2 * 1024 * 1024, "AI stream exceeded size limit");
+            buffer.extend_from_slice(&chunk);
+            loop {
+                let boundary = buffer
+                    .windows(2)
+                    .position(|v| v == b"\n\n")
+                    .map(|i| (i, 2))
+                    .or_else(|| {
+                        buffer
+                            .windows(4)
+                            .position(|v| v == b"\r\n\r\n")
+                            .map(|i| (i, 4))
+                    });
+                let Some((end, delimiter)) = boundary else {
+                    break;
+                };
+                let frame = String::from_utf8(buffer.drain(..end + delimiter).collect())?;
+                let data = frame
+                    .lines()
+                    .filter_map(|l| l.strip_prefix("data:"))
+                    .map(str::trim_start)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if data.is_empty() || data == "[DONE]" {
+                    continue;
+                }
+                let event: Value = serde_json::from_str(&data)?;
+                match event["type"].as_str().unwrap_or("") {
+                    "response.output_text.delta" => {
+                        let delta = event["delta"]
+                            .as_str()
+                            .ok_or_else(|| anyhow::anyhow!("Invalid delta"))?;
+                        ensure!(text.len() + delta.len() <= 1024 * 1024, "AI text too large");
+                        text.push_str(delta);
+                        on_delta(delta.to_string()).await?;
+                    }
+                    "response.completed" => {
+                        ensure!(
+                            event["response"]["status"] == "completed",
+                            "AI response incomplete"
+                        );
+                        completed = true;
+                    }
+                    "response.failed"
+                    | "response.incomplete"
+                    | "error"
+                    | "response.refusal.delta" => anyhow::bail!("AI stream failed or refused"),
+                    _ => {}
+                }
+            }
+        }
+        ensure!(completed, "AI stream ended without completion");
+        serde_json::from_str(&text).map_err(|_| anyhow::anyhow!("AI stream did not match schema"))
+    }
     pub async fn embeddings(&self, inputs: &[String]) -> Result<Vec<Vec<f32>>> {
         let response=self.post("/embeddings",&self.embedding_key,json!({"model":self.embedding_model,"dimensions":self.dimensions,"encoding_format":"float","input":inputs})).await?;
         let data = response["data"]

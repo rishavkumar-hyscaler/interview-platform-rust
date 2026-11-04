@@ -5,9 +5,12 @@ use tokio::sync::watch;
 pub async fn run(pool: PgPool, shutdown: watch::Receiver<bool>) {
     let generation_pool = pool.clone();
     let generation_shutdown = shutdown.clone();
+    let scoring_pool = pool.clone();
+    let scoring_shutdown = shutdown.clone();
     tokio::join!(
         expiry_loop(pool, shutdown),
-        generation_loop(generation_pool, generation_shutdown)
+        generation_loop(generation_pool, generation_shutdown),
+        scoring_loop(scoring_pool, scoring_shutdown)
     );
 }
 async fn generation_loop(pool: PgPool, mut shutdown: watch::Receiver<bool>) {
@@ -59,6 +62,22 @@ async fn expiry_loop(pool: PgPool, mut shutdown: watch::Receiver<bool>) {
         }
     }
     tracing::info!("background jobs stopped");
+}
+
+async fn scoring_loop(pool: PgPool, mut shutdown: watch::Receiver<bool>) {
+    let provider = crate::generation::provider::AiProvider::from_environment().ok();
+    loop {
+        if *shutdown.borrow() {
+            break;
+        }
+        if let Some(provider) = &provider {
+            tokio::select! {
+                _ = shutdown.changed() => break,
+                result = crate::scoring::process_next(&pool, provider) => { if matches!(result, Ok(true)) { continue; } else if result.is_err() { tracing::error!("assessment polling failed"); } }
+            }
+        }
+        tokio::select! { _ = shutdown.changed() => break, _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {} }
+    }
 }
 
 #[cfg(test)]
