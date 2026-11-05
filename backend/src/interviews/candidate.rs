@@ -10,7 +10,7 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 pub(crate) async fn candidate_view(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<Value> {
     // Deliberately excludes rubrics, other candidates, email, and internal audit data.
-    Ok(sqlx::query_scalar("SELECT jsonb_build_object('id',s.id,'role','interviewee','interviewee_id',s.interviewee_id,'job_title',j.title,'job_code',j.job_code,'state',CASE WHEN s.state IN ('invited','ready','in_progress') AND least(s.expires_at,coalesce(s.deadline_at,s.expires_at))<=now() THEN CASE WHEN s.state='in_progress' THEN 'submitted' ELSE 'expired' END ELSE s.state END,'duration_minutes',s.duration_minutes,'expires_at',s.expires_at,'deadline_at',s.deadline_at,'server_time',now(),'started_at',s.started_at,'submitted_at',s.submitted_at,'generation_status',s.generation_status,'questions_ready',(s.generation_status='completed' OR (s.generation_id IS NULL AND s.generation_status='not_started' AND EXISTS(SELECT 1 FROM interview_questions q WHERE q.session_id=s.id))),'answer_count',(SELECT count(*) FROM interview_questions q WHERE q.session_id=s.id AND (EXISTS(SELECT 1 FROM interview_answers a WHERE a.question_id=q.id AND length(btrim(a.content))>0) OR EXISTS(SELECT 1 FROM audit_events m WHERE m.entity_id=q.session_id AND m.action='answer.recorded' AND m.metadata->>'question_id'=q.id::text))),'question_count',(SELECT count(*) FROM interview_questions WHERE session_id=s.id)) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1")
+    Ok(sqlx::query_scalar("SELECT jsonb_build_object('id',s.id,'role','interviewee','interviewee_id',s.interviewee_id,'job_title',j.title,'job_code',j.job_code,'state',CASE WHEN s.state IN ('invited','ready','in_progress') AND least(s.expires_at,coalesce(s.deadline_at,s.expires_at))<=now() THEN CASE WHEN s.state='in_progress' THEN 'submitted' ELSE 'expired' END ELSE s.state END,'duration_minutes',s.duration_minutes,'expires_at',s.expires_at,'deadline_at',s.deadline_at,'server_time',now(),'started_at',s.started_at,'submitted_at',s.submitted_at,'generation_status',s.generation_status,'questions_ready',(s.generation_status='completed' OR (s.generation_id IS NULL AND s.generation_status='not_started' AND EXISTS(SELECT 1 FROM session_question_details() q WHERE q.session_id=s.id))),'answer_count',(SELECT count(*) FROM session_question_details() q WHERE q.session_id=s.id AND (EXISTS(SELECT 1 FROM interview_answers a WHERE a.question_id=q.id AND a.session_id=q.session_id AND length(btrim(a.content))>0) OR EXISTS(SELECT 1 FROM audit_events m WHERE m.entity_id=q.session_id AND m.action='answer.recorded' AND m.metadata->>'question_id'=q.id::text))),'question_count',(SELECT count(*) FROM session_question_details() WHERE session_id=s.id)) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1")
         .bind(id).fetch_one(&mut **tx).await?)
 }
 pub(super) async fn candidate_session(
@@ -51,11 +51,12 @@ pub(super) async fn candidate_transition(
             return Err(conflict("Session has expired"));
         }
         if action == "start" {
-            let count: i64 =
-                sqlx::query_scalar("SELECT count(*) FROM interview_questions WHERE session_id=$1")
-                    .bind(id)
-                    .fetch_one(&mut *tx)
-                    .await?;
+            let count: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM session_question_details() WHERE session_id=$1",
+            )
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
             let prepared = row.get::<String, _>("generation_status") == "completed"
                 || (row.get::<Option<Uuid>, _>("generation_id").is_none()
                     && row.get::<String, _>("generation_status") == "not_started");

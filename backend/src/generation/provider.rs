@@ -52,6 +52,44 @@ impl std::fmt::Display for TransportFailure {
 }
 impl std::error::Error for TransportFailure {}
 fn generation_schema_bounds(schema: &mut Value, name: &str, input: &Value) {
+    if name == "interview_reference_answer" {
+        // The approved prompt fixes the answer type before reference generation.
+        // Enforce it in the schema as well as in the final domain validation.
+        match input["approved_question"]["kind"].as_str() {
+            Some("text" | "scenario") => {
+                schema["properties"]["coding"] = json!({"type":"null"});
+            }
+            Some("code") => {
+                schema["properties"]["coding"] = json!({"$ref":"#/$defs/CodeReference"});
+            }
+            _ => {}
+        }
+        return;
+    }
+    if name == "interview_questions" {
+        // Sequential generation always has one slot; bind nullable coding to it.
+        if let Some(slots) = input["blueprint"]["slots"].as_array()
+            && slots.len() == 1
+        {
+            if let Some(minutes) = input["duration_minutes"]
+                .as_u64()
+                .filter(|n| (1..=30).contains(n))
+            {
+                schema["$defs"]["Question"]["properties"]["estimated_minutes"] =
+                    json!({"type":"integer","minimum":1,"maximum":minutes});
+            }
+            match slots[0]["kind"].as_str() {
+                Some("text" | "scenario") => {
+                    schema["$defs"]["Question"]["properties"]["coding"] = json!({"type":"null"});
+                }
+                Some("code") => {
+                    schema["$defs"]["Question"]["properties"]["coding"] =
+                        json!({"$ref":"#/$defs/CodeReference"});
+                }
+                _ => {}
+            }
+        }
+    }
     let (property, count) = match name {
         "interview_blueprint" => (
             "slots",
@@ -302,7 +340,7 @@ impl AiProvider {
         clean_schema(&mut schema);
         generation_schema_bounds(&mut schema, name, &input);
         let mut body = json!({
-            "model":self.model,"store":false,"max_output_tokens":match name {"interview_question_prompts" | "interview_prompt_review" | "interview_quality_review" | "interview_reference_review" => 4000,"interview_reference_answer" => 8000,"interview_questions" => 20000,_ => 12000},
+            "model":self.model,"store":false,"max_output_tokens":match name {"interview_question_prompts" | "interview_prompt_review" | "interview_quality_review" | "interview_reference_review" => 4000,"interview_reference_answer" | "interview_questions" => 8000,_ => 12000},
             "instructions":instructions,"input":[{"role":"user","content":serde_json::to_string(&input)?}],
             "text":{"format":{"type":"json_schema","name":name,"strict":true,"schema":schema}}
         });
@@ -509,6 +547,74 @@ fn clean_schema(value: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reference_schema_matches_the_approved_question_kind() {
+        for kind in ["text", "scenario", "code"] {
+            let mut schema = serde_json::to_value(schemars::schema_for!(
+                crate::generation::types::ReferenceAnswer
+            ))
+            .unwrap();
+            clean_schema(&mut schema);
+            generation_schema_bounds(
+                &mut schema,
+                "interview_reference_answer",
+                &json!({"approved_question":{"kind":kind}}),
+            );
+            let coding = &schema["properties"]["coding"];
+            if kind == "code" {
+                assert_eq!(coding["$ref"], "#/$defs/CodeReference");
+                assert!(schema["$defs"]["CodeReference"].is_object());
+            } else {
+                assert_eq!(coding, &json!({"type":"null"}));
+            }
+            assert!(
+                schema["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("coding"))
+            );
+        }
+    }
+    #[test]
+    fn combined_question_schema_enforces_coding_for_the_slot() {
+        for kind in ["text", "scenario", "code"] {
+            let mut schema =
+                serde_json::to_value(schemars::schema_for!(crate::generation::types::QuestionSet))
+                    .unwrap();
+            clean_schema(&mut schema);
+            generation_schema_bounds(
+                &mut schema,
+                "interview_questions",
+                &json!({"blueprint":{"slots":[{"kind":kind}]}}),
+            );
+            let coding = &schema["$defs"]["Question"]["properties"]["coding"];
+            if kind == "code" {
+                assert_eq!(coding["$ref"], "#/$defs/CodeReference");
+                assert!(schema["$defs"]["CodeReference"].is_object());
+            } else {
+                assert_eq!(coding, &json!({"type":"null"}));
+            }
+            assert_eq!(schema["properties"]["questions"]["maxItems"], 1);
+        }
+    }
+    #[test]
+    fn question_time_schema_uses_the_current_slot_budget() {
+        for budget in [1, 2, 5, 30] {
+            let mut schema =
+                serde_json::to_value(schemars::schema_for!(crate::generation::types::QuestionSet))
+                    .unwrap();
+            clean_schema(&mut schema);
+            generation_schema_bounds(
+                &mut schema,
+                "interview_questions",
+                &json!({"blueprint":{"slots":[{"kind":"text"}]},"duration_minutes":budget}),
+            );
+            assert_eq!(
+                schema["$defs"]["Question"]["properties"]["estimated_minutes"],
+                json!({"type":"integer","minimum":1,"maximum":budget})
+            );
+        }
+    }
     #[test]
     fn strict_nullable_properties_are_required() {
         let mut schema =

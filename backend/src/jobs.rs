@@ -23,6 +23,11 @@ pub(crate) struct NewJob {
     request_key: Uuid,
     #[serde(default = "default_duration")]
     preparation_duration_minutes: i32,
+    #[serde(default = "default_set_count")]
+    question_set_count: i32,
+}
+fn default_set_count() -> i32 {
+    1
 }
 fn default_duration() -> i32 {
     30
@@ -49,6 +54,9 @@ pub(crate) async fn create_job(
     if !(5..=180).contains(&input.preparation_duration_minutes) {
         return Err(bad("Interview duration must be 5–180 minutes"));
     }
+    if !(1..=5).contains(&input.question_set_count) {
+        return Err(bad("Question set count must be 1–5"));
+    }
     let job_code = normalize_job_code(&input.job_code)?;
     let title = input.title.trim();
     let description = input.description.trim();
@@ -64,8 +72,8 @@ pub(crate) async fn create_job(
     let (user, mut tx) = staff(&pool, &headers).await?;
     let recruiter = user;
     let id = Uuid::new_v4();
-    let created = sqlx::query("INSERT INTO jobs(id,interviewer_id,request_key,title,created_by,description,job_code,preparation_duration_minutes) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING")
-        .bind(id).bind(recruiter).bind(input.request_key).bind(title).bind(user).bind(description).bind(&job_code).bind(input.preparation_duration_minutes).execute(&mut *tx).await?.rows_affected() == 1;
+    let created = sqlx::query("INSERT INTO jobs(id,interviewer_id,request_key,title,created_by,description,job_code,preparation_duration_minutes,question_set_count) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING")
+        .bind(id).bind(recruiter).bind(input.request_key).bind(title).bind(user).bind(description).bind(&job_code).bind(input.preparation_duration_minutes).bind(input.question_set_count).execute(&mut *tx).await?.rows_affected() == 1;
     if created {
         crate::generation::bank::replenish(
             &mut tx,
@@ -84,11 +92,12 @@ pub(crate) async fn create_job(
         )
         .await?;
     }
-    let result: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',j.id,'job_code',j.job_code,'title',j.title,'description',j.description,'created_at',j.created_at,'preparation_duration_minutes',j.preparation_duration_minutes) FROM jobs j WHERE j.interviewer_id=$1 AND j.request_key=$2")
+    let result: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',j.id,'job_code',j.job_code,'title',j.title,'description',j.description,'created_at',j.created_at,'preparation_duration_minutes',j.preparation_duration_minutes,'question_set_count',j.question_set_count) FROM jobs j WHERE j.interviewer_id=$1 AND j.request_key=$2")
         .bind(recruiter).bind(input.request_key).fetch_optional(&mut *tx).await?.ok_or(conflict("A job with this Job ID already exists"))?;
     if result["job_code"] != job_code
         || result["title"] != title
         || result["description"] != description
+        || result["question_set_count"] != input.question_set_count
         || result["preparation_duration_minutes"] != input.preparation_duration_minutes
     {
         return Err(conflict(
@@ -112,7 +121,7 @@ pub(crate) async fn list_jobs(
 ) -> Result<Json<Value>> {
     let limit = page.limit()?;
     let (recruiter, mut tx) = staff(&pool, &headers).await?;
-    let items: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',j.id,'job_code',j.job_code,'title',j.title,'description',j.description,'created_at',j.created_at,'preparation_duration_minutes',j.preparation_duration_minutes,'session_count',(SELECT count(*) FROM interview_sessions s WHERE s.job_id=j.id)) FROM jobs j WHERE j.interviewer_id=$1 AND ($2::uuid IS NULL OR (j.created_at,j.id)<(SELECT created_at,id FROM jobs WHERE id=$2)) ORDER BY j.created_at DESC,j.id DESC LIMIT $3")
+    let items: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',j.id,'job_code',j.job_code,'title',j.title,'description',j.description,'created_at',j.created_at,'preparation_duration_minutes',j.preparation_duration_minutes,'question_set_count',j.question_set_count,'session_count',(SELECT count(*) FROM interview_sessions s WHERE s.job_id=j.id)) FROM jobs j WHERE j.interviewer_id=$1 AND ($2::uuid IS NULL OR (j.created_at,j.id)<(SELECT created_at,id FROM jobs WHERE id=$2)) ORDER BY j.created_at DESC,j.id DESC LIMIT $3")
         .bind(recruiter).bind(page.cursor).bind(limit+1).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(paginated(items, limit)))

@@ -37,7 +37,7 @@ async fn enqueue(
     Extension(provider): Extension<ProviderOption>,
 ) -> Result<(StatusCode, Json<Value>)> {
     let (user, mut tx) = staff(&pool, &headers).await?;
-    let row=sqlx::query("SELECT state,expires_at>now() AS active,generation_status,generation_id,(SELECT count(*) FROM interview_questions q WHERE q.session_id=s.id) AS question_count FROM interview_sessions s WHERE id=$1 FOR UPDATE")
+    let row=sqlx::query("SELECT state,expires_at>now() AS active,generation_status,generation_id,(SELECT count(*) FROM session_question_details() q WHERE q.session_id=s.id) AS question_count FROM interview_sessions s WHERE id=$1 FOR UPDATE")
         .bind(session).fetch_optional(&mut *tx).await?.ok_or(error(StatusCode::NOT_FOUND,"Session not found"))?;
     let completed = row.get::<String, _>("generation_status") == "completed"
         || (row.get::<Option<Uuid>, _>("generation_id").is_none()
@@ -94,7 +94,7 @@ async fn status(
         .bind(session).fetch_optional(&mut *tx).await?.ok_or(error(StatusCode::NOT_FOUND,"Session not found"))?;
     let job: Option<Value> = row.get("job");
     let blueprint: Option<Value> = row.get("blueprint");
-    let questions:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',id,'position',position,'prompt',prompt,'kind',kind,'difficulty',difficulty,'competency_id',competency_id,'rubric',rubric,'answer',(SELECT jsonb_build_object('content',a.content,'revision',a.revision,'updated_at',a.updated_at) FROM interview_answers a WHERE a.question_id=interview_questions.id)) FROM interview_questions WHERE session_id=$1 ORDER BY position")
+    let questions:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',id,'position',position,'prompt',prompt,'kind',kind,'difficulty',difficulty,'competency_id',competency_id,'rubric',rubric,'answer',(SELECT jsonb_build_object('content',a.content,'revision',a.revision,'updated_at',a.updated_at) FROM interview_answers a WHERE a.question_id=session_question_details.id AND a.session_id=session_question_details.session_id)) FROM session_question_details() WHERE session_id=$1 ORDER BY position")
         .bind(session).fetch_all(&mut *tx).await?;
     let state = if !questions.is_empty() && row.get::<Option<Uuid>, _>("generation_id").is_none() {
         "completed".to_string()

@@ -1,3 +1,5 @@
+import { enterInterviewFullscreen } from './fullscreen';
+import { QuestionContent } from './QuestionContent';
 import { RecordingAttachments } from '../../components/RecordingAttachments';
 import { RecordedAnswer } from './RecordedAnswer';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -20,13 +22,16 @@ export function InterviewRoom({ token, initial, onSession }: { token: string; in
   const [hasRecording, setHasRecording] = useState(false);
   const [fullscreen, setFullscreen] = useState(!!document.fullscreenElement);
   useEffect(() => { const update = () => setFullscreen(!!document.fullscreenElement); document.addEventListener('fullscreenchange', update); return () => document.removeEventListener('fullscreenchange', update); }, []);
-  const [mediaControls, setMediaControls] = useState<HTMLDivElement | null>(null);
+  const [fullscreenError, setFullscreenError] = useState('');
+  const [enteringFullscreen, setEnteringFullscreen] = useState(false);
+  const [selectingNext, setSelectingNext] = useState(false);
   const [saving, setSaving] = useState('Loading saved answers…');
   const [error, setError] = useState('');
   const [conflict, setConflict] = useState(false);
   const [loading, setLoading] = useState(true);
   const [finishing, setFinishing] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  useEffect(() => { if (!fullscreen) setConfirm(false); }, [fullscreen]);
   const [localWarning, setLocalWarning] = useState('');
   const [now, setNow] = useState(Date.parse(initial.server_time));
   const [questionStarted, setQuestionStarted] = useState(0);
@@ -162,8 +167,28 @@ export function InterviewRoom({ token, initial, onSession }: { token: string; in
     if (new TextEncoder().encode(value).length > 48000) { setError('Your answer exceeds the 48 KB limit.'); return; }
     textRef.current = value; dirtyRef.current = true; setContent(value); retain(value); setSaving('Unsaved changes');
   }
-  return <main className="interview-shell">
-    <header className="room-title"><div><p className="eyebrow">INTERVIEW IN PROGRESS</p><h1>{session.job_title}</h1></div><button className="button secondary" disabled={loading || finishing || conflict || mediaPending} onClick={() => setConfirm(true)}>Finish interview</button></header>
+  async function resumeFullscreen() {
+    setEnteringFullscreen(true); setFullscreenError('');
+    try { await enterInterviewFullscreen(); }
+    catch (error) { setFullscreenError(error instanceof Error ? error.message : 'Unable to enter fullscreen.'); }
+    finally { setEnteringFullscreen(false); }
+  }
+  async function nextQuestion() {
+    if (!question || selectingNext) return;
+    setSelectingNext(true); setError('');
+    try {
+      await flush();
+      const next = await api.recommend(question.id);
+      // The candidate may keep typing while the recommendation is fetched.
+      await flush();
+      if (next.position) await load(next.position); else setConfirm(true);
+    } catch (error) { setError(error instanceof Error ? error.message : 'Unable to select next question.'); }
+    finally { setSelectingNext(false); }
+  }
+  return <>
+    {!fullscreen && remaining > 0 && <section className="fullscreen-gate" role="dialog" aria-modal="true" aria-labelledby="fullscreen-title"><div><h2 id="fullscreen-title">Enter fullscreen to continue</h2><p>The interview uses fullscreen for answering and device checks. Your saved answers are preserved. The timer continues while you are outside fullscreen.</p><p>Time remaining: <strong>{time(remaining)}</strong></p>{fullscreenError && <p className="error" role="alert">{fullscreenError}</p>}<button className="button" autoFocus disabled={enteringFullscreen} onClick={() => void resumeFullscreen()}>{enteringFullscreen ? 'Opening fullscreen…' : 'Enter fullscreen'}</button></div></section>}
+    <main className="interview-shell" inert={!fullscreen && remaining > 0}>
+    <header className="room-title"><div><p className="eyebrow">INTERVIEW IN PROGRESS</p><h1>{session.job_title}</h1></div><button className="button secondary" disabled={loading || finishing || conflict || mediaPending || selectingNext} onClick={() => setConfirm(true)}>Finish interview</button></header>
     <Proctoring token={token} sessionId={session.id} />
     {mediaPending && <p className="configuration-note" role="status">Complete, upload or discard the pending recording before changing questions or finishing.</p>}
     {error && <p className="error" role="alert">{error}</p>}{localWarning && <p className="configuration-note">{localWarning}</p>}
@@ -171,17 +196,17 @@ export function InterviewRoom({ token, initial, onSession }: { token: string; in
       <section className="room-left">
         <div className="room-question">
           <div className="room-question-top"><span>Question {question?.position ?? '–'} / {session.question_count}</span><div className={`room-timer ${remaining <= 60000 ? 'urgent' : ''}`} role="timer" aria-label="Time remaining"><small>Time remaining</small><strong>{time(remaining)}</strong></div></div>
-          {loading ? <p role="status">Loading question…</p> : question ? <h2 className="preserve">{question.prompt}</h2> : <button className="button" onClick={() => void load()}>Retry loading</button>}
-          <div className="room-navigation" aria-label="Questions">{Array.from({ length: session.question_count }, (_, index) => <button key={index} className={question?.position === index + 1 ? 'current' : ''} aria-label={`Question ${index + 1}`} aria-current={question?.position === index + 1 ? 'step' : undefined} disabled={loading || finishing || conflict || mediaPending || posting} onClick={() => void navigate(index + 1)}>{index + 1}</button>)}<small>{session.answer_count} of {session.question_count} answered</small></div>
+          {loading ? <p role="status">Loading question…</p> : question ? <QuestionContent content={question.prompt} /> : <button className="button" onClick={() => void load()}>Retry loading</button>}
+          <div className="room-navigation" aria-label="Questions">{Array.from({ length: session.question_count }, (_, index) => <button key={index} className={question?.position === index + 1 ? 'current' : ''} aria-label={`Question ${index + 1}`} aria-current={question?.position === index + 1 ? 'step' : undefined} disabled={loading || finishing || conflict || mediaPending || posting || selectingNext} onClick={() => void navigate(index + 1)}>{index + 1}</button>)}<small>{session.answer_count} of {session.question_count} answered</small></div>
         </div>
-        <InterviewMedia controlsTarget={mediaControls} token={token} sessionId={session.id} />
+        <InterviewMedia token={token} sessionId={session.id} />
       </section>
       <section className="room-right">
         <div className="room-answer-top"><span>Answer type <strong>{question?.kind === 'code' ? 'Code' : question?.kind === 'scenario' ? 'Scenario' : 'Text'}</strong></span><span>On this question <strong>{questionStarted ? time(now - questionStarted) : '—'}</strong></span></div>
         <section className="room-submitted" aria-label="Submitted answer"><p className="eyebrow">YOUR SUBMITTED ANSWER</p>{question && <RecordingAttachments candidate session={session.id} question={question.id} token={token} refresh={mediaRevision} onPresence={setHasRecording} />}{submittedContent ? <pre className={question?.kind === 'code' ? 'submitted-code' : ''}>{submittedContent}</pre> : !hasRecording && <p className="muted">Your answer will appear here when you click Submit answer.</p>}</section>
-        <section className="room-composer"><div ref={setMediaControls} />{!fullscreen && <p className="configuration-note">Enter fullscreen above to write your answer. The timer continues.</p>}<label htmlFor="room-answer">{question?.kind === 'code' ? 'Write your code' : 'Write your answer'}</label><textarea id="room-answer" aria-label={question?.kind === 'code' ? 'Your code' : 'Your answer'} className={question?.kind === 'code' ? 'code-editor' : ''} spellCheck={question?.kind !== 'code'} value={content} disabled={loading || finishing || posting || !question || !fullscreen} onChange={event => change(event.target.value)} placeholder={question?.kind === 'code' ? '// Write your solution…' : 'Type your answer…'} /><div className="room-composer-footer"><span className="save-status" role="status">{saving}</span><button className="button secondary" disabled={loading || finishing || conflict || mediaPending || posting || !question} onClick={() => { if (!question) return; setPosting(true); void flush().then(() => api.recommend(question.id)).then(next => next.position ? load(next.position) : setConfirm(true)).catch(error => setError(error instanceof Error ? error.message : 'Unable to select next question')).finally(() => setPosting(false)); }}>Next question →</button><button className="button" disabled={loading || finishing || conflict || mediaPending || posting || !question || !content.trim()} onClick={() => { setPosting(true); if (now - questionStarted < 10000) window.dispatchEvent(new CustomEvent('interview-device', { detail: { kind: 'rapid_answer', count: Math.floor((now - questionStarted) / 1000) } })); void flush().then(() => setSubmittedContent(textRef.current)).catch(() => {}).finally(() => setPosting(false)); }}>{posting ? 'Submitting…' : 'Submit answer ↑'}</button></div>{question && <RecordedAnswer fullscreen={fullscreen} key={question.id} token={token} session={session.id} question={question.id} onPending={pending => { setMediaPending(pending); if (!pending) { setMediaRevision(value => value + 1); void api.session().then(next => setSession(next)).catch(() => {}); } }} />}<small className="muted">Drafts save automatically. You can edit answers until you finish the interview.</small>{conflict && <div className="conflict-actions"><button className="button secondary" onClick={() => void resolve(false)}>Use saved answer</button><button className="button" onClick={() => void resolve(true)}>Save my draft instead</button></div>}</section>
+        <section className="room-composer"><label htmlFor="room-answer">{question?.kind === 'code' ? 'Write your code' : 'Write your answer'}</label><textarea id="room-answer" aria-label={question?.kind === 'code' ? 'Your code' : 'Your answer'} className={question?.kind === 'code' ? 'code-editor' : ''} spellCheck={question?.kind !== 'code'} value={content} disabled={loading || finishing || !question || !fullscreen} onChange={event => change(event.target.value)} placeholder={question?.kind === 'code' ? '// Write your solution…' : 'Type your answer…'} /><div className="room-composer-footer"><span className="save-status" role="status">{saving}</span><button className="button secondary" disabled={loading || finishing || conflict || mediaPending || posting || selectingNext || !question} onClick={() => void nextQuestion()}>{selectingNext ? 'Selecting next…' : 'Next question →'}</button><button className="button" disabled={loading || finishing || conflict || mediaPending || posting || selectingNext || !question || !content.trim()} onClick={() => { setPosting(true); if (now - questionStarted < 10000) window.dispatchEvent(new CustomEvent('interview-device', { detail: { kind: 'rapid_answer', count: Math.floor((now - questionStarted) / 1000) } })); void flush().then(() => setSubmittedContent(textRef.current)).catch(() => {}).finally(() => setPosting(false)); }}>{posting ? 'Saving answer…' : 'Submit answer ↑'}</button></div>{question && <RecordedAnswer fullscreen={fullscreen} key={question.id} token={token} session={session.id} question={question.id} onPending={pending => { setMediaPending(pending); if (!pending) { setMediaRevision(value => value + 1); void api.session().then(next => setSession(next)).catch(() => {}); } }} />}<small className="muted">Drafts save automatically. You can edit answers until you finish the interview.</small>{conflict && <div className="conflict-actions"><button className="button secondary" onClick={() => void resolve(false)}>Use saved answer</button><button className="button" onClick={() => void resolve(true)}>Save my draft instead</button></div>}</section>
       </section>
     </div>}
     <dialog ref={submitDialog} className="submit-dialog" onCancel={() => setConfirm(false)}><h2>Submit your interview?</h2><p>Your latest answer will be saved first. Submitted answers cannot be edited. You may submit with unanswered questions.</p><div className="actions"><button className="button secondary" disabled={finishing} onClick={() => setConfirm(false)}>Keep working</button><button className="button" disabled={finishing} onClick={() => { setConfirm(false); void finish(); }}>{finishing ? 'Submitting…' : 'Confirm submission'}</button></div></dialog>
-  </main>;
+  </main></>;
 }

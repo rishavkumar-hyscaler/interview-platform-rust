@@ -63,7 +63,7 @@ async fn room(
             "Question position must be positive",
         ));
     }
-    let question:Option<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',q.id,'position',q.position,'prompt',q.prompt,'kind',q.kind,'difficulty',q.difficulty,'answer',coalesce(a.content,''),'revision',coalesce(a.revision,0),'saved_at',a.updated_at) FROM interview_questions q LEFT JOIN interview_answers a ON a.question_id=q.id AND a.session_id=q.session_id WHERE q.session_id=$1 AND q.position=$2")
+    let question:Option<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',q.id,'position',q.position,'prompt',q.prompt,'kind',q.kind,'difficulty',q.difficulty,'answer',coalesce(a.content,''),'revision',coalesce(a.revision,0),'saved_at',a.updated_at) FROM session_question_details() q LEFT JOIN interview_answers a ON a.question_id=q.id AND a.session_id=q.session_id WHERE q.session_id=$1 AND q.position=$2")
         .bind(id).bind(position).fetch_optional(&mut *tx).await?;
     let question = question.ok_or(ApiError(StatusCode::NOT_FOUND, "Question not found"))?;
     if previous.as_ref().and_then(|p| p["position"].as_i64()) != Some(i64::from(position)) {
@@ -121,7 +121,7 @@ async fn save(
         ));
     }
     let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM interview_questions WHERE id=$1 AND session_id=$2)",
+        "SELECT EXISTS(SELECT 1 FROM session_question_details() WHERE id=$1 AND session_id=$2)",
     )
     .bind(question)
     .bind(id)
@@ -165,7 +165,7 @@ async fn save(
             .bind(Uuid::new_v4()).bind(owner).bind(id).bind(question).bind(&input.content).bind(revision).execute(&mut *tx).await?;
         audit(&mut tx,owner,None,id,"answer.saved",json!({"actor":"interviewee","question_id":question,"revision":revision,"bytes":input.content.len()})).await?;
     }
-    let result:Value=sqlx::query_scalar("SELECT jsonb_build_object('question_id',question_id,'revision',revision,'saved_at',updated_at,'answer_count',(SELECT count(*) FROM interview_questions q WHERE q.session_id=$1 AND (EXISTS(SELECT 1 FROM interview_answers a WHERE a.question_id=q.id AND length(btrim(a.content))>0) OR EXISTS(SELECT 1 FROM audit_events m WHERE m.entity_id=q.session_id AND m.action='answer.recorded' AND m.metadata->>'question_id'=q.id::text)))) FROM interview_answers WHERE session_id=$1 AND question_id=$2")
+    let result:Value=sqlx::query_scalar("SELECT jsonb_build_object('question_id',question_id,'revision',revision,'saved_at',updated_at,'answer_count',(SELECT count(*) FROM session_question_details() q WHERE q.session_id=$1 AND (EXISTS(SELECT 1 FROM interview_answers a WHERE a.question_id=q.id AND a.session_id=q.session_id AND length(btrim(a.content))>0) OR EXISTS(SELECT 1 FROM audit_events m WHERE m.entity_id=q.session_id AND m.action='answer.recorded' AND m.metadata->>'question_id'=q.id::text)))) FROM interview_answers WHERE session_id=$1 AND question_id=$2")
         .bind(id).bind(question).fetch_one(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(result))

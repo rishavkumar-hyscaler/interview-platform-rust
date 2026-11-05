@@ -2,9 +2,7 @@ import { useEffect, useState } from 'react';
 import { candidateApi } from './api';
 type Observation = { id: string; kind: string; client_time: number; count?: number };
 export function Proctoring({ token, sessionId }: { token: string; sessionId: string }) {
-  const [fullscreen, setFullscreen] = useState(!!document.fullscreenElement);
   const [status, setStatus] = useState('Browser monitoring active');
-  const [error, setError] = useState('');
   useEffect(() => {
     const api = candidateApi(token);
     const key = `interview-events:${sessionId}`;
@@ -29,7 +27,7 @@ export function Proctoring({ token, sessionId }: { token: string; sessionId: str
     }
     const blur = () => record('focus_lost'); const focus = () => record('focus_returned');
     const visibility = () => record(document.hidden ? 'hidden' : 'visible');
-    const full = () => { setFullscreen(!!document.fullscreenElement); record(document.fullscreenElement ? 'fullscreen_entered' : 'fullscreen_exited'); };
+    const full = () => { record(document.fullscreenElement ? 'fullscreen_entered' : 'fullscreen_exited'); };
     const copy = () => record('copy');
     const paste = (event: ClipboardEvent) => record('paste', event.clipboardData?.getData('text').length ?? 0);
     const context = () => record('context_menu');
@@ -61,5 +59,5 @@ export function Proctoring({ token, sessionId }: { token: string; sessionId: str
       window.removeEventListener('interview-device', device); window.removeEventListener('online', send);
     };
   }, [token, sessionId]);
-  return <div className="proctor-status"><small>{status}. Activity signals are observations, not cheating verdicts.</small>{!fullscreen && <button className="button secondary" onClick={() => { setError(''); void document.documentElement.requestFullscreen().catch(() => setError('Fullscreen unavailable. Browser monitoring continues.')); }}>Enter fullscreen</button>}{error && <small role="alert">{error}</small>}</div>;
+  return <div className="proctor-status"><small>{status}. Activity signals are observations, not cheating verdicts.</small></div>;
 }

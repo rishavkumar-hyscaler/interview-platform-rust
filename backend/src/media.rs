@@ -110,7 +110,7 @@ async fn upload(
         ));
     }
     let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM interview_questions WHERE id=$1 AND session_id=$2)",
+        "SELECT EXISTS(SELECT 1 FROM session_question_details() WHERE id=$1 AND session_id=$2)",
     )
     .bind(question)
     .bind(session)

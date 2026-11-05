@@ -24,7 +24,7 @@ pub(super) async fn prepare(
 ) -> anyhow::Result<()> {
     let mut tx = interviewer_transaction(pool, claim.recruiter).await?;
     let session = if claim.is_pool {
-        sqlx::query("SELECT p.job_id,j.description,p.duration_minutes,p.last_error AS generation_error FROM question_sets p JOIN jobs j ON j.id=p.job_id WHERE p.id=$1 AND p.assigned_session_id IS NULL")
+        sqlx::query("SELECT p.job_id,j.description,p.duration_minutes,p.last_error AS generation_error FROM question_sets p JOIN jobs j ON j.id=p.job_id WHERE p.id=$1")
             .bind(claim.id).fetch_optional(&mut *tx).await?
     } else {
         sqlx::query("SELECT s.job_id,j.description,s.duration_minutes,s.generation_error FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1 AND s.state IN ('invited','ready') AND s.expires_at>now()")
@@ -123,52 +123,11 @@ pub(super) async fn prepare(
             total
         );
         let prepared = async {
-            let mut feedback = initial_feedback.clone();
-            let mut exclusions = excluded.clone();
-            for revision in 1..=2 {
-                let (prompts, vectors) =
-                    super::drafts::prepare(&context, exclusions.clone(), &feedback).await?;
-                let prompt = prompts.questions[0].prompt.clone();
-                match super::references::prepare(&context, prompts).await {
-                    Ok((questions, review)) => {
-                        let question = questions
-                            .questions
-                            .into_iter()
-                            .next()
-                            .expect("one approved question");
-                        let mut review = review
-                            .questions
-                            .into_iter()
-                            .next()
-                            .expect("one reviewed reference");
-                        review.position = position;
-                        super::checkpoint::save(&context, &question, &review, &vectors[0]).await?;
-                        return Ok::<_, anyhow::Error>((
-                            question.prompt,
-                            question.estimated_minutes,
-                        ));
-                    }
-                    Err(error) => {
-                        if let Some(defect) = error.downcast_ref::<quality::PromptRevision>()
-                            && revision == 1
-                        {
-                            feedback = format!(
-                                "Prompt revision required: replace this rejected task with a DIFFERENT, scoped question for the SAME blueprint slot whose reference can be validated. Do not reuse the excluded prompt. Address the findings. If factual vendor identifiers are uncertain, choose a task based on explicit provided facts or reasoning rather than inventing action names, ARN syntax, or version-specific behavior. {}",
-                                defect.feedback
-                            );
-                            exclusions.push(prompt);
-                            tracing::info!(
-                                event = "task.phase",
-                                phase = "question.rescope",
-                                position
-                            );
-                            continue;
-                        }
-                        return Err(error);
-                    }
-                }
-            }
-            unreachable!("two bounded question scope attempts")
+            let (questions, review, vectors) =
+                super::drafts::prepare(&context, excluded.clone(), &initial_feedback).await?;
+            let question = &questions.questions[0];
+            super::checkpoint::save(&context, question, &review.questions[0], &vectors[0]).await?;
+            Ok::<_, anyhow::Error>((question.prompt.clone(), question.estimated_minutes))
         };
         let (prompt,minutes)=match tokio::time::timeout(std::time::Duration::from_secs(seconds),prepared).await {
             Ok(result)=>result?,

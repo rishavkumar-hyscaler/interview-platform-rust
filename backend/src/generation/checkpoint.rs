@@ -18,7 +18,7 @@ pub(super) async fn save(
     let claim = context.claim;
     let mut tx = interviewer_transaction(context.pool, claim.recruiter).await?;
     let owned: Option<Uuid> = if claim.is_pool {
-        sqlx::query_scalar("SELECT id FROM question_sets WHERE id=$1 AND claim_token=$2 AND status='running' AND lease_until>clock_timestamp() AND assigned_session_id IS NULL FOR UPDATE")
+        sqlx::query_scalar("SELECT id FROM question_sets WHERE id=$1 AND claim_token=$2 AND status='running' AND lease_until>clock_timestamp() FOR UPDATE")
             .bind(claim.id).bind(claim.token).fetch_optional(&mut *tx).await?
     } else {
         sqlx::query_scalar("SELECT id FROM interview_sessions WHERE generation_id=$1 AND generation_claim_token=$2 AND generation_status='running' AND generation_lease_until>clock_timestamp() AND state IN ('invited','ready') AND expires_at>clock_timestamp() FOR UPDATE")

@@ -1,6 +1,6 @@
 import { request } from '../../api';
 export type Page<T> = { items: T[]; next_cursor: string | null };
-export type Job = { id: string; job_code: string; title: string; description: string; created_at: string; session_count: number; preparation_duration_minutes: number };
+export type Job = { id: string; job_code: string; title: string; description: string; created_at: string; session_count: number; question_set_count: number; preparation_duration_minutes: number };
 export type Interview = { id: string; job_id: string; job_title: string; job_code: string; candidate_name: string; candidate_email: string; state: string; duration_minutes: number; created_at: string; expires_at: string; started_at: string | null; deadline_at: string | null; submitted_at: string | null; description?: string; question_count?: number; answer_count?: number; invitation_recoverable?: boolean; invitation_active?: boolean };
 export type Audit = { id: string; action: string; entity_id: string | null; actor_id: string | null; created_at: string; metadata: Record<string, unknown> };
 export type Summary = { jobs: number; sessions: number; active: number; reviewable: number };
@@ -19,7 +19,7 @@ export function workspaceApi(token: string) {
     audit: (entity?: string, cursor?: string) => get<Page<Audit>>(`/audit?${new URLSearchParams({ ...(entity ? { entity_id: entity } : {}), ...(cursor ? { cursor } : {}) })}`),
     questionSets: (id: string, signal?: AbortSignal) => request<JobPool>(`${base}/jobs/${id}/question-sets`, { signal }, token),
     retryQuestionSets: (id: string) => post<{ status: string }>(`/jobs/${id}/question-sets`, {}),
-    createJob: (data: { preparation_duration_minutes: number; job_code: string; title: string; description: string; request_key: string }) => post<Job>('/jobs', data),
+    createJob: (data: { question_set_count: number; preparation_duration_minutes: number; job_code: string; title: string; description: string; request_key: string }) => post<Job>('/jobs', data),
     invite: (job: string, data: { candidate_name: string; candidate_email: string; duration_minutes: number; request_key: string }) => post<{ session: Interview; invitation_token: string | null }>(`/jobs/${job}/invitations`, data),
   };
 }

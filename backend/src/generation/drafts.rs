@@ -1,18 +1,27 @@
-//! Cheap prompt validation and bank deduplication happen before reference generation.
+//! Generate one complete question, deduplicate it, then independently review it.
 use super::{
     pipeline::Preparation,
     quality,
-    types::{PromptSet, cosine, fingerprint, vector_text},
+    types::{PromptSet, QuestionPrompt, QuestionSet, fingerprint, vector_text},
 };
 use crate::infrastructure::interviewer_transaction;
 use serde_json::json;
 use sqlx::Row;
 
+#[derive(Debug)]
+struct DuplicateQuestion;
+impl std::fmt::Display for DuplicateQuestion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Question duplicated an existing or excluded JD-bank question; choose a different task from the exclusion list")
+    }
+}
+impl std::error::Error for DuplicateQuestion {}
+
 pub(super) async fn prepare(
     context: &Preparation<'_>,
     mut excluded: Vec<String>,
     initial_feedback: &str,
-) -> anyhow::Result<(PromptSet, Vec<Vec<f32>>)> {
+) -> anyhow::Result<(QuestionSet, quality::Review, Vec<Vec<f32>>)> {
     let diagnostics = super::diagnostics::Scope {
         pool: context.pool.clone(),
         owner: context.claim.recruiter,
@@ -21,71 +30,108 @@ pub(super) async fn prepare(
     };
     let mut feedback = initial_feedback.to_string();
     let mut previous = None;
-    for attempt in 1..=2 {
-        tracing::info!(event = "task.phase", phase = "questions.generate", attempt);
-        let response=context.provider.structured::<PromptSet>("interview_question_prompts",quality::PROMPT_INSTRUCTIONS,
-            json!({"job_description":context.description,"blueprint":context.blueprint,"positions":[context.position],"seed":context.claim.seed,"attempt":context.claim.attempts,"draft_attempt":attempt,"duration_minutes":context.duration,"excluded_questions":excluded,"repair_feedback":feedback,"previous_draft":previous})).await;
+    let mut duplicate_replaced = false;
+    let mut content_repaired = false;
+    let mut cached_embedding: Option<(String, Vec<f32>)> = None;
+    // A duplicate replacement does not consume the one content repair.
+    // Never exceed three drafts or regenerate saved questions.
+    for attempt in 1..=3 {
+        tracing::info!(event = "task.phase", phase = "question.generate", attempt);
+        let response = context.provider.structured::<QuestionSet>(
+            "interview_questions", quality::QUESTION_INSTRUCTIONS,
+            json!({"job_description":context.description,"blueprint":context.blueprint,
+                "positions":[context.position],"seed":context.claim.seed,"attempt":context.claim.attempts,
+                "draft_attempt":attempt,"duration_minutes":context.duration,
+                "expected_output_format":quality::question_format(&context.blueprint.slots[0], context.duration),
+                "excluded_questions":excluded,"repair_feedback":feedback,"previous_draft":previous})
+        ).await;
         let checked = async {
-            let prompts = response?;
+            let questions = response?;
+            previous = Some(serde_json::to_value(&questions)?);
             anyhow::ensure!(
-                prompts.questions.len() == 1,
+                questions.questions.len() == 1,
                 "Generate exactly one question per checkpoint"
             );
-            previous = Some(serde_json::to_value(&prompts)?);
-            tracing::info!(event = "task.phase", phase = "questions.validate");
-            prompts.validate(context.blueprint, context.duration)?;
-            anyhow::ensure!(
-                !prompts.questions.iter().any(|question| excluded
+            questions.validate_at(context.blueprint, context.position)?;
+            questions.validate_budget(context.duration)?;
+            let prompts = PromptSet {
+                questions: questions
+                    .questions
                     .iter()
-                    .any(|old| fingerprint(old) == fingerprint(&question.prompt))),
-                "Question duplicated an excluded prompt"
-            );
-            exact_duplicates(context, &prompts, &mut excluded).await?;
-            tracing::info!(event = "task.phase", phase = "questions.deduplicate");
-            let texts: Vec<String> = prompts
-                .questions
+                    .map(|q| QuestionPrompt {
+                        competency_id: q.competency_id.clone(),
+                        kind: q.kind.clone(),
+                        difficulty: q.difficulty.clone(),
+                        prompt: q.prompt.clone(),
+                        estimated_minutes: q.estimated_minutes,
+                    })
+                    .collect(),
+            };
+            prompts.validate(context.blueprint, context.duration)?;
+            if excluded
                 .iter()
-                .map(|question| question.prompt.clone())
-                .collect();
-            let vectors = context.provider.embeddings(&texts).await?;
-            for (index, vector) in vectors.iter().enumerate() {
-                for other in &vectors[..index] {
-                    anyhow::ensure!(
-                        cosine(vector, other) < context.provider.similarity,
-                        "Generated set contains semantically duplicate questions"
-                    );
-                }
+                .any(|old| fingerprint(old) == fingerprint(&prompts.questions[0].prompt))
+            {
+                return Err(DuplicateQuestion.into());
             }
+            exact_duplicates(context, &prompts, &mut excluded).await?;
+            let texts = vec![prompts.questions[0].prompt.clone()];
+            let vectors = match &cached_embedding {
+                Some((prompt, vector)) if prompt == &texts[0] => vec![vector.clone()],
+                _ => context.provider.embeddings(&texts).await?,
+            };
+            cached_embedding = Some((texts[0].clone(), vectors[0].clone()));
             semantic_duplicates(context, &prompts, &vectors, &mut excluded).await?;
-            tracing::info!(event = "task.phase", phase = "questions.review");
-            quality::review_prompts(
+            tracing::info!(
+                event = "task.phase",
+                phase = "question.review",
+                position = context.position
+            );
+            let review = quality::review(
                 context.provider,
                 context.description,
                 context.blueprint,
-                &prompts,
+                &questions,
+                context.duration,
                 context.position,
             )
             .await?;
-            Ok::<_, anyhow::Error>((prompts, vectors))
+            Ok::<_, anyhow::Error>((questions, review, vectors))
         }
         .await;
         match checked {
             Ok(approved) => return Ok(approved),
             Err(error) => {
                 diagnostics
-                    .rejected("prompts", attempt, &error, &previous)
+                    .rejected("question", attempt, &error, &previous)
                     .await;
+                if quality::prompt_defect(&error)
+                    && let Some(prompt) = previous
+                        .as_ref()
+                        .and_then(|v| v["questions"][0]["prompt"].as_str())
+                {
+                    excluded.push(prompt.to_string());
+                }
+                feedback = quality::repair_feedback(&error);
                 let fatal = error
                     .downcast_ref::<super::provider::ProviderFailure>()
                     .is_some_and(|failure| !failure.retryable);
-                feedback = quality::repair_feedback(&error);
-                if attempt == 2 || fatal {
+                let exhausted = if error.is::<DuplicateQuestion>() {
+                    let used = duplicate_replaced;
+                    duplicate_replaced = true;
+                    used
+                } else {
+                    let used = content_repaired;
+                    content_repaired = true;
+                    used
+                };
+                if attempt == 3 || exhausted || fatal {
                     return Err(super::bounded_failure(error));
                 }
             }
         }
     }
-    unreachable!("both prompt attempts return or repair")
+    unreachable!("three bounded draft attempts")
 }
 
 async fn exact_duplicates(
@@ -117,10 +163,9 @@ async fn exact_duplicates(
         }
     }
     tx.commit().await?;
-    anyhow::ensure!(
-        !duplicated,
-        "Question duplicated an existing JD-bank question; choose a different task from the exclusion list"
-    );
+    if duplicated {
+        return Err(DuplicateQuestion.into());
+    }
     Ok(())
 }
 async fn semantic_duplicates(
@@ -143,9 +188,8 @@ async fn semantic_duplicates(
         }
     }
     tx.commit().await?;
-    anyhow::ensure!(
-        !duplicated,
-        "Question duplicated an existing JD-bank question; choose a different task from the exclusion list"
-    );
+    if duplicated {
+        return Err(DuplicateQuestion.into());
+    }
     Ok(())
 }

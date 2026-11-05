@@ -55,7 +55,7 @@ pub async fn process_next(pool: &PgPool, provider: &AiProvider) -> anyhow::Resul
             .bind(session)
             .execute(&mut *tx)
             .await?;
-        let questions:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',q.id,'position',q.position,'prompt',q.prompt,'rubric',q.rubric,'competency_id',q.competency_id,'answer',coalesce(a.content,''),'recordings',(SELECT count(*) FROM audit_events m WHERE m.entity_id=q.session_id AND m.action='answer.recorded' AND m.metadata->>'question_id'=q.id::text)) FROM interview_questions q LEFT JOIN interview_answers a ON a.question_id=q.id WHERE q.session_id=$1 ORDER BY q.position").bind(session).fetch_all(&mut *tx).await?;
+        let questions:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',q.id,'position',q.position,'prompt',q.prompt,'rubric',q.rubric,'competency_id',q.competency_id,'answer',coalesce(a.content,''),'recordings',(SELECT count(*) FROM audit_events m WHERE m.entity_id=q.session_id AND m.action='answer.recorded' AND m.metadata->>'question_id'=q.id::text)) FROM session_question_details() q LEFT JOIN interview_answers a ON a.question_id=q.id AND a.session_id=q.session_id WHERE q.session_id=$1 ORDER BY q.position").bind(session).fetch_all(&mut *tx).await?;
         tx.commit().await?;
         let mut task = crate::observability::TaskLog::start("assessment.score", session);
         let started = std::time::Instant::now();

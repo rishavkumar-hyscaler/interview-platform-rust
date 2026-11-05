@@ -1,3 +1,15 @@
+## Current flow: fewer requests (v5)
+
+Job creation accepts `question_set_count` (1–5, default 1). This is the total number of job sets, including assigned/pending/failed work; completed sets are reused across candidates without queuing replacements. interview_sessions.question_set_id links to the source questions directly; no question copies are created. session_question_details() is a SECURITY INVOKER read function preserving table RLS on PostgreSQL 14 and later. Candidate answers, revisions and progress are scoped by session_id and question_id. Session-specific generation beyond these sets requires the interviewer’s explicit Prepare action. Existing jobs keep their previous target of three. The target is returned by job and pool APIs. Changing it on an existing job is not exposed yet.
+
+For each unsaved position, generate the complete question, reference answer and rubric in one call. Validate its structure, time allocation and exact fingerprint in Rust before requesting an embedding. Check semantic similarity against the job bank, then use one independent content review for both prompt and reference. Save only the fully validated question before proceeding.
+
+A successful six-question set uses 6 draft calls + 6 embedding calls + 6 review calls, plus one blueprint call when the job has no cached blueprint. Each question allows one duplicate replacement and one content repair at most (three drafts maximum); unchanged prompts reuse their embedding during content repair; it does not regenerate previous checkpoints. Invalid local drafts and duplicates skip review. Transient service errors can still trigger the existing bounded task retries, so total usage can be higher on failures. No live AI test was run for this change.
+
+The combined draft may spend answer tokens on a question that is subsequently rejected as a duplicate. This trades some wasted tokens on duplicate drafts for fewer requests on successful questions.
+
+The sections below describe earlier implementation stages and are retained as history.
+
 # Sequential question preparation (v4)
 
 A set is prepared **one question at a time**. The backend completes its checks and saves its reference before beginning the next question. Each accepted question is a durable checkpoint in `interview_questions`; no additional table or migration is required.

@@ -54,3 +54,29 @@ dialog.modal-backdrop{border:0;background:transparent;backdrop-filter:none;posit
 
 .media-consent { display: flex; gap: .6rem; align-items: flex-start; font-size: .85rem; line-height: 1.5; margin: .75rem 0; }
 .media-consent input { width: auto; margin-top: .3rem; flex: 0 0 auto; }
+
+/* Keep the primary interview controls visible; scroll the content, not the editor. */
+.fullscreen-gate{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;background:#edf1f8f5;padding:24px}
+.fullscreen-gate>div{width:min(520px,100%);padding:28px;background:white;border:1px solid #dce2da;border-radius:14px;box-shadow:0 16px 60px #1b243d20}
+.question-content{font-size:16px;line-height:1.65;color:#253147;overflow-wrap:anywhere;margin:18px 0}
+.question-content p{margin:0 0 12px;white-space:pre-wrap}.question-content h3{font-size:17px;margin:18px 0 10px}
+.question-content ul,.question-content ol{padding-left:24px;margin:12px 0}.question-content li{margin:7px 0}
+.question-content code{font-family:ui-monospace,monospace;font-size:.9em;background:#f0f3f6;padding:2px 4px;border-radius:4px}
+.question-content pre{white-space:pre-wrap;background:#f0f3f6;padding:14px;border-radius:8px}.question-content pre code{padding:0}
+.room-media .media-controls{margin:4px 0;justify-content:center}.room-media .error{font-size:13px}
+@media(min-width:801px){
+  .room-left{display:grid;grid-template-rows:minmax(180px,1fr) auto}
+  .room-question{display:flex;flex-direction:column;overflow:hidden}
+  .room-question-top,.room-navigation{flex:none}.room-navigation{margin-top:12px}
+  .question-content{min-height:0;overflow:auto;flex:1;padding-right:8px}
+  .room-media{max-height:38dvh;overflow:auto}
+  .camera-preview{flex:none;width:100%;max-width:260px;height:clamp(100px,15dvh,150px)}
+  .room-submitted{flex:0 1 30%;min-height:100px;max-height:30dvh}
+  .room-composer{flex:1;overflow:auto;min-height:260px}
+  .room-composer textarea{flex:1 0 140px;min-height:140px}
+}
+@media(max-height:650px),(max-width:800px){
+  .interview-shell:has(.simple-room){height:auto;min-height:100dvh;overflow:visible}
+  .room-left{display:flex}.room-question{overflow:visible}.question-content{overflow:visible}
+  .room-media{max-height:none}.room-composer textarea{min-height:180px;resize:vertical}
+}

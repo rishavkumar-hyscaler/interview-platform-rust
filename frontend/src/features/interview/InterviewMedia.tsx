@@ -1,9 +1,8 @@
 import { evidenceQueue } from './proctoring/evidence';
-import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 
 import { startMediaMonitor } from './proctoring/monitor';
-export function InterviewMedia({ controlsTarget, token, sessionId }: { controlsTarget: HTMLDivElement | null; token: string; sessionId: string }) {
+export function InterviewMedia({ token, sessionId }: { token: string; sessionId: string }) {
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const audio = useRef<AudioContext | null>(null);
@@ -22,6 +21,13 @@ export function InterviewMedia({ controlsTarget, token, sessionId }: { controlsT
     alive.current = true;
     return () => { alive.current = false; stream.current?.getTracks().forEach(track => track.stop()); void audio.current?.close(); };
   }, []);
+  useEffect(() => {
+    const preview = video.current;
+    if (!preview) return;
+    preview.srcObject = camera && stream.current ? new MediaStream(stream.current.getVideoTracks()) : null;
+    if (camera) void preview.play().catch(() => { if (alive.current) setError('Camera is connected but playback was blocked. Click Retry camera preview.'); });
+    return () => { preview.srcObject = null; };
+  }, [camera]);
   useEffect(() => {
     if (!mic || !stream.current) return;
     const context = new AudioContext(); audio.current = context;
@@ -60,10 +66,10 @@ export function InterviewMedia({ controlsTarget, token, sessionId }: { controlsT
         track.onended = () => { if (alive.current) { if (kind === 'video') setCamera(false); else setMic(false); window.dispatchEvent(new CustomEvent('interview-device', { detail: kind === 'video' ? 'camera_disabled' : 'microphone_disabled' })); } };
       });
       window.dispatchEvent(new CustomEvent('interview-device', { detail: kind === 'video' ? 'camera_enabled' : 'microphone_enabled' }));
-      if (kind === 'video') { if (video.current) video.current.srcObject = new MediaStream(acquired.getVideoTracks()); setCamera(true); }
+      if (kind === 'video') setCamera(true);
       else setMic(true);
-    } catch (error) { if (error instanceof DOMException && error.name === 'NotAllowedError') window.dispatchEvent(new CustomEvent('interview-device', { detail: kind === 'video' ? 'camera_denied' : 'microphone_denied' })); if (alive.current) setError(error instanceof Error ? error.message : 'Unable to access device.'); }
+    } catch (error) { if (error instanceof DOMException && error.name === 'NotAllowedError') window.dispatchEvent(new CustomEvent('interview-device', { detail: kind === 'video' ? 'camera_denied' : 'microphone_denied' })); if (alive.current) setError(error instanceof DOMException && error.name === 'NotAllowedError' ? `${kind === 'video' ? 'Camera' : 'Microphone'} permission is blocked. Allow access for this site using the browser address bar, then try again.` : error instanceof Error ? error.message : 'Unable to access device. Check browser permissions and whether another application is using it.'); }
     finally { if (alive.current) setBusy(false); }
   }
-  return <section className="room-media"><div className="camera-preview"><video ref={video} autoPlay muted playsInline hidden={!camera} />{!camera && <div><span aria-hidden="true">◎</span><p>Camera off</p></div>}<small>{consent ? 'Media monitoring enabled' : 'Local preview'}</small></div>{controlsTarget && createPortal(<div className="media-controls"><button className="button secondary" aria-pressed={camera} disabled={busy} onClick={() => void toggle('video')}>{camera ? 'Turn camera off' : 'Enable camera'}</button><button className="button secondary" aria-pressed={mic} disabled={busy} onClick={() => void toggle('audio')}>{mic ? 'Turn mic off' : 'Enable microphone'}</button>{mic && <meter min="0" max="100" value={level} aria-label="Microphone input level" />}</div>, controlsTarget)}<label className="media-consent"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} />Enable local face, eye/head direction and speech checks; save flagged snapshots and 3-second clips for interviewer review.</label><small className="muted">Enable camera/microphone above. Models run on this device. Only flagged media is uploaded; no continuous recording, identity or emotion analysis. Direction/speech estimates can be wrong.</small>{consent && <><small role="status">{camera || mic ? monitorStatus : 'Enable a device to start media checks. Browser monitoring continues.'}</small>{camera && <button className="text-button" onClick={() => monitor.current?.recalibrate()}>Recalibrate eye/head direction</button>}</>}{evidenceStatus && <small role="status">{evidenceStatus}</small>}{error && <p className="error" role="alert">{error}</p>}</section>;
+  return <section className="room-media"><div className="camera-preview"><video ref={video} autoPlay muted playsInline hidden={!camera} />{!camera && <div><span aria-hidden="true">◎</span><p>Camera off</p></div>}<small>{consent ? 'Media monitoring enabled' : 'Local preview'}</small></div><div className="media-controls"><button className="button secondary" aria-pressed={camera} disabled={busy} onClick={() => void toggle('video')}>{camera ? 'Turn camera off' : 'Enable camera'}</button><button className="button secondary" aria-pressed={mic} disabled={busy} onClick={() => void toggle('audio')}>{mic ? 'Turn mic off' : 'Enable microphone'}</button>{mic && <meter min="0" max="100" value={level} aria-label="Microphone input level" />}</div><label className="media-consent"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} />Enable local face, eye/head direction and speech checks; save flagged snapshots and 3-second clips for interviewer review.</label><small className="muted">Use Enable camera and Enable microphone to allow device access. Models run on this device. Only flagged media is uploaded; no continuous recording, identity or emotion analysis. Direction/speech estimates can be wrong.</small>{consent && <><small role="status">{camera || mic ? monitorStatus : 'Enable a device to start media checks. Browser monitoring continues.'}</small>{camera && <button className="text-button" onClick={() => monitor.current?.recalibrate()}>Recalibrate eye/head direction</button>}</>}{evidenceStatus && <small role="status">{evidenceStatus}</small>}{error && <p className="error" role="alert">{error}{camera && <button className="text-button" onClick={() => { void video.current?.play().then(() => setError('')).catch(() => setError('Preview could not start. Turn the camera off and enable it again.')); }}>Retry camera preview</button>}</p>}</section>;
 }

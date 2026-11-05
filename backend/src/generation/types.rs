@@ -500,7 +500,7 @@ impl QuestionSet {
             .sum();
         ensure!(
             duration > 0 && total <= duration as u64,
-            "Question time budgets exceed the interview duration"
+            "Question time budgets total {total} minutes, exceeding the allocated duration of {duration} minutes"
         );
         Ok(())
     }
