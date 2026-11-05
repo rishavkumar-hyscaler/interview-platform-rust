@@ -22,9 +22,9 @@ pub(super) async fn status(
         .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(missing)?;
-    let sets:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',p.id,'status',p.status,'duration_minutes',p.duration_minutes,'attempts',p.attempts,'last_error',p.last_error,'assigned',p.assigned_session_id IS NOT NULL,'question_count',(SELECT count(*) FROM interview_questions q WHERE q.set_id=p.id)) FROM question_sets p WHERE p.job_id=$1 ORDER BY p.created_at DESC,p.id DESC LIMIT 60")
+    let sets:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',p.id,'status',p.status,'duration_minutes',p.duration_minutes,'attempts',p.attempts,'last_error',p.last_error,'assigned',p.assigned_session_id IS NOT NULL,'last_failure',(SELECT jsonb_build_object('phase',a.metadata->'phase','summary',a.metadata->'summary','question_position',a.metadata->'question_position','findings',a.metadata->'findings') FROM audit_events a WHERE a.entity_id=p.id AND a.action='generation.rejected' ORDER BY a.created_at DESC,a.id DESC LIMIT 1),'question_count',(SELECT count(*) FROM interview_questions q WHERE q.set_id=p.id)) FROM question_sets p WHERE p.job_id=$1 ORDER BY p.created_at DESC,p.id DESC LIMIT 60")
         .bind(job).fetch_all(&mut *tx).await?;
-    let questions:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',q.id,'set_id',q.set_id,'position',q.position,'kind',q.kind,'difficulty',q.difficulty,'prompt',q.prompt,'rubric',q.rubric) FROM interview_questions q JOIN question_sets p ON p.id=q.set_id WHERE p.job_id=$1 AND p.assigned_session_id IS NULL AND p.status='completed' ORDER BY p.created_at,p.id,q.position LIMIT 120")
+    let questions:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',q.id,'set_id',q.set_id,'position',q.position,'kind',q.kind,'difficulty',q.difficulty,'prompt',q.prompt,'rubric',q.rubric) FROM interview_questions q JOIN question_sets p ON p.id=q.set_id WHERE p.job_id=$1 AND p.assigned_session_id IS NULL ORDER BY p.created_at,p.id,q.position LIMIT 120")
         .bind(job).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(

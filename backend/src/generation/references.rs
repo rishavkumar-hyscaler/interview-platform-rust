@@ -1,4 +1,4 @@
-//! Bounded concurrent reference generation; repair only the failing reference.
+//! Complete and review the reference for the current question before saving it.
 use super::{
     pipeline::Preparation,
     provider::AiProvider,
@@ -6,64 +6,47 @@ use super::{
     types::{Blueprint, PromptSet, Question, QuestionPrompt, QuestionSet, ReferenceAnswer},
 };
 use serde_json::json;
-use std::sync::Arc;
-use tokio::{sync::Semaphore, task::JoinSet};
 
 pub(super) async fn prepare(
     context: &Preparation<'_>,
     prompts: PromptSet,
 ) -> anyhow::Result<(QuestionSet, Review)> {
-    let concurrency = match std::env::var("GENERATION_REFERENCE_CONCURRENCY") {
-        Ok(value) => value.parse::<usize>().unwrap_or(3).clamp(1, 6),
-        Err(_) => 3,
+    anyhow::ensure!(
+        prompts.questions.len() == 1,
+        "Reference preparation requires one question"
+    );
+    let prompt = prompts
+        .questions
+        .into_iter()
+        .next()
+        .expect("one approved prompt");
+    let diagnostics = super::diagnostics::Scope {
+        pool: context.pool.clone(),
+        owner: context.claim.recruiter,
+        entity: context.claim.session,
+        position: Some(context.position),
     };
     tracing::info!(
         event = "task.phase",
-        phase = "references.generate_and_review",
-        concurrency
+        phase = "reference.generate_and_review",
+        position = context.position
     );
-    let permits = Arc::new(Semaphore::new(concurrency));
-    let count = prompts.questions.len();
-    let mut tasks = JoinSet::new();
-    let span = tracing::Span::current();
-    for (index, prompt) in prompts.questions.into_iter().enumerate() {
-        let provider = context.provider.clone();
-        let description = context.description.to_string();
-        let mut blueprint = context.blueprint.clone();
-        blueprint.slots = vec![blueprint.slots[index].clone()];
-        let permits = permits.clone();
-        let span = tracing::info_span!(parent: &span,"reference_question",position=index+1);
-        tasks.spawn(async move {
-            use tracing::Instrument;
-            async move {
-                let _permit = permits.acquire_owned().await?;
-                let (question, mut review) =
-                    prepare_one(&provider, &description, &blueprint, &prompt).await?;
-                review.position = index + 1;
-                Ok::<_, anyhow::Error>((index, question, review))
-            }
-            .instrument(span)
-            .await
-        });
-    }
-    let mut completed = Vec::with_capacity(count);
-    while let Some(result) = tasks.join_next().await {
-        // Dropping JoinSet cancels remaining in-flight requests if this set fails.
-        completed.push(result.map_err(|_| anyhow::anyhow!("Reference task interrupted"))??);
-    }
-    completed.sort_by_key(|(index, _, _)| *index);
-    let mut questions = Vec::with_capacity(count);
-    let mut reviews = Vec::with_capacity(count);
-    for (_, question, review) in completed {
-        questions.push(question);
-        reviews.push(review);
-    }
-    let questions = QuestionSet { questions };
-    questions.validate(context.blueprint)?;
-    questions.validate_budget(context.duration)?;
-    let review = Review { questions: reviews };
-    review.validate(count)?;
-    Ok((questions, review))
+    let (question, review) = prepare_one(
+        context.provider,
+        context.description,
+        context.blueprint,
+        &prompt,
+        &diagnostics,
+    )
+    .await?;
+    Ok((
+        QuestionSet {
+            questions: vec![question],
+        },
+        Review {
+            questions: vec![review],
+        },
+    ))
 }
 
 async fn prepare_one(
@@ -71,6 +54,7 @@ async fn prepare_one(
     jd: &str,
     blueprint: &Blueprint,
     prompt: &QuestionPrompt,
+    diagnostics: &super::diagnostics::Scope,
 ) -> anyhow::Result<(Question, QuestionReview)> {
     let mut feedback = String::new();
     let mut previous = None;
@@ -83,7 +67,7 @@ async fn prepare_one(
             let questions = QuestionSet {
                 questions: vec![question],
             };
-            questions.validate(blueprint)?;
+            questions.validate_at(blueprint, diagnostics.position.unwrap_or(1))?;
             // The prompt's allocation is immutable and already passed total-budget review.
             let mut review = quality::review(
                 provider,
@@ -91,6 +75,7 @@ async fn prepare_one(
                 blueprint,
                 &questions,
                 prompt.estimated_minutes as i32,
+                diagnostics.position.unwrap_or(1),
             )
             .await?;
             let question = questions
@@ -104,11 +89,39 @@ async fn prepare_one(
         match checked {
             Ok(reference) => return Ok(reference),
             Err(error) => {
+                let snapshot = previous
+                    .as_ref()
+                    .map(|reference| json!({"approved_question":prompt,"reference":reference}));
+                diagnostics
+                    .rejected("reference", attempt, &error, &snapshot)
+                    .await;
+                if quality::prompt_defect(&error) {
+                    return Err(quality::PromptRevision {
+                        summary: format!(
+                            "Question {} prompt needs revision: {}",
+                            diagnostics.position.unwrap_or(1),
+                            error
+                        ),
+                        feedback: quality::repair_feedback(&error),
+                    }
+                    .into());
+                }
                 let fatal = error
                     .downcast_ref::<super::provider::ProviderFailure>()
                     .is_some_and(|failure| !failure.retryable);
                 feedback = quality::repair_feedback(&error);
                 tracing::info!(event = "task.phase", phase = "reference.repair", attempt);
+                if attempt == 2 && !fatal && quality::review_findings(&error).is_some() {
+                    return Err(quality::PromptRevision {
+                        summary: format!(
+                            "Question {} reference still failed content review after repair: {}",
+                            diagnostics.position.unwrap_or(1),
+                            error
+                        ),
+                        feedback: quality::repair_feedback(&error),
+                    }
+                    .into());
+                }
                 if attempt == 2 || fatal {
                     return Err(super::bounded_failure(error));
                 }

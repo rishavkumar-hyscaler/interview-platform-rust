@@ -26,6 +26,9 @@ struct Mock {
     calls: Arc<AtomicUsize>,
     review_failures: Arc<AtomicUsize>,
     prompt_calls: Arc<AtomicUsize>,
+    prompt_reviews: Arc<Vec<AtomicUsize>>,
+    prompt_sizes: Arc<std::sync::Mutex<Vec<usize>>>,
+    prompt_failures: Arc<AtomicUsize>,
     embedding_calls: Arc<AtomicUsize>,
     reference_calls: Arc<Vec<AtomicUsize>>,
     active_references: Arc<AtomicUsize>,
@@ -39,6 +42,9 @@ impl Mock {
             calls: Arc::new(AtomicUsize::new(0)),
             review_failures: Arc::new(AtomicUsize::new(0)),
             prompt_calls: Arc::new(AtomicUsize::new(0)),
+            prompt_reviews: Arc::new((0..6).map(|_| AtomicUsize::new(0)).collect()),
+            prompt_sizes: Arc::new(std::sync::Mutex::new(Vec::new())),
+            prompt_failures: Arc::new(AtomicUsize::new(0)),
             embedding_calls: Arc::new(AtomicUsize::new(0)),
             reference_calls: Arc::new((0..6).map(|_| AtomicUsize::new(0)).collect()),
             active_references: Arc::new(AtomicUsize::new(0)),
@@ -83,14 +89,17 @@ async fn responses(
     let name = input["text"]["format"]["name"].as_str().unwrap();
     let request: Value =
         serde_json::from_str(input["input"][0]["content"].as_str().unwrap()).unwrap();
-    let count = if name == "interview_reference_review" {
-        1
-    } else {
+    let count = if name == "interview_blueprint" {
         6
+    } else {
+        request["blueprint"]["slots"]
+            .as_array()
+            .map(Vec::len)
+            .unwrap_or(1)
     };
     if !matches!(
         name,
-        "interview_reference_answer" | "interview_reference_review"
+        "interview_reference_answer" | "interview_reference_review" | "interview_prompt_review"
     ) {
         let array = if name == "interview_blueprint" {
             "slots"
@@ -141,15 +150,36 @@ async fn responses(
             assert!(schema.get("expected_answer").is_none());
             assert!(schema.get("criteria").is_none());
             let variant = mock.variant.load(Ordering::SeqCst);
-            let mut questions:Vec<Value>=request["blueprint"]["slots"].as_array().unwrap().iter().enumerate().map(|(i,slot)|json!({"competency_id":slot["competency_id"],"kind":slot["kind"],"difficulty":slot["difficulty"],"prompt":format!("Variant {variant} task {i}: explain an appropriate reliability decision for a Rust service with PostgreSQL under these constraints."),"estimated_minutes":if malformed==5 {30}else{4}})).collect();
-            if malformed == 12 {
-                questions[1]["prompt"] = questions[0]["prompt"].clone();
+            mock.prompt_sizes
+                .lock()
+                .unwrap()
+                .push(request["blueprint"]["slots"].as_array().unwrap().len());
+            let mut questions:Vec<Value>=request["blueprint"]["slots"].as_array().unwrap().iter().enumerate().map(|(slot_index,slot)| {
+                let i=request["positions"][slot_index].as_u64().unwrap() as usize-1;
+                let suffix=if (malformed==18 && request["draft_attempt"]==2) || request["repair_feedback"].as_str().unwrap_or("").contains("Prompt revision required") {" Clarify the transaction boundary and retry behavior; focus on a single state value."}else{""};
+                json!({"competency_id":slot["competency_id"],"kind":slot["kind"],"difficulty":slot["difficulty"],"prompt":format!("Variant {variant} task {i}: explain an appropriate reliability decision for a Rust service with PostgreSQL under these constraints.{suffix}"),"estimated_minutes":if malformed==5 {30}else{4}})
+            }).collect();
+            if malformed == 12 && request["positions"][0] == 2 {
+                questions[0]["prompt"] = json!(format!(
+                    "Variant {variant} task 0: explain an appropriate reliability decision for a Rust service with PostgreSQL under these constraints."
+                ));
             }
             json!({"questions":questions})
         }
         "interview_prompt_review" => {
-            let questions:Vec<Value>=(1..=6).map(|position|json!({"position":position,"jd_grounded":malformed!=13,"feasible":true,"unambiguous":true,"no_answer_leak":true,"concerns":if malformed==13 {vec!["Question needs concrete job-relevant inputs"]} else {vec![]}})).collect();
-            json!({"questions":questions})
+            let properties = &input["text"]["format"]["schema"]["properties"];
+            assert!(properties.get("position").is_none());
+            assert!(properties.get("questions").is_none());
+            let index = task_index(request["proposed_question"]["prompt"].as_str().unwrap());
+            mock.prompt_reviews[index].fetch_add(1, Ordering::SeqCst);
+            let reject = malformed == 13
+                || (malformed == 18
+                    && index == 2
+                    && mock
+                        .prompt_failures
+                        .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                        .is_ok());
+            json!({"jd_grounded":!reject,"feasible":true,"unambiguous":true,"no_answer_leak":true,"concerns":if reject {vec!["Question needs concrete job-relevant inputs"]} else {vec![]}})
         }
         "interview_reference_answer" => {
             let approved = &request["approved_question"];
@@ -189,7 +219,9 @@ async fn responses(
                 input["text"]["format"]["schema"]["$defs"]["Criterion"]["properties"]["id"]["pattern"],
                 "^[a-z0-9_]{1,40}$"
             );
-            if index == 0 && (malformed == 15 || (malformed == 14 && attempt == 1)) {
+            if (index == 0 && (malformed == 15 || (malformed == 14 && attempt == 1)))
+                || (malformed == 19 && index == 2)
+            {
                 reference["criteria"][0]["id"] = json!("Correctness-Score");
             }
             if malformed == 14 && index == 0 && attempt == 2 {
@@ -211,6 +243,12 @@ async fn responses(
                 .review_failures
                 .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                 .is_ok();
+            let prompt = request["proposed_set"]["questions"][0]["prompt"]
+                .as_str()
+                .unwrap();
+            let factual_rejection = malformed == 22
+                && task_index(prompt) == 1
+                && !prompt.contains("single state value");
             assert_eq!(
                 request["proposed_set"]["questions"]
                     .as_array()
@@ -225,7 +263,7 @@ async fn responses(
                     properties.get("questions").is_none(),
                     "model must not author question identity in a single-reference verdict"
                 );
-                json!({"jd_grounded":true,"reference_correct":malformed!=4 && !reject,"rubric_aligned":true,"feasible":true,"unambiguous":true,"no_answer_leak":true,"concerns":if reject {vec!["Explain rollback after a partial write"]}else{vec![]}})
+                json!({"jd_grounded":true,"reference_correct":malformed!=4 && (!reject || malformed==20) && !factual_rejection,"rubric_aligned":true,"feasible":!(malformed==20 && reject),"unambiguous":true,"no_answer_leak":true,"concerns":if factual_rejection {vec!["Reference invents an IAM action not established by the task"]} else if reject {if malformed==20 {vec!["Prompt must be simplified to fit five minutes"]}else{vec!["Explain rollback after a partial write"]}}else{vec![]},"advisories":if malformed==21 {vec!["Optional styling improvements are outside the prompt contract"]}else{vec![]}})
             }
         }
         _ => panic!("Unexpected generation stage: {name}"),
@@ -252,9 +290,9 @@ async fn embeddings(State(mock): State<Mock>, Json(input): Json<Value>) -> Json<
         };
         let mut embedding = vec![0.0; 12];
         if prompt.starts_with("Variant 4 ") {
-            embedding[index] = -1.0;
+            embedding[task_index(prompt)] = -1.0;
         } else {
-            embedding[variant * 6 + index] = 1.0;
+            embedding[variant * 6 + task_index(prompt)] = 1.0;
         }
         data.push(json!({"index":index,"embedding":embedding}));
     }
@@ -423,8 +461,8 @@ async fn generation_is_unique_recoverable_validated_and_private() {
     }
     assert_eq!(
         mock.peak_references.load(Ordering::SeqCst),
-        3,
-        "reference requests must run concurrently with a bound of three"
+        1,
+        "references must be prepared sequentially"
     );
     assert_eq!(prepared["blueprint"]["competencies"][0]["jd_evidence"], JD);
     let calls = mock.calls.load(Ordering::SeqCst);
@@ -539,10 +577,16 @@ async fn generation_is_unique_recoverable_validated_and_private() {
         .unwrap();
     tx.commit().await.unwrap();
     // Reference alignment, critique rejection, timing and bounded repair are independently exercised.
-    for malformed in [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] {
+    for malformed in [
+        1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21, 22,
+    ] {
         mock.malformed.store(malformed, Ordering::SeqCst);
-        mock.review_failures
-            .store(if malformed == 11 { 1 } else { 0 }, Ordering::SeqCst);
+        mock.prompt_failures
+            .store(if malformed == 18 { 1 } else { 0 }, Ordering::SeqCst);
+        mock.review_failures.store(
+            if matches!(malformed, 11 | 20) { 1 } else { 0 },
+            Ordering::SeqCst,
+        );
         let (_, fresh_job) = call(
             &app,
             "POST",
@@ -560,8 +604,14 @@ async fn generation_is_unique_recoverable_validated_and_private() {
             .map(|n| n.load(Ordering::SeqCst))
             .collect();
         let prompts_before = mock.prompt_calls.load(Ordering::SeqCst);
+        let reviews_before: Vec<usize> = mock
+            .prompt_reviews
+            .iter()
+            .map(|n| n.load(Ordering::SeqCst))
+            .collect();
+        let sizes_before = mock.prompt_sizes.lock().unwrap().len();
         run_due(&pool, id, &provider, recruiter).await;
-        if matches!(malformed, 1 | 5 | 7 | 12 | 13) {
+        if matches!(malformed, 1 | 5 | 7 | 13) {
             assert_eq!(
                 mock.references(),
                 references_before,
@@ -571,13 +621,13 @@ async fn generation_is_unique_recoverable_validated_and_private() {
         if matches!(malformed, 6 | 11 | 14) {
             assert_eq!(
                 mock.prompt_calls.load(Ordering::SeqCst) - prompts_before,
-                1,
-                "reference repair must reuse approved prompts"
+                6,
+                "reference repair must reuse the current approved prompt"
             );
             let counts: Vec<usize> = mock
                 .reference_calls
                 .iter()
-                .zip(calls_before)
+                .zip(calls_before.iter().copied())
                 .map(|(n, before)| n.load(Ordering::SeqCst) - before)
                 .collect();
             assert_eq!(
@@ -587,6 +637,37 @@ async fn generation_is_unique_recoverable_validated_and_private() {
             );
             assert_eq!(counts.iter().filter(|n| **n == 1).count(), 5);
         }
+        if malformed == 18 {
+            assert_eq!(
+                &mock.prompt_sizes.lock().unwrap()[sizes_before..],
+                &[1, 1, 1, 1, 1, 1, 1],
+                "every prompt, including repair, must be generated individually"
+            );
+            for (index, (reviews, before)) in
+                mock.prompt_reviews.iter().zip(reviews_before).enumerate()
+            {
+                assert_eq!(
+                    reviews.load(Ordering::SeqCst) - before,
+                    if index == 2 { 2 } else { 1 },
+                    "approved prompt reviews must be reused"
+                );
+            }
+        }
+        if malformed == 13 {
+            let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+            let diagnostics:Value=sqlx::query_scalar("SELECT metadata FROM audit_events WHERE entity_id=$1 AND action='generation.rejected' ORDER BY created_at DESC,id DESC LIMIT 1")
+                .bind(id).fetch_one(&mut *tx).await.unwrap();
+            assert_eq!(diagnostics["phase"], "prompts");
+            assert_eq!(
+                diagnostics["findings"]["questions"][0]["concerns"][0],
+                "Question needs concrete job-relevant inputs"
+            );
+            assert_eq!(
+                diagnostics["draft"]["questions"].as_array().unwrap().len(),
+                1
+            );
+            tx.commit().await.unwrap();
+        }
         let (_, result) = call(
             &app,
             "GET",
@@ -595,7 +676,7 @@ async fn generation_is_unique_recoverable_validated_and_private() {
             token,
         )
         .await;
-        if matches!(malformed, 6 | 8 | 9 | 11 | 14) {
+        if matches!(malformed, 6 | 8 | 9 | 11 | 14 | 18 | 20 | 21 | 22) {
             assert_eq!(result["status"], "completed");
             assert_eq!(
                 result["questions"][0]["rubric"]["quality_review"]["reference_correct"],
@@ -603,7 +684,15 @@ async fn generation_is_unique_recoverable_validated_and_private() {
             );
         } else {
             assert_eq!(result["status"], "failed");
-            assert!(result["questions"].as_array().unwrap().is_empty());
+            assert_eq!(
+                result["questions"].as_array().unwrap().len(),
+                match malformed {
+                    12 => 1,
+                    19 => 2,
+                    _ => 0,
+                },
+                "only completely validated questions should be checkpointed"
+            );
             let message = result["job"]["last_error"].as_str().unwrap();
             assert!(match malformed {
                 1 => message.contains("quote the job description"),
@@ -615,8 +704,157 @@ async fn generation_is_unique_recoverable_validated_and_private() {
                 12 => message.contains("duplicate"),
                 13 => message.contains("prompt review"),
                 15 => message.contains("criterion 1 ID must"),
+                19 => message.contains("Question 3") && message.contains("criterion 1 ID must"),
                 _ => false,
             });
+        }
+        if malformed == 20 {
+            assert_eq!(
+                mock.prompt_calls.load(Ordering::SeqCst) - prompts_before,
+                7,
+                "only the infeasible unsaved prompt should be replaced"
+            );
+            assert!(
+                result["questions"][0]["prompt"]
+                    .as_str()
+                    .unwrap()
+                    .contains("single state value")
+            );
+            for (index, (counter, before)) in
+                mock.reference_calls.iter().zip(&calls_before).enumerate()
+            {
+                assert_eq!(
+                    counter.load(Ordering::SeqCst) - before,
+                    if index == 0 { 2 } else { 1 },
+                    "do not repeatedly repair an answer when the prompt is infeasible"
+                );
+            }
+        }
+        if malformed == 22 {
+            assert_eq!(
+                mock.prompt_calls.load(Ordering::SeqCst) - prompts_before,
+                7,
+                "exhausted reference repair must replace only the current unsaved task"
+            );
+            assert!(
+                result["questions"][1]["prompt"]
+                    .as_str()
+                    .unwrap()
+                    .contains("single state value")
+            );
+            for (index, (counter, before)) in
+                mock.reference_calls.iter().zip(&calls_before).enumerate()
+            {
+                assert_eq!(
+                    counter.load(Ordering::SeqCst) - before,
+                    if index == 1 { 3 } else { 1 },
+                    "a factual rejection must not regenerate saved earlier questions"
+                );
+            }
+        }
+        if malformed == 21 {
+            assert!(
+                !result["questions"][0]["rubric"]["quality_review"]["advisories"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(
+                result["questions"][0]["rubric"]["quality_review"]["concerns"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+        if malformed == 19 {
+            let candidate = fresh["invitation_token"].as_str().unwrap();
+            let (_, view) = call(
+                &app,
+                "POST",
+                "/api/v1/candidate/session/ready",
+                json!({}),
+                candidate,
+            )
+            .await;
+            assert_eq!(view["question_count"], 2);
+            assert_eq!(view["questions_ready"], false);
+            assert_eq!(
+                call(
+                    &app,
+                    "POST",
+                    "/api/v1/candidate/session/start",
+                    json!({}),
+                    candidate
+                )
+                .await
+                .0,
+                StatusCode::CONFLICT,
+                "partial sets must not be startable"
+            );
+            assert_eq!(
+                call(&app, "GET", "/api/v1/candidate/room", json!({}), candidate)
+                    .await
+                    .0,
+                StatusCode::CONFLICT
+            );
+            let first_ids: Vec<Value> = result["questions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|question| question["id"].clone())
+                .collect();
+            mock.malformed.store(0, Ordering::SeqCst);
+            let route = format!("{base}/sessions/{id}/generation");
+            assert_eq!(
+                call(&app, "POST", &route, json!({}), token).await.0,
+                StatusCode::ACCEPTED,
+                "partial results must resume instead of being mistaken for completion"
+            );
+            // Simulate a restart after a worker claimed the partially saved set.
+            let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+            sqlx::query("UPDATE interview_sessions SET generation_status='running',generation_claim_token=$2,generation_lease_until=now()-interval '1 second',generation_attempts=1 WHERE id=$1")
+                .bind(id).bind(Uuid::new_v4()).execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            run_due(&pool, id, &provider, recruiter).await;
+            let (_, resumed) = call(&app, "GET", &route, json!({}), token).await;
+            assert_eq!(resumed["status"], "completed");
+            assert_eq!(resumed["questions"].as_array().unwrap().len(), 6);
+            for (index, saved_id) in first_ids.iter().enumerate() {
+                assert_eq!(
+                    &resumed["questions"][index]["id"], saved_id,
+                    "retry must preserve saved question IDs"
+                );
+            }
+            let (_, view) = call(
+                &app,
+                "GET",
+                "/api/v1/candidate/session",
+                json!({}),
+                candidate,
+            )
+            .await;
+            assert_eq!(view["questions_ready"], true);
+            assert_eq!(
+                call(
+                    &app,
+                    "POST",
+                    "/api/v1/candidate/session/start",
+                    json!({}),
+                    candidate
+                )
+                .await
+                .0,
+                StatusCode::OK
+            );
+            for (index, (counter, before)) in
+                mock.reference_calls.iter().zip(&calls_before).enumerate()
+            {
+                assert_eq!(
+                    counter.load(Ordering::SeqCst) - before,
+                    if index == 2 { 3 } else { 1 },
+                    "resume must regenerate only the unsaved reference"
+                );
+            }
         }
         let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
         sqlx::query("UPDATE interview_sessions SET generation_status='failed' WHERE id=$1 AND generation_status<>'completed'").bind(id).execute(&mut *tx).await.unwrap();
@@ -918,6 +1156,14 @@ async fn job_pool_prepares_before_invitations_and_assigns_once() {
     mock.malformed.store(7, Ordering::SeqCst);
     assert!(process_next(&pool, &provider).await.unwrap());
     let (_, failure) = call(&app, "GET", &route, Value::Null, token).await;
+    let diagnostic = failure["sets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find_map(|set| set["last_failure"].as_object());
+    let diagnostic = diagnostic.expect("owner should see a saved failure diagnostic");
+    assert_eq!(diagnostic["phase"], "prompts");
+    assert!(!diagnostic.contains_key("draft"));
     assert!(
         failure["sets"]
             .as_array()
@@ -944,6 +1190,100 @@ async fn job_pool_prepares_before_invitations_and_assigns_once() {
             .filter(|s| s["assigned"] == false)
             .all(|s| s["status"] == "pending" && s["attempts"] == 0)
     );
+    // A pool set also preserves completed questions and cannot be assigned early.
+    mock.malformed.store(19, Ordering::SeqCst);
+    mock.variant.store(1, Ordering::SeqCst);
+    let (_,checkpoint_job)=call(&app,"POST","/api/v1/jobs",json!({"job_code":format!("CHECKPOINT-{}",Uuid::new_v4()),"title":"Checkpoint pool role","description":JD,"request_key":Uuid::new_v4()}),token).await;
+    let checkpoint_id = checkpoint_job["id"].as_str().unwrap();
+    let checkpoint_route = format!("/api/v1/jobs/{checkpoint_id}/question-sets");
+    assert!(process_next(&pool, &provider).await.unwrap());
+    let (_, partial) = call(&app, "GET", &checkpoint_route, json!({}), token).await;
+    let partial_set = partial["sets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|set| set["status"] == "failed")
+        .unwrap();
+    let partial_id = partial_set["id"].as_str().unwrap();
+    assert_eq!(partial_set["question_count"], 2);
+    assert_eq!(
+        partial["questions"].as_array().unwrap().len(),
+        2,
+        "interviewer should see saved progress for an incomplete set"
+    );
+    let saved_ids: Vec<Value> = partial["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|question| question["id"].clone())
+        .collect();
+    let candidate = invitation(&app, "/api/v1", checkpoint_id, token).await;
+    assert_eq!(
+        candidate["session"]["generation_status"], "pending",
+        "an incomplete pool set must never be assigned"
+    );
+    let (_, view) = call(
+        &app,
+        "GET",
+        "/api/v1/candidate/session",
+        json!({}),
+        candidate["invitation_token"].as_str().unwrap(),
+    )
+    .await;
+    assert_eq!(view["question_count"], 0);
+    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    sqlx::query(
+        "UPDATE interview_sessions SET state='expired',generation_status='failed' WHERE id=$1",
+    )
+    .bind(
+        candidate["session"]["id"]
+            .as_str()
+            .unwrap()
+            .parse::<Uuid>()
+            .unwrap(),
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    let before: Vec<usize> = mock
+        .reference_calls
+        .iter()
+        .map(|count| count.load(Ordering::SeqCst))
+        .collect();
+    mock.malformed.store(0, Ordering::SeqCst);
+    assert_eq!(
+        call(&app, "POST", &checkpoint_route, json!({}), token)
+            .await
+            .0,
+        StatusCode::ACCEPTED
+    );
+    assert!(process_next(&pool, &provider).await.unwrap());
+    let (_, resumed) = call(&app, "GET", &checkpoint_route, json!({}), token).await;
+    let completed = resumed["sets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|set| set["id"] == partial_id)
+        .unwrap();
+    assert_eq!(completed["status"], "completed");
+    assert_eq!(completed["question_count"], 6);
+    for saved in saved_ids {
+        assert!(
+            resumed["questions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|question| question["id"] == saved)
+        );
+    }
+    for (index, (counter, before)) in mock.reference_calls.iter().zip(before).enumerate() {
+        assert_eq!(
+            counter.load(Ordering::SeqCst) - before,
+            if index < 2 { 0 } else { 1 },
+            "pool retries must skip every saved question"
+        );
+    }
     task.abort();
     let _ = task.await;
     pool.close().await;

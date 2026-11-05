@@ -39,7 +39,8 @@ export function QuestionPreparation({ interview, token }: { interview: Interview
     {generation && <>
       {!generation.configured && generation.status !== 'completed' && <p className="configuration-note">AI setup is needed before questions can be prepared. The generation and embedding services must be configured first.</p>}
       {generation.status === 'not_started' && <p>Prepare six unique questions from this role’s job description, with competency coverage and a scoring rubric for every question.</p>}
-      {pending && <p role="status">{generation.status === 'running' ? 'Generating questions and checking them against the job’s question bank…' : 'Preparation queued. This page updates automatically.'}</p>}
+      {generation.questions.length > 0 && generation.status !== 'completed' && <p>{generation.questions.length} questions saved. Preparation will resume at the next unsaved question.</p>}
+      {pending && <p role="status">{generation.status === 'running' ? 'Preparing one question at a time. Completed questions are saved below.' : 'Preparation queued. This page updates automatically.'}</p>}
       {generation.job?.last_error && <p className={generation.status === 'failed' ? 'error' : 'configuration-note'}>{generation.job.last_error}{pending && ' Retrying automatically.'}</p>}
       {generation.status !== 'completed' && eligible && <button className="button" disabled={busy || pending || !generation.configured} onClick={() => void prepare()}>{busy ? 'Queueing…' : pending ? 'Preparing questions…' : generation.status === 'failed' ? 'Retry preparation' : 'Prepare interview questions'}</button>}
       {!eligible && generation.status !== 'completed' && <p>Question preparation is available before an active interview starts.</p>}

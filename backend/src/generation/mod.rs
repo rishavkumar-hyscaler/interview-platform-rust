@@ -4,7 +4,7 @@ mod quality;
 pub mod types;
 use serde_json::json;
 use uuid::Uuid;
-const PROMPT_VERSION: &str = "jd-questions-v3";
+const PROMPT_VERSION: &str = "jd-questions-v4";
 #[derive(Clone, Copy)]
 pub(crate) struct AutomaticPreparation(pub bool);
 
@@ -31,6 +31,8 @@ pub(crate) async fn prepare_automatically(
 
 pub(crate) mod bank;
 mod bank_http;
+mod checkpoint;
+mod diagnostics;
 mod drafts;
 mod http;
 mod pipeline;

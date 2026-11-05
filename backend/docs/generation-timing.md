@@ -1,37 +1,47 @@
-# Staged question preparation (v3)
+# Sequential question preparation (v4)
 
-The former pipeline generated every question together with worked answers and rubrics, then checked duplicates and reviewed the complete set. A rejected question caused another full, expensive set-generation request. Worker retries could repeat that again.
+A set is prepared **one question at a time**. The backend completes its checks and saves its reference before beginning the next question. Each accepted question is a durable checkpoint in `interview_questions`; no additional table or migration is required.
 
-The new order is:
+## Flow
 
-1. Extract or reuse a validated job blueprint. Cache new valid blueprints before reference generation.
-2. Generate **only prompts**, with type, competency, difficulty and estimated time.
-3. Check blueprint alignment, lengths, question count, total duration and duplicate fingerprints within the set.
-4. Reject exact job-bank duplicates before requesting embeddings. Check semantic similarity within the draft and against every existing bank question (including unused pool sets).
-5. Review prompt relevance, feasibility, ambiguity and answer privacy. Invalid prompts can receive one bounded repair. **No reference-answer request starts unless the whole prompt set passes.**
-6. Generate references/rubrics for individual approved questions, with three tasks in flight by default. Each task validates and independently reviews its own answer. A rejected reference receives one repair with specific findings; the other approved prompts and successful references are retained in that attempt.
-7. Assemble in original blueprint order, validate the completed set, then publish atomically. The final transaction rechecks job-bank deduplication under the existing job lock to catch concurrent publications.
+1. Extract or reuse the job's validated competency blueprint. The blueprint is saved before question work begins.
+2. Load already saved question positions and time allocations for the set/session. Check that positions are contiguous, then start at the first unsaved position.
+3. Allocate a share of the remaining interview time to the current blueprint slot.
+4. Generate exactly one prompt, without an answer or rubric. Validate its type, competency, difficulty, lengths and time allocation.
+5. Check exact fingerprints against the full job bank before requesting embeddings, then check semantic similarity against existing bank questions, including earlier checkpoints in this set.
+6. Review the single prompt for relevance, feasibility, clarity and answer privacy. The model returns only content verdicts; Rust supplies question identity. A rejected prompt gets one bounded local repair.
+7. Generate that prompt's reference answer and rubric. Validate the schema, criterion IDs/points/anchors, alternatives, mistakes and code references where applicable. Independently review reference correctness; a rejection gets one local repair with specific findings.
+8. Save the fully approved prompt, reference, rubric and embedding in one transaction, under the active task lease and per-job publication lock. Recheck bank deduplication at save time. Record `question.prepared` in the audit log.
+9. Begin the next unsaved position. Only the last checkpoint marks the whole set/session generation `completed` and records `questions.prepared`.
 
-Reference responses cannot contain replacement prompts: their schema only permits answer/rubric fields, and the server attaches them to immutable approved prompt fields. Neither prompts alone nor incomplete references become candidate-visible interview questions.
+There is no parallel question/reference generation within a task. A process failure, lease recovery, manual retry or later question rejection preserves earlier checkpoints and their IDs. An unfinished current prompt/reference can be repeated; earlier saved questions are not regenerated. Attempts still describe the overall worker attempt, while saved positions describe progress within it.
+
+## Readiness and access
+
+Interviewers can see saved questions and references while preparation is running or failed. A partial set is not ready for assignment to a candidate. For session-specific preparation, the candidate cannot start the interview until generation is completed; merely having some question rows is insufficient. The candidate API's `questions_ready` flag and the start endpoint enforce this. Pre-existing manually prepared legacy sessions without generation metadata remain supported.
 
 ## Time and retries
 
-- `GENERATION_REFERENCE_CONCURRENCY`: default **3**, bounded 1–6. It caps generation and review together, rather than starting six unconstrained calls.
-- `GENERATION_TASK_TIMEOUT_SECONDS`: default **300 seconds per preparation attempt**, bounded 30–900. The timer covers blueprint, prompts, embeddings, reviews, reference work and publication. Cancellation aborts child reference futures.
-- Each prompt/reference stage permits at most two local tries. Quality/validation failures after those repairs and task timeouts become `failed`; they do not automatically restart the whole set three more times. Interviewers can explicitly retry from the existing UI.
-- Transient provider/network/database failures retain the existing bounded worker retry behavior. Thus the per-attempt budget is not a guarantee of total wall time across an outage, queue wait or manual retries.
-- Existing per-request timeout and reasoning-effort settings remain supported. Smaller prompt-only and single-reference response budgets replace the old full-set answer output budget.
+- `GENERATION_TASK_TIMEOUT_SECONDS`: default **300 seconds per current question**, bounded 30–900. It covers prompt generation, checks, embeddings, reviews, reference work and its checkpoint transaction. Timing out preserves earlier checkpoints and fails the task for explicit retry.
+- Each prompt/reference gets at most two local tries. Exhausted validation/quality failures do not automatically restart the whole set repeatedly.
+- Transient provider/network/database failures retain bounded worker retries. A recovered attempt loads saved positions before calling the model.
+- `GENERATION_REQUEST_TIMEOUT_SECONDS` still controls individual model requests. `GENERATION_DRAFT_REASONING_EFFORT` applies to drafting, with separate medium-effort reference review.
+- The previous concurrency setting is no longer used: sequential preparation is intentional. Total set latency is the sum of its question times; the benefit is early visible progress and durable recovery, not a promised speedup ratio.
 
-Logs expose phases (`questions.generate`, `questions.validate`, `questions.deduplicate`, `questions.review`, `references.generate_and_review`, `reference.repair`, `publish`) and reference-position spans, without logging prompts, answer keys or provider keys.
+Logs identify phases and question positions without raw prompts, reference answers or provider keys. Rejected attempts additionally store **private owner-scoped** `generation.rejected` audit records, with the phase, position, summary, structured reviewer findings and a bounded draft for diagnosis. These details are not sent to candidate APIs. The job pool endpoint exposes only the summary/findings subset, and its UI displays concrete concerns. Existing failures predating this change cannot retroactively supply findings that were never saved.
 
-No migration or additional process/build is required. Existing completed questions remain intact. Work interrupted under the previous version can be retried through the normal failed-set control after the backend restarts.
+## Validation
 
-## Verification and limits
+Synthetic-data/mock-provider database tests cover question-by-question generation, an intentional failure on question 3 after two checkpoints, recovery following an expired worker lease, unchanged saved IDs, no regenerated references for saved questions, partial pool-set visibility/recovery, rejection of premature candidate start, and private diagnostic access. The normal authorization, scoring, media and interview regressions remain in place.
 
-The local mock-provider/database regressions verify zero reference calls for invalid, duplicate or rejected prompts; zero embedding calls for exact bank collisions; three bounded concurrent reference tasks; repair of only the failing reference; prompt immutability; reference privacy; and atomic publication. The tests also retain pool assignment, lease recovery and session behavior checks.
+An initial diagnostic replay was blocked by automatic approval review. After the user explicitly approved one isolated live test, a reduced fixture used only the job description, blueprint and existing prompts, excluding candidate answers and existing reference answers. The disposable database and fixture were removed afterward.
 
-These tests establish request ordering and bounds, not a live-model speedup ratio. The v3 pipeline has not been benchmarked against the live provider during this change; the user's backend remains stopped. External model latency, coding complexity, rate limits and quality repairs still affect completion time. Approved prompt/reference state is held in memory during an attempt; a process crash or transient failure requiring a new attempt can repeat that work. The validated blueprint is durable.
+That test stopped after 134 seconds with zero newly saved questions: the model proposed a full React tag-input component for a five-minute slot, and reference review judged its scope closer to 10–15 minutes. The failure also exposed nonblocking implementation suggestions mixed into blocking concerns. The latest changes constrain short code tasks to a narrow function, focused bug fix or scaffolded change; distinguish `advisories` from substantive `concerns`; and route prompt defects found during reference review back to bounded prompt regeneration for the current unsaved position. Reference-correctness defects still repair the reference. A per-question time budget covers both scope attempts.
 
-## Reference metadata validation
+Synthetic regression tests verify that only the infeasible unsaved prompt is replaced, saved checkpoints remain untouched, advisory notes do not block otherwise valid references, and genuine correctness failures still reject publication. The latest scope/advisory changes have not had a second live-provider run; no full-set live acceptance or speedup claim is made.
 
-Single-question reference review returns content verdicts only, without a model-authored question number. Rust attaches the known position and assembles results in approved prompt order. Rubric criterion IDs have the same ASCII/length constraints in the structured-output schema and server validation; errors distinguish malformed IDs, duplicate IDs, invalid descriptions and invalid point values so local repairs receive actionable feedback. No scoring or reference-correctness checks are bypassed.
+## Recovery after an unresolvable reference
+
+The live job later reached question 2 in two sets, preserving question 1 in each, but reference review continued to reject IAM policy details after answer repair. Recovery now also replaces the current **unsaved** prompt when two reference content reviews fail. The replacement must assess the same blueprint slot and differ from the rejected prompt; it must pass prompt review, deduplication and reference review from scratch. Provider/transport errors and rubric-format errors are not treated as content rejections for this fallback. There are at most two question-scope attempts inside the current question's existing time budget. Rejected answers are never saved, and prior checkpoints are untouched.
+
+Prompt instructions prefer applied reasoning or facts supplied by the task over unsupported recall of vendor action catalogs or syntax. This is not automatic external-document retrieval; the final content review remains model-based. The new branch is covered by a synthetic factual-error-on-question-2 regression, not a second live-provider test. Reference rejection snapshots now retain the approved prompt alongside the draft reference so future investigations can compare findings against the actual task contract.

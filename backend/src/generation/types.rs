@@ -363,6 +363,9 @@ impl Question {
 }
 impl QuestionSet {
     pub fn validate(&self, blueprint: &Blueprint) -> Result<()> {
+        self.validate_at(blueprint, 1)
+    }
+    pub(super) fn validate_at(&self, blueprint: &Blueprint, first_position: usize) -> Result<()> {
         ensure!(
             self.questions.len() == blueprint.slots.len(),
             "Generated question count does not match blueprint"
@@ -483,7 +486,7 @@ impl QuestionSet {
                 Ok(())
             })();
             if let Err(error) = checked {
-                failures.push(format!("Question {}: {}", index + 1, error));
+                failures.push(format!("Question {}: {}", first_position + index, error));
             }
         }
         ensure!(failures.is_empty(), "{}", failures.join("; "));

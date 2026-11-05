@@ -124,25 +124,7 @@ pub async fn process_next(pool: &PgPool, provider: &AiProvider) -> anyhow::Resul
     };
     let mut task = crate::observability::TaskLog::start(operation, claim.session);
     let started = std::time::Instant::now();
-    let seconds = match std::env::var("GENERATION_TASK_TIMEOUT_SECONDS") {
-        Ok(value) => value.parse::<u64>().unwrap_or(300).clamp(30, 900),
-        Err(_) => 300,
-    };
-    let prepared = async {
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(seconds),
-            prepare(pool, provider, &claim),
-        )
-        .await
-        {
-            Ok(result) => result.map_err(super::bounded_failure),
-            Err(_) => Err(super::PreparationRejected(
-                "Preparation exceeded its time budget; retry explicitly".into(),
-            )
-            .into()),
-        }
-    };
-    let result = tokio::select! {result=prepared.instrument(task.span())=>result,result=renew_lease(pool,&claim)=>result};
+    let result = tokio::select! {result=prepare(pool,provider,&claim).instrument(task.span())=>result.map_err(super::bounded_failure),result=renew_lease(pool,&claim)=>result};
     tracing::info!(target_id=%claim.session,is_pool=claim.is_pool,attempt=claim.attempts,elapsed_ms=started.elapsed().as_millis() as u64,success=result.is_ok(),"question preparation attempt finished");
     let success = result.is_ok();
     if let Err(failure) = result {

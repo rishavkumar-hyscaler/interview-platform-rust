@@ -1,10 +1,7 @@
 //! Blueprint, draft, critique, repair, deduplication and atomic publication.
-use super::{
-    provider::AiProvider,
-    types::{Blueprint, fingerprint, vector_text},
-};
+use super::{provider::AiProvider, types::Blueprint};
 use crate::infrastructure::interviewer_transaction;
-use serde_json::{Value, json};
+use serde_json::Value;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -17,6 +14,8 @@ pub(super) struct Preparation<'a> {
     pub description: &'a str,
     pub blueprint: &'a Blueprint,
     pub duration: i32,
+    pub position: usize,
+    pub job_blueprint: &'a Blueprint,
 }
 pub(super) async fn prepare(
     pool: &PgPool,
@@ -71,97 +70,118 @@ pub(super) async fn prepare(
             .bind(jd).bind(serde_json::to_value(&blueprint)?).bind(&provider.model).bind(PROMPT_VERSION).execute(&mut *tx).await?;
     }
     tx.commit().await?;
-    let context = Preparation {
-        pool,
-        provider,
-        claim,
-        job: jd,
-        description: &description,
-        blueprint: &blueprint,
-        duration,
-    };
-    let (prompts, vectors) = super::drafts::prepare(&context, recent, &initial_feedback).await?;
-    // No reference-answer request is made until every prompt passes the gate.
-    let (questions, review) = super::references::prepare(&context, prompts).await?;
     let mut tx = interviewer_transaction(pool, claim.recruiter).await?;
-    let owned: Option<Uuid> = if claim.is_pool {
-        sqlx::query_scalar("SELECT id FROM question_sets WHERE id=$1 AND claim_token=$2 AND status='running' AND lease_until>clock_timestamp() AND assigned_session_id IS NULL FOR UPDATE")
-            .bind(claim.id).bind(claim.token).fetch_optional(&mut *tx).await?
-    } else {
-        sqlx::query_scalar("SELECT id FROM interview_sessions WHERE generation_id=$1 AND generation_claim_token=$2 AND generation_status='running' AND generation_lease_until>clock_timestamp() AND state IN ('invited','ready') AND expires_at>clock_timestamp() FOR UPDATE")
-            .bind(claim.id).bind(claim.token).fetch_optional(&mut *tx).await?
-    };
-    anyhow::ensure!(
-        owned.is_some(),
-        "Generation job lease was lost or target expired"
-    );
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
-        .bind(jd.to_string())
-        .execute(&mut *tx)
-        .await?;
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM interview_questions WHERE session_id=$1 OR set_id=$1",
-    )
-    .bind(claim.session)
-    .fetch_one(&mut *tx)
-    .await?;
-    anyhow::ensure!(count == 0, "Session questions already exist");
-    let incompatible:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM interview_questions WHERE job_id=$1 AND (embedding_model<>$2 OR embedding_dimensions<>$3))")
-        .bind(jd).bind(&provider.embedding_model).bind(provider.dimensions as i32).fetch_one(&mut *tx).await?;
-    anyhow::ensure!(
-        !incompatible,
-        "Existing question bank requires embedding migration before changing the embedding model"
-    );
-    let current: Option<Value> = sqlx::query_scalar("SELECT blueprint FROM jobs WHERE id=$1")
-        .bind(jd)
-        .fetch_one(&mut *tx)
-        .await?;
-    if let Some(current) = current {
-        anyhow::ensure!(
-            current == serde_json::to_value(&blueprint)?,
-            "Another session established a different blueprint; retrying with the stored blueprint"
-        );
-    } else {
-        sqlx::query("UPDATE jobs SET blueprint=$2,blueprint_model=$3,blueprint_prompt_version=$4 WHERE id=$1")
-            .bind(jd).bind(serde_json::to_value(&blueprint)?).bind(&provider.model).bind(PROMPT_VERSION).execute(&mut *tx).await?;
-    }
-    tracing::info!(event = "task.phase", phase = "publish");
-    for (index, (question, embedding)) in questions.questions.iter().zip(&vectors).enumerate() {
-        let vector = vector_text(embedding)?;
-        let hash = fingerprint(&question.prompt);
-        let duplicate:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM interview_questions WHERE job_id=$1 AND (fingerprint=$2 OR (embedding_model=$3 AND embedding_dimensions=$4 AND 1-(embedding <=> $5::vector)>=$6)))")
-            .bind(jd).bind(&hash).bind(&provider.embedding_model).bind(provider.dimensions as i32).bind(&vector).bind(provider.similarity).fetch_one(&mut *tx).await?;
-        anyhow::ensure!(
-            !duplicate,
-            "Question duplicated an existing JD-bank question; generating a new variation on retry"
-        );
-        let mut criteria = serde_json::to_value(&question.criteria)?;
-        for (value, criterion) in criteria
-            .as_array_mut()
-            .unwrap()
-            .iter_mut()
-            .zip(&question.criteria)
-        {
-            value["reference_evidence"] = json!(criterion.reference_answer);
-            value["reference_source"] = json!(format!("reference_sections.{}", criterion.id));
-        }
-        let sections:Vec<Value>=question.criteria.iter().map(|criterion|json!({"criterion_id":criterion.id,"answer":criterion.reference_answer})).collect();
-        sqlx::query("INSERT INTO interview_questions(id,interviewer_id,session_id,job_id,position,kind,difficulty,prompt,rubric,generation_id,competency_id,fingerprint,embedding,embedding_model,embedding_dimensions,set_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::vector,$14,$15,$16)")
-            .bind(Uuid::new_v4()).bind(claim.recruiter).bind(if claim.is_pool { None } else { Some(claim.session) }).bind(jd).bind((index+1) as i32)
-            .bind(serde_json::to_value(&question.kind)?.as_str().unwrap_or("text")).bind(serde_json::to_value(&question.difficulty)?.as_str().unwrap_or("medium")).bind(&question.prompt)
-            .bind(json!({"expected_answer":question.worked_reference(),"reference_overview":question.expected_answer,"reference_sections":sections,"estimated_minutes":question.estimated_minutes,"assumptions":question.assumptions,"acceptable_alternatives":question.acceptable_alternatives,"common_mistakes":question.common_mistakes,"coding":question.coding,"quality_review":review.questions.iter().find(|r|r.position==index+1),"criteria":criteria,"max_score":10,"competency_id":question.competency_id,"model":provider.model,"prompt_version":PROMPT_VERSION}))
-            .bind(claim.id).bind(&question.competency_id).bind(hash).bind(vector).bind(&provider.embedding_model).bind(provider.dimensions as i32).bind(if claim.is_pool { Some(claim.id) } else { None }).execute(&mut *tx).await?;
-    }
-    if claim.is_pool {
-        sqlx::query("UPDATE question_sets SET status='completed',claim_token=NULL,lease_until=NULL,last_error=NULL WHERE id=$1 AND claim_token=$2")
-            .bind(claim.id).bind(claim.token).execute(&mut *tx).await?;
-    } else {
-        sqlx::query("UPDATE interview_sessions SET generation_status='completed',generation_claim_token=NULL,generation_lease_until=NULL,generation_error=NULL WHERE id=$1 AND generation_claim_token=$2")
-        .bind(claim.session).bind(claim.token).execute(&mut *tx).await?;
-    }
-    // No secret, candidate answer, or raw provider output enters the audit record.
-    sqlx::query("INSERT INTO audit_events(id,interviewer_id,entity_id,action,metadata) VALUES($1,$2,$3,'questions.prepared',$4)")
-        .bind(Uuid::new_v4()).bind(claim.recruiter).bind(claim.session).bind(json!({"actor":"worker","count":questions.questions.len(),"model":provider.model,"embedding_model":provider.embedding_model,"prompt_version":PROMPT_VERSION,"seed":claim.seed,"quality_review":"passed","reference_version":"worked-answer-v2","source":if claim.is_pool {"job_pool"} else {"session"}})).execute(&mut *tx).await?;
+    let saved = sqlx::query("SELECT position,coalesce((rubric->>'estimated_minutes')::integer,1) AS minutes FROM interview_questions WHERE session_id=$1 OR set_id=$1 ORDER BY position")
+        .bind(claim.session).fetch_all(&mut *tx).await?;
     tx.commit().await?;
+    for (index, row) in saved.iter().enumerate() {
+        anyhow::ensure!(
+            row.get::<i32, _>("position") == index as i32 + 1,
+            "Saved question positions are not contiguous"
+        );
+    }
+    let total = blueprint.slots.len();
+    anyhow::ensure!(
+        saved.len() < total,
+        "All questions are already saved; task status needs reconciliation"
+    );
+    let mut remaining = duration
+        - saved
+            .iter()
+            .map(|row| row.get::<i32, _>("minutes"))
+            .sum::<i32>();
+    let mut excluded = recent;
+    for index in saved.len()..total {
+        let position = index + 1;
+        let left = (total - index) as i32;
+        anyhow::ensure!(
+            remaining >= left,
+            "Remaining interview duration cannot fit the unsaved questions"
+        );
+        let budget = (remaining / left).clamp(1, 30);
+        let mut single_blueprint = blueprint.clone();
+        single_blueprint.slots = vec![blueprint.slots[index].clone()];
+        let context = Preparation {
+            pool,
+            provider,
+            claim,
+            job: jd,
+            description: &description,
+            blueprint: &single_blueprint,
+            duration: budget,
+            position,
+            job_blueprint: &blueprint,
+        };
+        let seconds = match std::env::var("GENERATION_TASK_TIMEOUT_SECONDS") {
+            Ok(value) => value.parse::<u64>().unwrap_or(300).clamp(30, 900),
+            Err(_) => 300,
+        };
+        tracing::info!(
+            event = "task.phase",
+            phase = "question.begin",
+            position,
+            total
+        );
+        let prepared = async {
+            let mut feedback = initial_feedback.clone();
+            let mut exclusions = excluded.clone();
+            for revision in 1..=2 {
+                let (prompts, vectors) =
+                    super::drafts::prepare(&context, exclusions.clone(), &feedback).await?;
+                let prompt = prompts.questions[0].prompt.clone();
+                match super::references::prepare(&context, prompts).await {
+                    Ok((questions, review)) => {
+                        let question = questions
+                            .questions
+                            .into_iter()
+                            .next()
+                            .expect("one approved question");
+                        let mut review = review
+                            .questions
+                            .into_iter()
+                            .next()
+                            .expect("one reviewed reference");
+                        review.position = position;
+                        super::checkpoint::save(&context, &question, &review, &vectors[0]).await?;
+                        return Ok::<_, anyhow::Error>((
+                            question.prompt,
+                            question.estimated_minutes,
+                        ));
+                    }
+                    Err(error) => {
+                        if let Some(defect) = error.downcast_ref::<quality::PromptRevision>()
+                            && revision == 1
+                        {
+                            feedback = format!(
+                                "Prompt revision required: replace this rejected task with a DIFFERENT, scoped question for the SAME blueprint slot whose reference can be validated. Do not reuse the excluded prompt. Address the findings. If factual vendor identifiers are uncertain, choose a task based on explicit provided facts or reasoning rather than inventing action names, ARN syntax, or version-specific behavior. {}",
+                                defect.feedback
+                            );
+                            exclusions.push(prompt);
+                            tracing::info!(
+                                event = "task.phase",
+                                phase = "question.rescope",
+                                position
+                            );
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                }
+            }
+            unreachable!("two bounded question scope attempts")
+        };
+        let (prompt,minutes)=match tokio::time::timeout(std::time::Duration::from_secs(seconds),prepared).await {
+            Ok(result)=>result?,
+            Err(_)=>return Err(super::PreparationRejected(format!("Question {position} exceeded its preparation time budget; saved questions are preserved")).into()),
+        };
+        remaining -= minutes as i32;
+        excluded.push(prompt);
+        tracing::info!(
+            event = "task.phase",
+            phase = "question.saved",
+            position,
+            total
+        );
+    }
     Ok(())
 }

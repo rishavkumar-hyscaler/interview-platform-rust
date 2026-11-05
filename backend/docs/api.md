@@ -148,3 +148,7 @@ Limits and model/calibration behavior are in the linked guide. Evidence attachme
 ### Job question-set pool
 
 `POST /api/v1/jobs` accepts optional `preparation_duration_minutes` (5–180; default 30) and atomically queues three sets. `GET /api/v1/jobs/{job}/question-sets` returns owner-only status and unused questions/reference rubrics; `POST` retries failed unused sets. Invitations assign a matching unused set once, replenish its slot, or queue per-session generation if no set is ready. See [details](job-question-sets.md).
+
+### Incremental generation progress
+
+Generation v4 saves fully validated questions individually. Owner generation/status and pool previews may show saved questions while status is running/failed. Partial rows do not imply completion. Candidate session responses include `questions_ready`; starting requires completed generation (or a manually prepared legacy session without generation metadata). `POST` generation retry resumes after saved positions. Pool status includes owner-only `last_failure` summaries/findings, without the raw diagnostic draft.

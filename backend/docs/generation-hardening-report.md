@@ -35,3 +35,7 @@ No new tables or migration files are required. Existing prepared interviews are 
 ## Subsequent v3 timing update
 
 The earlier live-acceptance status describes the original full-set pipeline. One v2 set for local job 139086 subsequently completed and saved six worked references. The current v3 implementation splits prompt validation/deduplication/review from per-question reference work, adds bounded concurrency/local repair and a per-attempt deadline. Its ordering and failure behavior are covered by mock/database tests; a live v3 timing benchmark has not been run. See [current flow and limitations](generation-timing.md).
+
+## Sequential checkpoint update (v4)
+
+The current flow completes, validates and saves each question before starting the next. Retries reuse durable checkpoints; interviewer views show partial progress, while candidates are blocked until the whole set is ready. Private rejection records retain concrete findings for future failures. See [current behavior and validation](generation-timing.md). After explicit user approval, one reduced-fixture live test ran in a disposable database. It failed because a five-minute coding question demanded a full React component. The resulting scope/advisory/routing fixes pass synthetic regressions; they have not had another live-provider acceptance run.

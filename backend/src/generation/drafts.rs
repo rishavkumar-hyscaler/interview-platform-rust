@@ -13,17 +13,33 @@ pub(super) async fn prepare(
     mut excluded: Vec<String>,
     initial_feedback: &str,
 ) -> anyhow::Result<(PromptSet, Vec<Vec<f32>>)> {
+    let diagnostics = super::diagnostics::Scope {
+        pool: context.pool.clone(),
+        owner: context.claim.recruiter,
+        entity: context.claim.session,
+        position: Some(context.position),
+    };
     let mut feedback = initial_feedback.to_string();
     let mut previous = None;
     for attempt in 1..=2 {
         tracing::info!(event = "task.phase", phase = "questions.generate", attempt);
-        let response = context.provider.structured::<PromptSet>("interview_question_prompts",quality::PROMPT_INSTRUCTIONS,
-            json!({"job_description":context.description,"blueprint":context.blueprint,"seed":context.claim.seed,"attempt":context.claim.attempts,"draft_attempt":attempt,"duration_minutes":context.duration,"excluded_questions":excluded,"repair_feedback":feedback,"previous_draft":previous})).await;
+        let response=context.provider.structured::<PromptSet>("interview_question_prompts",quality::PROMPT_INSTRUCTIONS,
+            json!({"job_description":context.description,"blueprint":context.blueprint,"positions":[context.position],"seed":context.claim.seed,"attempt":context.claim.attempts,"draft_attempt":attempt,"duration_minutes":context.duration,"excluded_questions":excluded,"repair_feedback":feedback,"previous_draft":previous})).await;
         let checked = async {
             let prompts = response?;
+            anyhow::ensure!(
+                prompts.questions.len() == 1,
+                "Generate exactly one question per checkpoint"
+            );
             previous = Some(serde_json::to_value(&prompts)?);
             tracing::info!(event = "task.phase", phase = "questions.validate");
             prompts.validate(context.blueprint, context.duration)?;
+            anyhow::ensure!(
+                !prompts.questions.iter().any(|question| excluded
+                    .iter()
+                    .any(|old| fingerprint(old) == fingerprint(&question.prompt))),
+                "Question duplicated an excluded prompt"
+            );
             exact_duplicates(context, &prompts, &mut excluded).await?;
             tracing::info!(event = "task.phase", phase = "questions.deduplicate");
             let texts: Vec<String> = prompts
@@ -47,7 +63,7 @@ pub(super) async fn prepare(
                 context.description,
                 context.blueprint,
                 &prompts,
-                context.duration,
+                context.position,
             )
             .await?;
             Ok::<_, anyhow::Error>((prompts, vectors))
@@ -56,6 +72,9 @@ pub(super) async fn prepare(
         match checked {
             Ok(approved) => return Ok(approved),
             Err(error) => {
+                diagnostics
+                    .rejected("prompts", attempt, &error, &previous)
+                    .await;
                 let fatal = error
                     .downcast_ref::<super::provider::ProviderFailure>()
                     .is_some_and(|failure| !failure.retryable);

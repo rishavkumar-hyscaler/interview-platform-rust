@@ -37,9 +37,12 @@ async fn enqueue(
     Extension(provider): Extension<ProviderOption>,
 ) -> Result<(StatusCode, Json<Value>)> {
     let (user, mut tx) = staff(&pool, &headers).await?;
-    let row=sqlx::query("SELECT state,expires_at>now() AS active,generation_status,(SELECT count(*) FROM interview_questions q WHERE q.session_id=s.id) AS question_count FROM interview_sessions s WHERE id=$1 FOR UPDATE")
+    let row=sqlx::query("SELECT state,expires_at>now() AS active,generation_status,generation_id,(SELECT count(*) FROM interview_questions q WHERE q.session_id=s.id) AS question_count FROM interview_sessions s WHERE id=$1 FOR UPDATE")
         .bind(session).fetch_optional(&mut *tx).await?.ok_or(error(StatusCode::NOT_FOUND,"Session not found"))?;
-    if row.get::<i64, _>("question_count") > 0 {
+    let completed = row.get::<String, _>("generation_status") == "completed"
+        || (row.get::<Option<Uuid>, _>("generation_id").is_none()
+            && row.get::<i64, _>("question_count") > 0);
+    if completed {
         tx.commit().await?;
         return Ok((StatusCode::OK, Json(json!({"status":"completed"}))));
     }
@@ -87,13 +90,13 @@ async fn status(
     Extension(provider): Extension<ProviderOption>,
 ) -> Result<Json<Value>> {
     let (_, mut tx) = staff(&pool, &headers).await?;
-    let row=sqlx::query("SELECT s.job_id,s.generation_status,CASE WHEN s.generation_id IS NOT NULL THEN jsonb_build_object('id',s.generation_id,'status',s.generation_status,'attempts',s.generation_attempts,'last_error',s.generation_error,'seed',s.generation_seed) END AS job,j.blueprint FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1")
+    let row=sqlx::query("SELECT s.job_id,s.generation_id,s.generation_status,CASE WHEN s.generation_id IS NOT NULL THEN jsonb_build_object('id',s.generation_id,'status',s.generation_status,'attempts',s.generation_attempts,'last_error',s.generation_error,'seed',s.generation_seed) END AS job,j.blueprint FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1")
         .bind(session).fetch_optional(&mut *tx).await?.ok_or(error(StatusCode::NOT_FOUND,"Session not found"))?;
     let job: Option<Value> = row.get("job");
     let blueprint: Option<Value> = row.get("blueprint");
     let questions:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',id,'position',position,'prompt',prompt,'kind',kind,'difficulty',difficulty,'competency_id',competency_id,'rubric',rubric,'answer',(SELECT jsonb_build_object('content',a.content,'revision',a.revision,'updated_at',a.updated_at) FROM interview_answers a WHERE a.question_id=interview_questions.id)) FROM interview_questions WHERE session_id=$1 ORDER BY position")
         .bind(session).fetch_all(&mut *tx).await?;
-    let state = if !questions.is_empty() {
+    let state = if !questions.is_empty() && row.get::<Option<Uuid>, _>("generation_id").is_none() {
         "completed".to_string()
     } else {
         row.get::<String, _>("generation_status")
