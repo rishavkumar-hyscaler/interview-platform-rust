@@ -87,3 +87,7 @@ Candidates can attach short audio/video recordings. `MEDIA_STORAGE_DIR` defaults
 ## Interviewer-entered Job IDs
 
 Job creation requires `job_code`, shown as Job ID in the UI (for example `BE-2026-001`). Codes are trimmed, normalized to uppercase and unique within the interviewer account. Use 1–64 ASCII letters/digits/hyphens/underscores, starting with a letter or digit. The internal UUID remains the foreign key used by invitation and question-bank routes. The additive migration assigns existing records `LEGACY-<UUID without hyphens>` without deleting data. Apply using `cargo run -- --migrate`, then restart the backend.
+
+## Camera/audio proctoring
+
+See [media proctoring setup, flow and limits](docs/media-proctoring.md) for local models, candidate controls, evidence storage and verification. No additional migrations are needed.

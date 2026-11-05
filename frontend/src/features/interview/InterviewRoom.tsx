@@ -174,7 +174,7 @@ export function InterviewRoom({ token, initial, onSession }: { token: string; in
           {loading ? <p role="status">Loading question…</p> : question ? <h2 className="preserve">{question.prompt}</h2> : <button className="button" onClick={() => void load()}>Retry loading</button>}
           <div className="room-navigation" aria-label="Questions">{Array.from({ length: session.question_count }, (_, index) => <button key={index} className={question?.position === index + 1 ? 'current' : ''} aria-label={`Question ${index + 1}`} aria-current={question?.position === index + 1 ? 'step' : undefined} disabled={loading || finishing || conflict || mediaPending || posting} onClick={() => void navigate(index + 1)}>{index + 1}</button>)}<small>{session.answer_count} of {session.question_count} answered</small></div>
         </div>
-        <InterviewMedia controlsTarget={mediaControls} />
+        <InterviewMedia controlsTarget={mediaControls} token={token} sessionId={session.id} />
       </section>
       <section className="room-right">
         <div className="room-answer-top"><span>Answer type <strong>{question?.kind === 'code' ? 'Code' : question?.kind === 'scenario' ? 'Scenario' : 'Text'}</strong></span><span>On this question <strong>{questionStarted ? time(now - questionStarted) : '—'}</strong></span></div>

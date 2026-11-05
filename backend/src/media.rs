@@ -42,13 +42,13 @@ fn root() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("storage/media"))
 }
-fn path(owner: Uuid, session: Uuid, recording: Uuid) -> PathBuf {
+pub(crate) fn path(owner: Uuid, session: Uuid, recording: Uuid) -> PathBuf {
     root()
         .join(owner.to_string())
         .join(session.to_string())
         .join(recording.to_string())
 }
-fn mime(headers: &HeaderMap, bytes: &[u8]) -> Result<&'static str> {
+pub(crate) fn mime(headers: &HeaderMap, bytes: &[u8]) -> Result<&'static str> {
     let input = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -215,7 +215,7 @@ async fn upload(
     task.finish(true);
     Ok(Json(metadata))
 }
-async fn write_file(file: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) async fn write_file(file: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut options = tokio::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -279,7 +279,13 @@ async fn read(
     let row=sqlx::query("SELECT metadata FROM audit_events WHERE id=$1 AND entity_id=$2 AND action='answer.recorded'").bind(recording).bind(session).fetch_optional(&mut *tx).await?.ok_or(ApiError(StatusCode::NOT_FOUND,"Recording not found"))?;
     let metadata: Value = row.get("metadata");
     tx.commit().await?;
-    let file = path(owner, session, recording);
+    read_asset(path(owner, session, recording), metadata, recording).await
+}
+pub(crate) async fn read_asset(
+    file: PathBuf,
+    metadata: Value,
+    recording: Uuid,
+) -> Result<impl IntoResponse + use<>> {
     let size = tokio::fs::metadata(&file)
         .await
         .map_err(|_| ApiError(StatusCode::NOT_FOUND, "Recording file unavailable"))?

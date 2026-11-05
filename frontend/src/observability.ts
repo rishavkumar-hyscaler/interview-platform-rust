@@ -4,6 +4,8 @@ const levels = { debug: 0, info: 1, warn: 2, error: 3, silent: 4 };
 export function safeRoute(path: string): string {
   const pathname = path.split(/[?#]/, 1)[0];
   const routes: [RegExp, string | ((match: RegExpMatchArray) => string)][] = [
+    [/^\/api\/v1\/candidate\/events\/[^/]+\/evidence\/[^/]+$/, '/api/v1/candidate/events/:event/evidence/:asset'],
+    [/^\/api\/v1\/sessions\/[^/]+\/evidence\/[^/]+$/, '/api/v1/sessions/:session/evidence/:asset'],
     [/^\/health\/(live|ready)$/, match => `/health/${match[1]}`],
     [/^\/api\/auth\/(register|login|logout)$/, match => `/api/auth/${match[1]}`],
     [/^\/api\/me$/, '/api/me'],

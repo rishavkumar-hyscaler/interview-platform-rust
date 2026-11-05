@@ -326,3 +326,223 @@ async fn recordings_are_private_bounded_retry_safe_and_not_falsely_zero_scored()
         "media_requires_human_review"
     );
 }
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL and private temporary evidence storage"]
+async fn proctor_evidence_is_linked_private_idempotent_and_excluded_from_answers() {
+    platform_api::infrastructure::load_environment().unwrap();
+    let dir = std::env::temp_dir().join(format!("proctor-evidence-test-{}", Uuid::new_v4()));
+    let _cleanup = Cleanup(dir.clone());
+    unsafe {
+        std::env::set_var("MEDIA_STORAGE_DIR", &dir);
+    }
+    let pool = PgPoolOptions::new()
+        .connect(&std::env::var("RUNTIME_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let app = platform_api::router_with_ai(pool.clone(), None);
+    let owner = account(&app).await;
+    let stranger = account(&app).await;
+    let (invite, _) = setup(&pool, &app, &owner).await;
+    let (other, _) = setup(&pool, &app, &owner).await;
+    let candidate = invite["invitation_token"].as_str().unwrap();
+    let session: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
+    let owner_id = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    sqlx::query("UPDATE interview_sessions SET state='in_progress',started_at=now(),deadline_at=now()+interval '30 minutes' WHERE id=$1").bind(session).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let event = Uuid::new_v4();
+    let asset = Uuid::new_v4();
+    let next_event = Uuid::new_v4();
+    let observation = json!([
+        {"id":event,"kind":"multiple_faces","client_time":1,"measurements":{"duration_ms":3000,"face_count":2}},
+        {"id":next_event,"kind":"face_missing","client_time":2,"measurements":{"duration_ms":5000,"face_count":0}}
+    ]);
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/api/v1/candidate/events",
+            observation.clone(),
+            candidate
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/api/v1/candidate/events",
+            observation,
+            candidate
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let upload = format!("/api/v1/candidate/events/{event}/evidence/{asset}");
+    let mut jpeg = vec![0u8; 64];
+    jpeg[..3].copy_from_slice(&[0xff, 0xd8, 0xff]);
+    jpeg[62..].copy_from_slice(&[0xff, 0xd9]);
+    assert_eq!(
+        binary(&app, "POST", &upload, "image/jpeg", jpeg.clone(), candidate)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        binary(&app, "POST", &upload, "image/jpeg", jpeg.clone(), candidate)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let mut changed = jpeg.clone();
+    changed[20] = 1;
+    assert_eq!(
+        binary(&app, "POST", &upload, "image/jpeg", changed, candidate)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        binary(
+            &app,
+            "POST",
+            &format!(
+                "/api/v1/candidate/events/{event}/evidence/{}",
+                Uuid::new_v4()
+            ),
+            "image/jpeg",
+            jpeg.clone(),
+            candidate
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        binary(
+            &app,
+            "POST",
+            &format!(
+                "/api/v1/candidate/events/{}/evidence/{}",
+                Uuid::new_v4(),
+                Uuid::new_v4()
+            ),
+            "image/jpeg",
+            jpeg.clone(),
+            candidate
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        binary(
+            &app,
+            "POST",
+            &upload,
+            "image/jpeg",
+            jpeg.clone(),
+            other["invitation_token"].as_str().unwrap()
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    let read = format!("/api/v1/sessions/{session}/evidence/{asset}");
+    let (status, body) = binary(
+        &app,
+        "GET",
+        &read,
+        "",
+        vec![],
+        owner["token"].as_str().unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, jpeg);
+    assert_eq!(
+        binary(
+            &app,
+            "GET",
+            &read,
+            "",
+            vec![],
+            stranger["token"].as_str().unwrap()
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        binary(&app, "GET", &read, "", vec![], candidate).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (status, report) = call(
+        &app,
+        "GET",
+        &format!("/api/v1/sessions/{session}/integrity"),
+        Value::Null,
+        owner["token"].as_str().unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        report["events"][0]["attachments"][0]["asset_id"],
+        json!(asset)
+    );
+    assert!(
+        report["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|event| event["chain_status"] == "valid_server_receipt")
+    );
+    let (_, answers) = call(
+        &app,
+        "GET",
+        "/api/v1/candidate/recordings",
+        Value::Null,
+        candidate,
+    )
+    .await;
+    assert_eq!(answers["recordings"], json!([]));
+    assert_eq!(
+        binary(
+            &app,
+            "POST",
+            &format!(
+                "/api/v1/candidate/events/{event}/evidence/{}",
+                Uuid::new_v4()
+            ),
+            "audio/webm",
+            vec![0; 2 * 1024 * 1024 + 1],
+            candidate
+        )
+        .await
+        .0,
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+    let file = dir
+        .join(owner_id.to_string())
+        .join(session.to_string())
+        .join(format!("{asset}.evidence"));
+    tokio::fs::write(file, b"tampered bytes").await.unwrap();
+    assert_eq!(
+        binary(
+            &app,
+            "GET",
+            &read,
+            "",
+            vec![],
+            owner["token"].as_str().unwrap()
+        )
+        .await
+        .0,
+        StatusCode::INTERNAL_SERVER_ERROR
+    );
+    pool.close().await;
+}

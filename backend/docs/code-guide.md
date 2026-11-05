@@ -23,6 +23,7 @@ The backend is still one Rust package and one executable. Module boundaries foll
 | `interviews/candidate.rs` | Candidate session projection and state transitions |
 | `invitations.rs` | Invitation encryption service |
 | `interview_room.rs` | Candidate questions, revisioned answer autosave |
+| `proctor_evidence.rs` | Private event-linked snapshot/clip uploads and verified interviewer reads |
 | `media.rs`, `proctoring.rs`, `adaptive.rs` | Recordings, browser observations, next-question recommendations |
 | `generation/http.rs` | Queue generation and read status |
 | `generation/worker.rs` | Claim jobs, renew leases, manage retries |

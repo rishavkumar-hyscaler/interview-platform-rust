@@ -14,6 +14,7 @@ mod jobs;
 mod media;
 mod observability;
 mod pagination;
+mod proctor_evidence;
 mod proctoring;
 mod review;
 pub mod scoring;

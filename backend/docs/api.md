@@ -133,3 +133,14 @@ Generation schemas enforce the exact requested number of blueprint slots, questi
 
 ### Human-readable Job IDs
 `POST /api/v1/jobs` requires `job_code`. The API trims and uppercases it; codes are 1–64 ASCII letters, digits, hyphens or underscores and must start with a letter or digit. The database enforces uniqueness per interviewer, so case/whitespace-equivalent duplicate creation (including simultaneous requests) returns 409. Identical retries using the same request key remain idempotent; changing the Job ID under an existing key returns 409. Another interviewer may use the same code independently. Job lists, session lists/details, candidate session data and JSON reports include `job_code`; internal `id`/`job_id` UUIDs and route parameters are unchanged. Existing jobs receive deterministic `LEGACY-…` codes through one additive migration.
+
+
+## Media proctoring evidence
+
+`POST /api/v1/candidate/events` additionally accepts the media observation kinds and bounded optional `measurements` object documented in [media proctoring](media-proctoring.md). Duplicate event IDs must retain the same measurements.
+
+- `POST /api/v1/candidate/events/{event}/evidence/{asset}`: binary JPEG/audio/video body, candidate bearer token; binds an attachment to a recent allowed event. Retry with the same asset UUID and identical bytes.
+- `GET /api/v1/sessions/{session}/evidence/{asset}`: owning interviewer only; verifies receipt signature and content hash before returning private media.
+- `GET /api/v1/sessions/{session}/integrity`: each observation now includes an `attachments` array with asset IDs, MIME types, byte counts, timestamps, hashes and signatures. Existing risk/annotation fields remain.
+
+Limits and model/calibration behavior are in the linked guide. Evidence attachments do not count as candidate answers.

@@ -54,7 +54,7 @@ pub(super) async fn annotate(
     Ok(Json(json!({"saved":true})))
 }
 pub(super) fn weights() -> Value {
-    let defaults = json!({"focus_lost":2,"hidden":2,"fullscreen_exited":3,"paste":2,"context_menu":1,"camera_denied":0,"microphone_denied":0,"typing_burst":3,"rapid_answer":2,"multiple_displays":2,"devtools_suspected":1});
+    let defaults = json!({"focus_lost":2,"hidden":2,"fullscreen_exited":3,"paste":2,"context_menu":1,"camera_denied":0,"microphone_denied":0,"typing_burst":3,"rapid_answer":2,"multiple_displays":2,"devtools_suspected":1,"face_missing":1,"multiple_faces":4,"gaze_away":0,"possible_background_speech":1,"speech_detected":0});
     let mut result = defaults;
     if let Ok(raw) = std::env::var("INTEGRITY_WEIGHTS")
         && let Ok(Value::Object(custom)) = serde_json::from_str::<Value>(&raw)
@@ -74,7 +74,7 @@ pub(super) async fn integrity(
 ) -> Result<Json<Value>> {
     let (owner, mut tx) = staff(&pool, &headers).await?;
     exists(&mut tx, session).await?;
-    let mut events:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',a.id,'received_at',a.created_at,'evidence',a.metadata,'annotation',(SELECT jsonb_build_object('reviewer',b.actor_id,'at',b.created_at,'decision',b.metadata->>'decision','note',b.metadata->>'note') FROM audit_events b WHERE b.entity_id=a.entity_id AND b.action='integrity.annotated' AND b.metadata->>'event_id'=a.id::text ORDER BY b.created_at DESC,b.id DESC LIMIT 1)) FROM audit_events a WHERE entity_id=$1 AND action='proctor.observed' ORDER BY created_at,id LIMIT 10000").bind(session).fetch_all(&mut *tx).await?;
+    let mut events:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',a.id,'received_at',a.created_at,'evidence',a.metadata,'attachments',(SELECT coalesce(jsonb_agg(e.metadata||jsonb_build_object('saved_at',e.created_at) ORDER BY e.created_at,e.id),'[]'::jsonb) FROM audit_events e WHERE e.entity_id=a.entity_id AND e.action='proctor.evidence' AND e.metadata->>'event_id'=a.id::text),'annotation',(SELECT jsonb_build_object('reviewer',b.actor_id,'at',b.created_at,'decision',b.metadata->>'decision','note',b.metadata->>'note') FROM audit_events b WHERE b.entity_id=a.entity_id AND b.action='integrity.annotated' AND b.metadata->>'event_id'=a.id::text ORDER BY b.created_at DESC,b.id DESC LIMIT 1)) FROM audit_events a WHERE entity_id=$1 AND action='proctor.observed' ORDER BY (a.metadata->>'sequence')::bigint NULLS FIRST,a.created_at,a.id LIMIT 10000").bind(session).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     let mut prior = String::from("legacy-or-genesis");
     let mut expected_sequence = 0i64;

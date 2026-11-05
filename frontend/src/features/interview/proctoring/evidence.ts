@@ -1,0 +1,88 @@
+import { candidateApi } from '../api';
+import { ApiError } from '../../../api';
+import { loggedFetch } from '../../../transport';
+import { startTask } from '../../../observability';
+import type { MediaObservation } from './signals';
+type Asset = { id: string; blob: Blob };
+type Pending = { id: string; session: string; observation: MediaObservation; assets: Asset[]; created: number; accepted: boolean };
+function store<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const opening = indexedDB.open('interview-proctor-evidence', 1);
+    opening.onupgradeneeded = () => opening.result.createObjectStore('pending', { keyPath: 'id' });
+    opening.onerror = () => reject(new Error('Evidence recovery unavailable'));
+    opening.onsuccess = () => {
+      const db = opening.result; const tx = db.transaction('pending', mode); const result = action(tx.objectStore('pending'));
+      tx.oncomplete = () => { db.close(); resolve(result.result); };
+      tx.onerror = tx.onabort = () => { db.close(); reject(new Error('Evidence recovery unavailable')); };
+    };
+  });
+}
+export function evidenceQueue(token: string, session: string, status: (message: string) => void) {
+  let sending = false; let stopped = false;
+  const acknowledged = new Set<string>();
+  const notice = (message: string) => { if (!stopped) status(message); };
+  async function flush() {
+    if (sending) return;
+    sending = true;
+    try {
+      const records = await store<Pending[]>('readonly', value => value.getAll());
+      for (const record of records) {
+        if (Date.now() - record.created > 14 * 60000) { await store('readwrite', value => value.delete(record.id)); notice('Some pending evidence expired before upload. Browser events remain separate.'); continue; }
+        if (record.session !== session) continue;
+        if (!record.accepted && !acknowledged.has(record.observation.id)) {
+          try { await candidateApi(token).events([record.observation]); }
+          catch (error) {
+            // A submitted session rejects event replays. The attachment endpoint still
+            // verifies the previously received event before accepting any late media.
+            if (!(error instanceof ApiError && error.status === 409 && record.assets.length)) throw error;
+          }
+        }
+        acknowledged.add(record.observation.id);
+        record.accepted = true;
+        await store('readwrite', value => value.put(record));
+        for (const asset of record.assets) {
+          const finish = startTask('proctor.evidence.upload');
+          try {
+            const response = await loggedFetch(`/api/v1/candidate/events/${record.observation.id}/evidence/${asset.id}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': asset.blob.type }, body: asset.blob, signal: AbortSignal.timeout(30000) });
+            if (!response.ok) throw new ApiError('Evidence upload rejected', response.status);
+            finish('succeeded');
+          } catch (error) { finish('failed'); throw error; }
+        }
+        await store('readwrite', value => value.delete(record.id)); notice('Media observations and evidence synced');
+      }
+    } catch { notice('Media evidence pending · reconnect to retry (up to 14 minutes)'); }
+    finally { sending = false; }
+  }
+  const timer = setInterval(() => void flush(), 5000); window.addEventListener('online', flush); void flush();
+  return {
+    async enqueue(observation: MediaObservation, assets: Asset[]) {
+      const records = await store<Pending[]>('readonly', value => value.getAll());
+      if (records.filter(record => record.session === session).length >= 20) { notice('Media evidence buffer full · reconnect to sync'); await candidateApi(token).events([observation]); return; }
+      await store('readwrite', value => value.put({ id: crypto.randomUUID(), session, observation, assets, created: Date.now(), accepted: acknowledged.has(observation.id) } satisfies Pending));
+      void flush();
+    },
+    stop() { stopped = true; clearInterval(timer); window.removeEventListener('online', flush); },
+  };
+}
+export async function snapshot(video: HTMLVideoElement): Promise<Blob | null> {
+  if (video.readyState < 2 || !video.videoWidth) return null;
+  const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360;
+  canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return new Promise(resolve => canvas.toBlob(blob => resolve(blob && blob.size <= 512 * 1024 ? blob : null), 'image/jpeg', 0.65));
+}
+export function shortClip(stream: MediaStream, register: (stop: () => void) => void): Promise<Blob | null> {
+  if (typeof MediaRecorder === 'undefined') return Promise.resolve(null);
+  const video = stream.getVideoTracks().some(track => track.readyState === 'live');
+  const format = (video ? ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'] : ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg', 'audio/mp4']).find(type => MediaRecorder.isTypeSupported(type));
+  if (!format) return Promise.resolve(null);
+  return new Promise(resolve => {
+    const clips: Blob[] = []; let size = 0;
+    const recorder = new MediaRecorder(stream, { mimeType: format, videoBitsPerSecond: 350000, audioBitsPerSecond: 32000 });
+    const stop = () => { if (recorder.state !== 'inactive') recorder.stop(); };
+    register(stop);
+    recorder.ondataavailable = event => { clips.push(event.data); size += event.data.size; if (size > 1900000) stop(); };
+    recorder.onstop = () => { clearTimeout(timer); const blob = new Blob(clips, { type: recorder.mimeType }); resolve(blob.size >= 16 && blob.size <= 2 * 1024 * 1024 ? blob : null); };
+    recorder.onerror = () => { clearTimeout(timer); resolve(null); };
+    recorder.start(250); const timer = setTimeout(stop, 3000);
+  });
+}

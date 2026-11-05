@@ -8,6 +8,7 @@ Stack follows the user's explicit correction: Rust, React, PostgreSQL and pgvect
 | Adaptive difficulty | Next question evaluates the saved answer and chooses a suitable unserved question from the prepared set; manual question navigation remains available |
 | Timed room, cursor resume, text/code/media, autosave | Server deadline, optimistic revisions, local unsent draft recovery, refreshed cursor; optional bounded audio/video attachments with private playback and IndexedDB retry recovery |
 | Fullscreen and one browser tab | Editor requires fullscreen; exclusive Web Lock gates the candidate view on one origin/profile |
+| Media proctoring | Opt-in local face counts, calibrated eye/head geometry, possible background-speech analysis, event-linked private snapshots/clips and interviewer playback; see [details and limitations](media-proctoring.md) |
 | Browser proctoring | Focus/visibility/fullscreen, copy/paste count, context menu, typing bursts, rapid answer timing, window-size dev-tools suspicion, supported display-extension signal |
 | Immutable evidence | Server timestamp, event IDs, idempotency, measurement units, signed receipt chain, RLS-protected append-only audit |
 | AI scoring | Rubric point bounds, exact evidence quotes, blank-answer zeroes, per-question live progress, final competency profile and human-review recommendation |
@@ -20,7 +21,7 @@ Stack follows the user's explicit correction: Rust, React, PostgreSQL and pgvect
 
 ## Explicit limits
 
-- Optional audio/video answer recording is implemented. Face/look-away/background-voice analysis is not implemented. Device preview stays local; recordings upload only after the candidate starts a recording and stops it. Browser monitoring continues if device access is denied. Media-only answers require human review, not an automatic zero; include written answers for AI scoring.
+- Optional audio/video answers and opt-in local media proctoring are implemented. Eye/head direction and possible background-speech flags are heuristic estimates, not attention/intent inference, speaker identification or cheating verdicts. Only event-triggered proctor snapshots/clips upload automatically after opt-in. Browser monitoring continues if device/model access is unavailable. Media-only answers still require human review, not an automatic zero. See [media proctoring](media-proctoring.md).
 - Web Locks cannot coordinate different origins, profiles, browsers or devices. They prevent accidental duplicate tabs, not malicious API clients.
 - Web apps cannot reliably detect every display or dev-tools instance. Unsupported browser signals are unavailable; window-size heuristics can produce false positives. Typing bursts may come from assistive tools, input methods or accessibility software.
 - A server signature proves receipt integrity, not the truth or completeness of client telemetry. Browser-side suppression cannot be ruled out.

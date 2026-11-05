@@ -1,4 +1,4 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import globals from 'globals';
-export default tseslint.config({ ignores: ['dist'] }, js.configs.recommended, ...tseslint.configs.recommended, { languageOptions: { globals: globals.browser } });
+export default tseslint.config({ ignores: ['dist', 'public/proctoring'] }, js.configs.recommended, ...tseslint.configs.recommended, { files: ['src/**/pcm-worklet.js'], languageOptions: { globals: { AudioWorkletProcessor: 'readonly', sampleRate: 'readonly', registerProcessor: 'readonly' } } }, { languageOptions: { globals: globals.browser } });
