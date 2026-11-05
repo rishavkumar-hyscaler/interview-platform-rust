@@ -32,7 +32,9 @@ async fn main() -> anyhow::Result<()> {
         .allow_headers([
             axum::http::header::AUTHORIZATION,
             axum::http::header::CONTENT_TYPE,
-        ]);
+            axum::http::HeaderName::from_static("x-request-id"),
+        ])
+        .expose_headers([axum::http::HeaderName::from_static("x-request-id")]);
     let (shutdown, receiver) = tokio::sync::watch::channel(false);
     let worker = platform_api::worker::run(pool.clone(), receiver.clone());
     let server_shutdown = shutdown.clone();

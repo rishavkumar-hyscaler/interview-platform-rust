@@ -1,8 +1,6 @@
 use crate::{
-    ApiError, Result,
-    generation::provider::AiProvider,
+    ApiError, Result, access::candidate, audit::record as audit, generation::provider::AiProvider,
     infrastructure::finalize_due_session,
-    interviews::{audit, candidate},
 };
 use axum::{
     Json, Router,

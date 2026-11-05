@@ -207,6 +207,23 @@ impl AiProvider {
         })
     }
     async fn post(&self, path: &str, key: &str, body: Value) -> Result<Value> {
+        let operation = if path == "/embeddings" {
+            "ai.embeddings"
+        } else {
+            "ai.generate"
+        };
+        let started = std::time::Instant::now();
+        tracing::info!(event = "provider.started", operation);
+        let result = self.post_inner(path, key, body).await;
+        tracing::info!(
+            event = "provider.completed",
+            operation,
+            success = result.is_ok(),
+            duration_ms = started.elapsed().as_millis() as u64
+        );
+        result
+    }
+    async fn post_inner(&self, path: &str, key: &str, body: Value) -> Result<Value> {
         let encoded = serde_json::to_vec(&OrderedPayload {
             value: &body,
             properties: false,

@@ -1,8 +1,9 @@
 //! Private bounded answer recordings, with lightweight immutable audit references.
 use crate::{
-    ApiError, Result, digest,
+    ApiError, Result,
+    access::{candidate, staff},
+    digest,
     infrastructure::{finalize_due_session, interviewer_transaction},
-    interviews::{candidate, staff},
 };
 use axum::{
     Json, Router,
@@ -86,6 +87,7 @@ async fn upload(
     let mime = mime(&headers, &bytes)?;
     let hash = hex::encode(Sha256::digest(&bytes));
     let (owner, session, mut tx) = candidate(&pool, &headers).await?;
+    let mut task = crate::observability::TaskLog::start("recording.upload", session);
     finalize_due_session(&mut tx, owner, session).await?;
     let old:Option<Value>=sqlx::query_scalar("SELECT metadata FROM audit_events WHERE id=$1 AND entity_id=$2 AND action='answer.recorded'").bind(recording).bind(session).fetch_optional(&mut *tx).await?;
     if let Some(old) = old {
@@ -93,6 +95,7 @@ async fn upload(
             return Err(ApiError(StatusCode::CONFLICT, "Recording ID already used"));
         }
         tx.commit().await?;
+        task.finish(true);
         return Ok(Json(old));
     }
     let state: String = sqlx::query_scalar("SELECT state FROM interview_sessions WHERE id=$1")
@@ -209,6 +212,7 @@ async fn upload(
     }
     // A failed commit is ambiguous: retain the immutable file for reconciliation, never delete a potentially committed attachment.
     tx.commit().await?;
+    task.finish(true);
     Ok(Json(metadata))
 }
 async fn write_file(file: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {

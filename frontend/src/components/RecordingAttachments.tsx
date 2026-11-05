@@ -1,12 +1,13 @@
+import { loggedFetch } from '../transport';
 import { useEffect, useState } from 'react';
-import { apiBaseUrl, request } from '../api';
+import { request } from '../api';
 type Recording = { recording_id: string; question_id: string; mime: string; bytes: number; saved_at: string };
 function Playback({ recording, session, token, candidate }: { recording: Recording; session: string; token: string; candidate: boolean }) {
   const [url, setUrl] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
   async function load() {
     setBusy(true); setError('');
-    try { const response = await fetch(`${apiBaseUrl}${candidate ? '/api/v1/candidate' : `/api/v1/sessions/${session}`}/recordings/${recording.recording_id}`, { headers: { Authorization: `Bearer ${token}` } }); if (!response.ok) throw new Error('Recording unavailable or access expired.'); setUrl(URL.createObjectURL(await response.blob())); }
+    try { const response = await loggedFetch(`${candidate ? '/api/v1/candidate' : `/api/v1/sessions/${session}`}/recordings/${recording.recording_id}`, { headers: { Authorization: `Bearer ${token}` } }); if (!response.ok) throw new Error('Recording unavailable or access expired.'); setUrl(URL.createObjectURL(await response.blob())); }
     catch (error) { setError(error instanceof Error ? error.message : 'Unable to play recording'); }
     finally { setBusy(false); }
   }

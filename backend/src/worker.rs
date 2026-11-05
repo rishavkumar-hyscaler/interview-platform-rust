@@ -48,8 +48,8 @@ async fn expiry_loop(pool: PgPool, mut shutdown: watch::Receiver<bool>) {
         // acknowledge a job whose domain transaction has not committed.
         let processed = match crate::infrastructure::process_expiry_job(&pool).await {
             Ok(processed) => processed,
-            Err(error) => {
-                tracing::error!(%error, "expiry job polling failed");
+            Err(_) => {
+                tracing::error!("expiry job polling failed");
                 false
             }
         };

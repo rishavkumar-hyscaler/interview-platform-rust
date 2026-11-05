@@ -60,8 +60,10 @@ pub async fn process_expiry_job(pool: &PgPool) -> Result<bool, sqlx::Error> {
         let session: Option<Uuid> = sqlx::query_scalar("SELECT id FROM interview_sessions WHERE state IN ('invited','ready','in_progress') AND least(expires_at,coalesce(deadline_at,expires_at))<=now() ORDER BY expires_at,id FOR UPDATE SKIP LOCKED LIMIT 1")
             .fetch_optional(&mut *tx).await?;
         if let Some(session) = session {
+            let mut task = crate::observability::TaskLog::start("session.expire", session);
             finalize_due_session(&mut tx, interviewer, session).await?;
             tx.commit().await?;
+            task.finish(true);
             return Ok(true);
         }
         tx.commit().await?;

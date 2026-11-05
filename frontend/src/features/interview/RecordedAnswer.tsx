@@ -1,5 +1,6 @@
+import { startTask } from '../../observability';
+import { loggedFetch } from '../../transport';
 import { useEffect, useRef, useState } from 'react';
-import { apiBaseUrl } from '../../api';
 import { readRecording, recordingKey, removeRecording, storeRecording, type RecordingDraft } from './recordingStore';
 export function RecordedAnswer({ token, session, question, onPending, fullscreen }: { fullscreen: boolean; token: string; session: string; question: string; onPending: (pending: boolean) => void }) {
   const recorder = useRef<MediaRecorder | null>(null); const sending = useRef(false); const stream = useRef<MediaStream | null>(null);
@@ -17,14 +18,17 @@ export function RecordedAnswer({ token, session, question, onPending, fullscreen
   useEffect(() => { if (!draft) { setUrl(''); return; } const next = URL.createObjectURL(draft.blob); setUrl(next); return () => URL.revokeObjectURL(next); }, [draft]);
   async function upload(value = draftRef.current) {
     if (!value || sending.current) return; sending.current = true; if (alive.current) { setBusy(true); setError(''); setStatus('Uploading recording…'); }
+    const requestId = crypto.randomUUID();
+    const finishTask = startTask('recording.upload', requestId);
     try {
       const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 90000);
       let response: Response;
-      try { response = await fetch(`${apiBaseUrl}/api/v1/candidate/questions/${value.question}/recordings/${value.id}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': value.blob.type }, body: value.blob, signal: controller.signal }); } finally { clearTimeout(timeout); }
+      try { response = await loggedFetch(`/api/v1/candidate/questions/${value.question}/recordings/${value.id}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': value.blob.type, 'X-Request-ID': requestId }, body: value.blob, signal: controller.signal }); } finally { clearTimeout(timeout); }
       if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.error ?? 'Recording was not submitted. Retry upload.'); }
       await removeRecording(value.key); draftRef.current = null;
       if (alive.current) { setDraft(null); keep(false); setStatus('Recording submitted. Your interviewer can play it.'); }
-    } catch (error) { if (alive.current) { setError(error instanceof Error ? error.message : 'Upload failed; recording kept on this device.'); setStatus('Recording not submitted · retry upload'); } }
+      finishTask('succeeded');
+    } catch (error) { finishTask('failed'); if (alive.current) { setError(error instanceof Error ? error.message : 'Upload failed; recording kept on this device.'); setStatus('Recording not submitted · retry upload'); } }
     finally { sending.current = false; if (alive.current) setBusy(false); }
   }
   async function start(video: boolean) {

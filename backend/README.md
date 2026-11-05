@@ -51,8 +51,15 @@ backend/
   Cargo.toml
   src/
     main.rs             # Startup, HTTP server, shared shutdown
-    lib.rs              # Router and authentication
-    interviews.rs       # Interview APIs and authorization
+    lib.rs              # Module inventory and public entry points
+    app.rs              # Router composition and HTTP policies
+    auth.rs, access.rs  # Authentication and scoped database access
+    jobs.rs             # Job creation and listing
+    interviews/         # Invitations, staff views, candidate lifecycle
+    generation/         # Scheduling, worker, validated question pipeline
+    scoring/            # HTTP endpoints, worker, rubric rules
+    review/             # Live streams, assistant, integrity and reports
+    observability.rs    # Request IDs and task lifecycle logs
     infrastructure.rs   # Configuration, database, durable expiry transaction
     worker.rs           # In-process background job loop
   tests/                # Integration tests
@@ -60,6 +67,8 @@ backend/
 ```
 
 `cargo build --release` produces `target/release/platform-api`. `cargo run` starts the entire backend. `cargo run -- --migrate` applies migrations and exits.
+
+See the [code guide and logging reference](docs/code-guide.md) for module responsibilities, request/task flow and log settings.
 
 See [API contract](docs/api.md) for endpoints and limitations and [architecture](docs/architecture.md) for security and release boundaries.
 

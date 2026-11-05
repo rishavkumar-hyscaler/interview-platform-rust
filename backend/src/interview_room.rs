@@ -1,8 +1,7 @@
 //! Interviewee-only question delivery and optimistic answer saves.
 use crate::{
-    ApiError, Result,
-    infrastructure::finalize_due_session,
-    interviews::{audit, candidate, candidate_view},
+    ApiError, Result, access::candidate, audit::record as audit,
+    infrastructure::finalize_due_session, interviews::candidate_view,
 };
 use axum::{
     Json, Router,

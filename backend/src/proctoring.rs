@@ -1,5 +1,5 @@
 //! Browser observations are untrusted evidence, never cheating verdicts.
-use crate::{ApiError, Result, interviews::candidate};
+use crate::{ApiError, Result, access::candidate};
 use axum::{
     Json, Router,
     extract::State,

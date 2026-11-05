@@ -1,5 +1,7 @@
+import { startTask } from '../../observability';
+import { loggedFetch } from '../../transport';
 import { useEffect, useRef, useState } from 'react';
-import { apiBaseUrl, request } from '../../api';
+import { request } from '../../api';
 type Reply = { answer: string; citations: { source_id: string; quote: string }[]; sources: { id: string; text: string }[]; next_page: number | null };
 type Integrity = { risk_score: number; summary: string; notice: string; events: { id: string; received_at: string; evidence: { kind: string }; annotation: null | { decision: string; note: string } }[] };
 type LiveEvent = { id: string; action: string; created_at: string; metadata: Record<string, unknown> };
@@ -23,8 +25,10 @@ export function ReviewAssistant({ session, token }: { session: string; token: st
     void refreshIntegrity(controller.signal).catch(() => {});
     async function connect() {
       current = new AbortController();
+      const requestId = crypto.randomUUID();
+      const finishTask = startTask('review.live', requestId);
       try {
-        const response = await fetch(`${apiBaseUrl}/api/v1/sessions/${session}/live${cursor ? `?after=${cursor}` : ''}`, { headers: { Authorization: `Bearer ${token}` }, signal: current.signal });
+        const response = await loggedFetch(`/api/v1/sessions/${session}/live${cursor ? `?after=${cursor}` : ''}`, { headers: { Authorization: `Bearer ${token}`, 'X-Request-ID': requestId }, signal: current.signal });
         if (!response.ok || !response.body) throw new Error('Live connection unavailable');
         setConnection('Live session connected');
         const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
@@ -40,7 +44,8 @@ export function ReviewAssistant({ session, token }: { session: string; token: st
             setEvents(previous => previous.some(item => item.id === event.id) ? previous : [...previous, event].slice(-30));
           }
         }
-      } catch { /* Reconnect with the last acknowledged cursor. */ }
+        finishTask(controller.signal.aborted ? 'cancelled' : 'succeeded');
+      } catch { finishTask(controller.signal.aborted ? 'cancelled' : 'failed'); }
       if (!controller.signal.aborted) { setConnection('Live connection interrupted · reconnecting'); timer = setTimeout(() => void connect(), 3000); }
     }
     void connect();
@@ -48,10 +53,12 @@ export function ReviewAssistant({ session, token }: { session: string; token: st
   }, [session, token]);
   async function ask(page = 0, prompt = question) {
     if (!prompt.trim()) return;
+    const requestId = crypto.randomUUID();
+    const finishTask = startTask('review.chat', requestId);
     setBusy(true); setError(''); const controller = new AbortController(); abort.current = controller;
     try {
       setDraft('');
-      const response = await fetch(`${apiBaseUrl}/api/v1/sessions/${session}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, signal: controller.signal, body: JSON.stringify({ question: prompt, conversation: conversation.current, page }) });
+      const response = await loggedFetch(`/api/v1/sessions/${session}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Request-ID': requestId }, signal: controller.signal, body: JSON.stringify({ question: prompt, conversation: conversation.current, page }) });
       if (!response.ok || !response.body) throw new Error('Reviewer service unavailable. Retry after checking the backend.');
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let raw = ''; let completed = false;
       while (true) {
@@ -72,7 +79,8 @@ export function ReviewAssistant({ session, token }: { session: string; token: st
         }
       }
       if (!completed) throw new Error('Reviewer stream interrupted. The partial answer was not verified; retry.');
-    } catch (error) { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Unable to answer'); }
+      finishTask('succeeded');
+    } catch (error) { finishTask(controller.signal.aborted ? 'cancelled' : 'failed'); if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Unable to answer'); }
     finally { setBusy(false); setDraft(''); }
   }
   async function annotate() {
