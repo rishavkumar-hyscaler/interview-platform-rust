@@ -74,3 +74,7 @@ Only route templates and operational identifiers/statuses are logged. Unknown ro
 Run backend formatting, Clippy and tests as described in the backend README. The observability test checks request-ID validation/echo and that headers, unknown paths and query secrets do not leak. Existing PostgreSQL integration tests cover access boundaries, lifecycle, deadlines, generation, media, scoring and streaming behavior after the module moves.
 
 In `frontend/`, run `npm test`, `npm run lint` and `npm run build`. Logger tests verify template redaction for known/unknown routes and the production warning default.
+
+Job question pools: `generation/bank.rs` maintains and reserves the unused stock; `generation/bank_http.rs` exposes owner-only status/retry. The existing worker and pipeline prepare both session and pool targets; no extra process or executable is required.
+
+Generation v3: `drafts.rs` handles prompt-only generation, validation, exact/semantic bank checks and prompt review. `references.rs` prepares/reviews individual references with a semaphore and local repairs. `pipeline.rs` coordinates those gates and atomic publication. See [timing and retry behavior](generation-timing.md).

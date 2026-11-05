@@ -4,7 +4,7 @@ mod quality;
 pub mod types;
 use serde_json::json;
 use uuid::Uuid;
-const PROMPT_VERSION: &str = "jd-questions-v2";
+const PROMPT_VERSION: &str = "jd-questions-v3";
 #[derive(Clone, Copy)]
 pub(crate) struct AutomaticPreparation(pub bool);
 
@@ -14,6 +14,9 @@ pub(crate) async fn prepare_automatically(
     session: Uuid,
     enabled: bool,
 ) -> std::result::Result<bool, sqlx::Error> {
+    if bank::assign(tx, owner, session).await? {
+        return Ok(true);
+    }
     if !enabled {
         return Ok(false);
     }
@@ -26,8 +29,33 @@ pub(crate) async fn prepare_automatically(
     Ok(changed > 0)
 }
 
+pub(crate) mod bank;
+mod bank_http;
+mod drafts;
 mod http;
 mod pipeline;
+mod references;
 mod worker;
 pub use http::routes;
 pub use worker::process_next;
+
+/// Quality failures are already repaired locally. Do not regenerate whole sets
+/// three more times; retry only transient provider/database failures automatically.
+#[derive(Debug)]
+pub(super) struct PreparationRejected(pub String);
+impl std::fmt::Display for PreparationRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl std::error::Error for PreparationRejected {}
+pub(super) fn bounded_failure(error: anyhow::Error) -> anyhow::Error {
+    if error.downcast_ref::<provider::ProviderFailure>().is_some()
+        || error.downcast_ref::<sqlx::Error>().is_some()
+        || error.downcast_ref::<provider::TransportFailure>().is_some()
+    {
+        error
+    } else {
+        PreparationRejected(error.to_string()).into()
+    }
+}

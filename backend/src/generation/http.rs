@@ -14,12 +14,16 @@ use uuid::Uuid;
 
 use super::PROMPT_VERSION;
 #[derive(Clone)]
-struct ProviderOption(Option<Arc<AiProvider>>);
+pub(super) struct ProviderOption(pub(super) Option<Arc<AiProvider>>);
 pub fn routes(provider: Option<AiProvider>) -> Router<PgPool> {
     Router::new()
         .route(
             "/api/v1/sessions/{session}/generation",
             get(status).post(enqueue),
+        )
+        .route(
+            "/api/v1/jobs/{job}/question-sets",
+            get(super::bank_http::status).post(super::bank_http::retry),
         )
         .layer(Extension(ProviderOption(provider.map(Arc::new))))
 }
@@ -46,6 +50,10 @@ async fn enqueue(
             StatusCode::CONFLICT,
             "Questions can only be prepared before an active interview starts",
         ));
+    }
+    if super::bank::assign(&mut tx, user, session).await? {
+        tx.commit().await?;
+        return Ok((StatusCode::OK, Json(json!({"status":"completed"}))));
     }
     if provider.0.is_none() {
         return Err(error(

@@ -144,3 +144,7 @@ Generation schemas enforce the exact requested number of blueprint slots, questi
 - `GET /api/v1/sessions/{session}/integrity`: each observation now includes an `attachments` array with asset IDs, MIME types, byte counts, timestamps, hashes and signatures. Existing risk/annotation fields remain.
 
 Limits and model/calibration behavior are in the linked guide. Evidence attachments do not count as candidate answers.
+
+### Job question-set pool
+
+`POST /api/v1/jobs` accepts optional `preparation_duration_minutes` (5–180; default 30) and atomically queues three sets. `GET /api/v1/jobs/{job}/question-sets` returns owner-only status and unused questions/reference rubrics; `POST` retries failed unused sets. Invitations assign a matching unused set once, replenish its slot, or queue per-session generation if no set is ready. See [details](job-question-sets.md).

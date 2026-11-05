@@ -43,15 +43,29 @@ fn provider_failure(status: u16, body: &Value) -> ProviderFailure {
             && code != "insufficient_quota",
     }
 }
+#[derive(Debug)]
+pub struct TransportFailure(&'static str);
+impl std::fmt::Display for TransportFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+impl std::error::Error for TransportFailure {}
 fn generation_schema_bounds(schema: &mut Value, name: &str, input: &Value) {
     let (property, count) = match name {
         "interview_blueprint" => (
             "slots",
             input["question_count"].as_u64().map(|n| n as usize),
         ),
-        "interview_questions" => (
+        "interview_questions" | "interview_question_prompts" => (
             "questions",
             input["blueprint"]["slots"].as_array().map(Vec::len),
+        ),
+        "interview_prompt_review" => (
+            "questions",
+            input["proposed_prompts"]["questions"]
+                .as_array()
+                .map(Vec::len),
         ),
         "interview_quality_review" => (
             "questions",
@@ -236,7 +250,15 @@ impl AiProvider {
             .body(encoded);
         if matches!(
             body["text"]["format"]["name"].as_str(),
-            Some("interview_blueprint" | "interview_questions" | "interview_quality_review")
+            Some(
+                "interview_blueprint"
+                    | "interview_questions"
+                    | "interview_question_prompts"
+                    | "interview_prompt_review"
+                    | "interview_reference_answer"
+                    | "interview_quality_review"
+                    | "interview_reference_review"
+            )
         ) {
             let seconds = std::env::var("GENERATION_REQUEST_TIMEOUT_SECONDS")
                 .ok()
@@ -248,13 +270,13 @@ impl AiProvider {
         let mut response = request
             .send()
             .await
-            .map_err(|_| anyhow::anyhow!("AI service connection failed or timed out"))?;
+            .map_err(|_| TransportFailure("AI service connection failed or timed out"))?;
         let status = response.status();
         let mut bytes = Vec::new();
         while let Some(chunk) = response
             .chunk()
             .await
-            .map_err(|_| anyhow::anyhow!("AI service response could not be read"))?
+            .map_err(|_| TransportFailure("AI service response could not be read"))?
         {
             ensure!(
                 bytes.len() + chunk.len() <= 1024 * 1024,
@@ -280,18 +302,28 @@ impl AiProvider {
         clean_schema(&mut schema);
         generation_schema_bounds(&mut schema, name, &input);
         let mut body = json!({
-            "model":self.model,"store":false,"max_output_tokens":if name=="interview_questions"{20000}else{12000},
+            "model":self.model,"store":false,"max_output_tokens":match name {"interview_question_prompts" | "interview_prompt_review" | "interview_quality_review" | "interview_reference_review" => 4000,"interview_reference_answer" => 8000,"interview_questions" => 20000,_ => 12000},
             "instructions":instructions,"input":[{"role":"user","content":serde_json::to_string(&input)?}],
             "text":{"format":{"type":"json_schema","name":name,"strict":true,"schema":schema}}
         });
         if self.model == "gpt-5-mini" {
-            if matches!(name, "interview_blueprint" | "interview_questions") {
+            if matches!(
+                name,
+                "interview_blueprint"
+                    | "interview_questions"
+                    | "interview_question_prompts"
+                    | "interview_prompt_review"
+                    | "interview_reference_answer"
+            ) {
                 let effort = std::env::var("GENERATION_DRAFT_REASONING_EFFORT")
                     .ok()
                     .filter(|value| matches!(value.as_str(), "minimal" | "low" | "medium" | "high"))
                     .unwrap_or_else(|| "low".into());
                 body["reasoning"] = json!({"effort":effort});
-            } else if name == "interview_quality_review" {
+            } else if matches!(
+                name,
+                "interview_quality_review" | "interview_reference_review"
+            ) {
                 body["reasoning"] = json!({"effort":"medium"});
             }
         }

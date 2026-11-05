@@ -25,7 +25,7 @@ An optional Compose database remains available via `docker compose -f compose.ya
 
 ## Schema
 
-One baseline migration (`202611040001_initial_schema.sql`) plus one additive Job ID upgrade (`202611050001_job_codes.sql`). Existing migration checksums are preserved.
+One baseline migration plus additive upgrades for human Job IDs and the job question-set pool. Existing migration checksums are preserved.
 
 Seven application tables: `users`, `auth_sessions`, `jobs`, `interview_sessions`, `interview_questions`, `interview_answers`, and `audit_events`. Users are either interviewers or interviewees. Jobs store descriptions/blueprints; interviews store generation state; questions also serve as the embedding-backed question bank. Organizations, memberships, and separate queue/JD/blueprint/bank/access tables are absent.
 
@@ -91,3 +91,9 @@ Job creation requires `job_code`, shown as Job ID in the UI (for example `BE-202
 ## Camera/audio proctoring
 
 See [media proctoring setup, flow and limits](docs/media-proctoring.md) for local models, candidate controls, evidence storage and verification. No additional migrations are needed.
+
+## Questions prepared when a job is created
+
+Job creation queues three unique question sets with reference answers, before invitations. Choose the preparation duration in the job form; inspect **Question sets** on the job card. Invitations reserve an unused matching set and queue its replacement. See [job question-set flow](docs/job-question-sets.md) for fallback generation, retries, migration and API details.
+
+Question preparation now checks/deduplicates prompt-only drafts before generating any reference answers. References run per question (default concurrency three); only a rejected reference is repaired. Quality failures stop after bounded local repair instead of restarting full sets repeatedly. Each preparation attempt has a five-minute default budget. See [staged generation and configuration](docs/generation-timing.md). Existing database schema and API contracts are unchanged.

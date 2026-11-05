@@ -31,3 +31,7 @@ Code changes are implemented and local/mock regression checks pass. Live end-to-
 
 ## Compatibility and limits
 No new tables or migration files are required. Existing prepared interviews are preserved; the new format applies to newly prepared sets after backend restart. Reference code is AI-reviewed but is not compiled or executed by the platform. Model review is not a proof of factual or functional correctness.
+
+## Subsequent v3 timing update
+
+The earlier live-acceptance status describes the original full-set pipeline. One v2 set for local job 139086 subsequently completed and saved six worked references. The current v3 implementation splits prompt validation/deduplication/review from per-question reference work, adds bounded concurrency/local repair and a per-attempt deadline. Its ordering and failure behavior are covered by mock/database tests; a live v3 timing benchmark has not been run. See [current flow and limitations](generation-timing.md).

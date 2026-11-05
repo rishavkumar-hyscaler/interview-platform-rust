@@ -10,7 +10,7 @@ export function safeRoute(path: string): string {
     [/^\/api\/auth\/(register|login|logout)$/, match => `/api/auth/${match[1]}`],
     [/^\/api\/me$/, '/api/me'],
     [/^\/api\/v1\/(summary|jobs|sessions|audit|metrics)$/, match => `/api/v1/${match[1]}`],
-    [/^\/api\/v1\/jobs\/[^/]+\/(invitations|analytics)$/, match => `/api/v1/jobs/:job/${match[1]}`],
+    [/^\/api\/v1\/jobs\/[^/]+\/(invitations|analytics|question-sets)$/, match => `/api/v1/jobs/:job/${match[1]}`],
     [/^\/api\/v1\/sessions\/[^/]+$/, '/api/v1/sessions/:session'],
     [/^\/api\/v1\/sessions\/[^/]+\/(invitation|generation|assessment|live|report|integrity|annotations|review|recordings)$/, match => `/api/v1/sessions/:session/${match[1]}`],
     [/^\/api\/v1\/sessions\/[^/]+\/assessment\/retry$/, '/api/v1/sessions/:session/assessment/retry'],

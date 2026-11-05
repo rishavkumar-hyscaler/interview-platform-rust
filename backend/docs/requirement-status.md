@@ -30,3 +30,5 @@ Stack follows the user's explicit correction: Rust, React, PostgreSQL and pgvect
 - Recording capture/upload/playback and local recovery have been smoke-tested with synthetic video/audio tracks, without accessing real camera/microphone hardware. Live AI integration is covered with a local mock provider. Current provider keys/model availability and real-world camera/browser compatibility need deployment acceptance testing.
 
 Private media files live under `MEDIA_STORAGE_DIR` (default `backend/storage/media`). Back up this directory alongside PostgreSQL and the stable invitation key. Do not expose it through a static web server. JSON exports include audit references and content hashes, not the binary recordings. Browser recording is capped at 60 seconds, server size at 15 MB and server count at 12 clips per session. There is no server-side codec decoding or duration verification.
+
+Job creation now queues three unique question/reference sets before invitations; consuming a matching set replenishes the pool. See [job-set behavior and validation](job-question-sets.md). This timing is an agreed workflow extension to the per-session uniqueness requirement.

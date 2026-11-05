@@ -45,6 +45,7 @@ pub struct Blueprint {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Criterion {
+    #[schemars(length(min = 1, max = 40), regex(pattern = r"^[a-z0-9_]{1,40}$"))]
     pub id: String,
     #[schemars(length(min = 10, max = 1000))]
     pub description: String,
@@ -113,6 +114,96 @@ pub struct CodeReference {
 pub struct QuestionSet {
     pub questions: Vec<Question>,
 }
+/// Prompt-only contract: no answers or rubrics can be generated at this stage.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct QuestionPrompt {
+    pub competency_id: String,
+    pub kind: Kind,
+    pub difficulty: Difficulty,
+    #[schemars(length(min = 30, max = 4000))]
+    pub prompt: String,
+    #[schemars(range(min = 1, max = 30))]
+    pub estimated_minutes: u32,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PromptSet {
+    pub questions: Vec<QuestionPrompt>,
+}
+impl PromptSet {
+    pub fn validate(&self, blueprint: &Blueprint, duration: i32) -> Result<()> {
+        ensure!(
+            self.questions.len() == blueprint.slots.len(),
+            "Generated question count does not match blueprint"
+        );
+        let mut fingerprints = HashSet::new();
+        let mut total = 0u64;
+        for (index, (question, slot)) in self.questions.iter().zip(&blueprint.slots).enumerate() {
+            ensure!(
+                question.competency_id == slot.competency_id
+                    && question.kind == slot.kind
+                    && question.difficulty == slot.difficulty,
+                "Question {} does not match its blueprint slot",
+                index + 1
+            );
+            ensure!(
+                bounded(&question.prompt, 30, 4000),
+                "Question {} prompt is invalid",
+                index + 1
+            );
+            ensure!(
+                (1..=30).contains(&question.estimated_minutes),
+                "Question time budget is invalid"
+            );
+            ensure!(
+                fingerprints.insert(fingerprint(&question.prompt)),
+                "Generated set contains duplicate questions"
+            );
+            total += u64::from(question.estimated_minutes);
+        }
+        ensure!(
+            duration > 0 && total <= duration as u64,
+            "Question time budgets exceed the interview duration"
+        );
+        Ok(())
+    }
+}
+
+/// The model authors only reference material; approved prompt fields stay immutable.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReferenceAnswer {
+    #[schemars(length(min = 120, max = 12000))]
+    pub expected_answer: String,
+    #[schemars(length(max = 5), inner(length(min = 10, max = 1000)))]
+    pub assumptions: Vec<String>,
+    #[schemars(length(min = 1, max = 5), inner(length(min = 20, max = 1500)))]
+    pub acceptable_alternatives: Vec<String>,
+    #[schemars(length(min = 1, max = 5), inner(length(min = 20, max = 1000)))]
+    pub common_mistakes: Vec<String>,
+    pub coding: Option<CodeReference>,
+    #[schemars(length(min = 2, max = 6))]
+    pub criteria: Vec<Criterion>,
+}
+impl ReferenceAnswer {
+    pub fn attach(self, approved: &QuestionPrompt) -> Question {
+        Question {
+            competency_id: approved.competency_id.clone(),
+            kind: approved.kind.clone(),
+            difficulty: approved.difficulty.clone(),
+            prompt: approved.prompt.clone(),
+            estimated_minutes: approved.estimated_minutes,
+            expected_answer: self.expected_answer,
+            assumptions: self.assumptions,
+            acceptable_alternatives: self.acceptable_alternatives,
+            common_mistakes: self.common_mistakes,
+            coding: self.coding,
+            criteria: self.criteria,
+        }
+    }
+}
+
 fn bounded(value: &str, min: usize, max: usize) -> bool {
     !value.contains('\0') && (min..=max).contains(&value.trim().chars().count())
 }
@@ -352,16 +443,26 @@ impl QuestionSet {
                 );
                 let mut ids = HashSet::new();
                 let mut points = 0u64;
-                for c in &q.criteria {
+                for (criterion_index, c) in q.criteria.iter().enumerate() {
+                    let number = criterion_index + 1;
                     ensure!(
                         bounded(&c.id, 1, 40)
-                            && c.id
-                                .bytes()
-                                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
-                            && ids.insert(&c.id)
-                            && bounded(&c.description, 10, 1000)
-                            && (1..=10).contains(&c.max_points),
-                        "Rubric criteria are invalid"
+                            && c.id.bytes().all(|byte| byte.is_ascii_lowercase()
+                                || byte.is_ascii_digit()
+                                || byte == b'_'),
+                        "Rubric criterion {number} ID must be 1–40 lowercase ASCII letters, digits or underscores"
+                    );
+                    ensure!(
+                        ids.insert(&c.id),
+                        "Rubric criterion {number} ID is duplicated"
+                    );
+                    ensure!(
+                        bounded(&c.description, 10, 1000),
+                        "Rubric criterion {number} description must be 10–1000 nonblank characters"
+                    );
+                    ensure!(
+                        (1..=10).contains(&c.max_points),
+                        "Rubric criterion {number} maximum points must be between 1 and 10"
                     );
                     ensure!(
                         bounded(&c.partial_credit, 20, 1500)
@@ -438,6 +539,78 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rubric_feedback_identifies_the_invalid_criterion_rule() {
+        let (blueprint, mut set) = code_fixture();
+        set.questions[0].criteria[0].id = "Correctness-Score".into();
+        assert!(
+            set.validate(&blueprint)
+                .unwrap_err()
+                .to_string()
+                .contains("criterion 1 ID must")
+        );
+        let (_, mut set) = code_fixture();
+        set.questions[0].criteria[1].id = set.questions[0].criteria[0].id.clone();
+        assert!(
+            set.validate(&blueprint)
+                .unwrap_err()
+                .to_string()
+                .contains("criterion 2 ID is duplicated")
+        );
+        let (_, mut set) = code_fixture();
+        set.questions[0].criteria[0].description = " ".repeat(20);
+        assert!(
+            set.validate(&blueprint)
+                .unwrap_err()
+                .to_string()
+                .contains("description must")
+        );
+        let (_, mut set) = code_fixture();
+        set.questions[0].criteria[0].max_points = 0;
+        assert!(
+            set.validate(&blueprint)
+                .unwrap_err()
+                .to_string()
+                .contains("maximum points must")
+        );
+        let schema = serde_json::to_value(schemars::schema_for!(Criterion)).unwrap();
+        assert_eq!(schema["properties"]["id"]["pattern"], "^[a-z0-9_]{1,40}$");
+    }
+    #[test]
+    fn prompt_stage_rejects_answer_keys_and_reference_stage_cannot_replace_prompts() {
+        let (blueprint, set) = code_fixture();
+        let question = &set.questions[0];
+        let prompt = QuestionPrompt {
+            competency_id: question.competency_id.clone(),
+            kind: question.kind.clone(),
+            difficulty: question.difficulty.clone(),
+            prompt: question.prompt.clone(),
+            estimated_minutes: question.estimated_minutes,
+        };
+        PromptSet {
+            questions: vec![prompt.clone()],
+        }
+        .validate(&blueprint, 3)
+        .unwrap();
+        let mut payload = serde_json::to_value(&prompt).unwrap();
+        payload["expected_answer"] =
+            serde_json::json!("An answer must not appear in the prompt contract");
+        assert!(serde_json::from_value::<QuestionPrompt>(payload).is_err());
+        let mut reference = serde_json::to_value(question).unwrap();
+        for key in [
+            "competency_id",
+            "kind",
+            "difficulty",
+            "prompt",
+            "estimated_minutes",
+        ] {
+            reference.as_object_mut().unwrap().remove(key);
+        }
+        let answer: ReferenceAnswer = serde_json::from_value(reference.clone()).unwrap();
+        assert_eq!(answer.attach(&prompt).prompt, prompt.prompt);
+        reference["prompt"] = serde_json::json!("Replace the approved question");
+        assert!(serde_json::from_value::<ReferenceAnswer>(reference).is_err());
+    }
     #[test]
     fn fingerprints_ignore_formatting_and_vectors_are_checked() {
         assert_eq!(
