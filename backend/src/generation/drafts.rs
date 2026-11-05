@@ -30,6 +30,18 @@ pub(super) async fn prepare(
     };
     let mut feedback = initial_feedback.to_string();
     let mut previous = None;
+    // Automatic worker retries receive the same concrete findings as local repairs.
+    let mut tx = interviewer_transaction(context.pool, context.claim.recruiter).await?;
+    let prior: Option<serde_json::Value> = sqlx::query_scalar("SELECT metadata FROM audit_events WHERE entity_id=$1 AND action='generation.rejected' AND metadata->>'question_position'=$2 ORDER BY created_at DESC,id DESC LIMIT 1")
+        .bind(context.claim.session).bind(context.position.to_string()).fetch_optional(&mut *tx).await?;
+    tx.commit().await?;
+    if let Some(prior) = prior {
+        feedback = format!(
+            "{}\nPrevious failure: {}\nSpecific findings: {}",
+            feedback, prior["summary"], prior["findings"]
+        );
+        previous = prior.get("draft").filter(|value| !value.is_null()).cloned();
+    }
     let mut duplicate_replaced = false;
     let mut content_repaired = false;
     let mut cached_embedding: Option<(String, Vec<f32>)> = None;
@@ -41,7 +53,7 @@ pub(super) async fn prepare(
             "interview_questions", quality::QUESTION_INSTRUCTIONS,
             json!({"job_description":context.description,"blueprint":context.blueprint,
                 "positions":[context.position],"seed":context.claim.seed,"attempt":context.claim.attempts,
-                "draft_attempt":attempt,"duration_minutes":context.duration,
+                "draft_attempt":attempt,"duration_minutes":context.duration,"planned_scope":context.planned_scope,
                 "expected_output_format":quality::question_format(&context.blueprint.slots[0], context.duration),
                 "excluded_questions":excluded,"repair_feedback":feedback,"previous_draft":previous})
         ).await;
@@ -54,6 +66,11 @@ pub(super) async fn prepare(
             );
             questions.validate_at(context.blueprint, context.position)?;
             questions.validate_budget(context.duration)?;
+            anyhow::ensure!(
+                questions.questions[0].estimated_minutes as i32 == context.duration,
+                "Question must use its fixed planned duration of {} minutes",
+                context.duration
+            );
             let prompts = PromptSet {
                 questions: questions
                     .questions

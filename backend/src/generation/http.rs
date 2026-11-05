@@ -103,6 +103,6 @@ async fn status(
     };
     tx.commit().await?;
     Ok(Json(
-        json!({"status":state,"configured":provider.0.is_some(),"job":job,"blueprint":blueprint,"questions":questions,"prompt_version":PROMPT_VERSION}),
+        json!({"max_attempts":super::worker::MAX_ATTEMPTS,"status":state,"configured":provider.0.is_some(),"job":job,"blueprint":blueprint,"questions":questions,"prompt_version":PROMPT_VERSION}),
     ))
 }

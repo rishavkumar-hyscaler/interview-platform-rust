@@ -77,7 +77,7 @@ pub(super) async fn save(
     sqlx::query("INSERT INTO interview_questions(id,interviewer_id,session_id,job_id,position,kind,difficulty,prompt,rubric,generation_id,competency_id,fingerprint,embedding,embedding_model,embedding_dimensions,set_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::vector,$14,$15,$16)")
         .bind(Uuid::new_v4()).bind(claim.recruiter).bind(if claim.is_pool {None}else{Some(claim.session)}).bind(context.job).bind(context.position as i32)
         .bind(serde_json::to_value(&question.kind)?.as_str().unwrap_or("text")).bind(serde_json::to_value(&question.difficulty)?.as_str().unwrap_or("medium")).bind(&question.prompt).bind(rubric).bind(claim.id).bind(&question.competency_id).bind(hash).bind(vector).bind(&context.provider.embedding_model).bind(context.provider.dimensions as i32).bind(if claim.is_pool {Some(claim.id)}else{None}).execute(&mut *tx).await?;
-    let total = context.job_blueprint.slots.len();
+    let total = context.planned_total;
     let complete = context.position == total;
     if claim.is_pool {
         sqlx::query("UPDATE question_sets SET status=CASE WHEN $3 THEN 'completed' ELSE 'running' END,claim_token=CASE WHEN $3 THEN NULL ELSE claim_token END,lease_until=CASE WHEN $3 THEN NULL ELSE lease_until END,last_error=NULL WHERE id=$1 AND claim_token=$2")

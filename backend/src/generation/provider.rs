@@ -76,7 +76,7 @@ fn generation_schema_bounds(schema: &mut Value, name: &str, input: &Value) {
                 .filter(|n| (1..=30).contains(n))
             {
                 schema["$defs"]["Question"]["properties"]["estimated_minutes"] =
-                    json!({"type":"integer","minimum":1,"maximum":minutes});
+                    json!({"type":"integer","minimum":minutes,"maximum":minutes});
             }
             match slots[0]["kind"].as_str() {
                 Some("text" | "scenario") => {
@@ -611,7 +611,7 @@ mod tests {
             );
             assert_eq!(
                 schema["$defs"]["Question"]["properties"]["estimated_minutes"],
-                json!({"type":"integer","minimum":1,"maximum":budget})
+                json!({"type":"integer","minimum":budget,"maximum":budget})
             );
         }
     }

@@ -45,16 +45,27 @@ async fn setup(pool: &PgPool, app: &Router, owner: &Value) -> (Value, Vec<Uuid>)
     let user: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
     let(s,job)=call(app,"POST","/api/v1/jobs",json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Interview room test","description":"Build reliable applications in Rust and PostgreSQL.","request_key":Uuid::new_v4()}),token).await;
     assert_eq!(s, StatusCode::CREATED);
-    let(s,invite)=call(app,"POST",&format!("/api/v1/jobs/{}/invitations",job["id"].as_str().unwrap()),json!({"candidate_name":"Room test candidate","candidate_email":"room-test@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
-    assert_eq!(s, StatusCode::CREATED);
-    let id: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
     let job: Uuid = job["id"].as_str().unwrap().parse().unwrap();
     let ids = vec![Uuid::new_v4(), Uuid::new_v4()];
     let mut tx = interviewer_transaction(pool, user).await.unwrap();
+    let id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM question_sets WHERE job_id=$1 ORDER BY created_at,id LIMIT 1",
+    )
+    .bind(job)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
     for (i, q) in ids.iter().enumerate() {
-        sqlx::query("INSERT INTO interview_questions(id,interviewer_id,session_id,job_id,fingerprint,position,kind,difficulty,prompt,rubric) VALUES($1,$2,$3,$4,$5,$6,$7,'medium','Explain a reliable solution with clear tradeoffs','{\"secret_expected_answer\":\"must never leak\"}')").bind(q).bind(user).bind(id).bind(job).bind(q.to_string()).bind((i+1)as i32).bind(if i==0{"text"}else{"code"}).execute(&mut *tx).await.unwrap();
+        sqlx::query("INSERT INTO interview_questions(id,interviewer_id,set_id,job_id,fingerprint,position,kind,difficulty,prompt,rubric) VALUES($1,$2,$3,$4,$5,$6,$7,'medium','Explain a reliable solution with clear tradeoffs','{\"secret_expected_answer\":\"must never leak\"}')").bind(q).bind(user).bind(id).bind(job).bind(q.to_string()).bind((i+1)as i32).bind(if i==0{"text"}else{"code"}).execute(&mut *tx).await.unwrap();
     }
+    sqlx::query("UPDATE question_sets SET status='completed' WHERE id=$1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
+    let(s,invite)=call(app,"POST",&format!("/api/v1/jobs/{job}/invitations"),json!({"candidate_name":"Room test candidate","candidate_email":"room-test@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
+    assert_eq!(s, StatusCode::CREATED);
     (invite, ids)
 }
 #[tokio::test]

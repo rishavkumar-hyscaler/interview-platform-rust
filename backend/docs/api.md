@@ -152,3 +152,7 @@ Limits and model/calibration behavior are in the linked guide. Evidence attachme
 ### Incremental generation progress
 
 Generation v4 saves fully validated questions individually. Owner generation/status and pool previews may show saved questions while status is running/failed. Partial rows do not imply completion. Candidate session responses include `questions_ready`; starting requires completed generation (or a manually prepared legacy session without generation metadata). `POST` generation retry resumes after saved positions. Pool status includes owner-only `last_failure` summaries/findings, without the raw diagnostic draft.
+
+### Invitation readiness
+
+Creating a candidate invitation requires a completed, nonempty question set for the same job and duration, within the configured set count. Otherwise the API returns HTTP 409 and rolls back candidate/session/token creation. A successful invitation assigns that reusable set immediately. Replaying an existing request key still recovers the original invitation. The interviewer UI disables invitations until a ready set is available. Existing historical waiting invitations are preserved.

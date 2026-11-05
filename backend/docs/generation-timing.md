@@ -1,3 +1,17 @@
+## Automatic retry policy
+
+Every generation failure now receives up to three automatic worker retries after the initial attempt (four total attempts), including validation rejection, duplicates, provider errors, unexpected response formats, and unexpected preparation panics. Retry delays are 5, 10 and 15 seconds. Task attempts and next-run times are stored in PostgreSQL, so restarting the backend does not reset the budget. A failed preparation task cannot terminate the worker loop; cancellation also aborts its in-flight work.
+
+Saved checkpoints and the time plan are reused. The next worker attempt receives persisted review findings and the previous rejected draft. Existing bounded local draft/repair calls remain inside each worker attempt, so four worker attempts does not mean only four provider requests. After the fourth failure, the set requires an explicit interviewer retry. Existing failed records are not silently restarted by this code change. No live-provider tests were run.
+
+## Fixed time planning (v6)
+
+Before drafting any question, the backend plans all remaining slots and persists the plan as a `generation.planned` audit event for the set/session. New questions get fixed allocations of 2–3 minutes. A 10-minute fresh interview uses at most five 2-minute questions; a 30-minute interview with six questions uses up to eighteen task minutes, leaving review time. Priority for a third minute combines answer type and difficulty. Code scope is one small function or a focused fix in supplied starter code (normally 3–8 changed lines); scenario/text scope is one decision/concept answered in 2–4 sentences. Full components, services and multi-feature workflows are excluded.
+
+The blueprint request count is capped by duration / 2. Older cached blueprints are adapted locally to fit, keeping higher-priority competencies. Existing saved questions and their times are preserved. A legacy partial set may therefore retain some earlier one-minute questions; only new questions follow the 2–3 minute policy. A set-specific plan is reused across retries, so cached job blueprints and saved questions do not need paid regeneration. The strict output schema fixes estimated_minutes to the planned allocation. Quality review checks scope and correctness independently. A time plan does not guarantee that every person will finish in exactly that time.
+
+The interviewer can expand Question time plan to see the number of questions, each allocation and scope, and the remaining review time. No new database table or migration is required.
+
 ## Current flow: fewer requests (v5)
 
 Job creation accepts `question_set_count` (1–5, default 1). This is the total number of job sets, including assigned/pending/failed work; completed sets are reused across candidates without queuing replacements. interview_sessions.question_set_id links to the source questions directly; no question copies are created. session_question_details() is a SECURITY INVOKER read function preserving table RLS on PostgreSQL 14 and later. Candidate answers, revisions and progress are scoped by session_id and question_id. Session-specific generation beyond these sets requires the interviewer’s explicit Prepare action. Existing jobs keep their previous target of three. The target is returned by job and pool APIs. Changing it on an existing job is not exposed yet.

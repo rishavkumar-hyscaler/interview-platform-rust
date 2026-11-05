@@ -15,6 +15,8 @@ pub(super) struct Preparation<'a> {
     pub blueprint: &'a Blueprint,
     pub duration: i32,
     pub position: usize,
+    pub planned_scope: &'a str,
+    pub planned_total: usize,
     pub job_blueprint: &'a Blueprint,
 }
 pub(super) async fn prepare(
@@ -53,7 +55,7 @@ pub(super) async fn prepare(
     } else {
         quality::blueprint(provider, &description, duration, &initial_feedback).await?
     };
-    blueprint.validate(&description, provider.count)?;
+    blueprint.validate(&description, blueprint.slots.len())?;
     // Cache the validated blueprint before expensive stages; failed references do
     // not require extracting competencies again on the next authorized retry.
     let mut tx = interviewer_transaction(pool, claim.recruiter).await?;
@@ -64,7 +66,7 @@ pub(super) async fn prepare(
             .await?;
     if let Some(current) = current {
         blueprint = serde_json::from_value(current)?;
-        blueprint.validate(&description, provider.count)?;
+        blueprint.validate(&description, blueprint.slots.len())?;
     } else {
         sqlx::query("UPDATE jobs SET blueprint=$2,blueprint_model=$3,blueprint_prompt_version=$4 WHERE id=$1")
             .bind(jd).bind(serde_json::to_value(&blueprint)?).bind(&provider.model).bind(PROMPT_VERSION).execute(&mut *tx).await?;
@@ -80,27 +82,41 @@ pub(super) async fn prepare(
             "Saved question positions are not contiguous"
         );
     }
-    let total = blueprint.slots.len();
+    let saved_minutes: Vec<i32> = saved.iter().map(|row| row.get("minutes")).collect();
+    let mut tx = interviewer_transaction(pool, claim.recruiter).await?;
+    sqlx::query("SELECT id FROM jobs WHERE id=$1 FOR UPDATE")
+        .bind(jd)
+        .fetch_one(&mut *tx)
+        .await?;
+    let stored_plan: Option<Value> = sqlx::query_scalar("SELECT metadata->'plan' FROM audit_events WHERE entity_id=$1 AND action='generation.planned' ORDER BY created_at,id LIMIT 1")
+        .bind(claim.session).fetch_optional(&mut *tx).await?;
+    let plan: super::plan::Plan = match stored_plan {
+        Some(value) => serde_json::from_value(value)?,
+        None => {
+            let plan = super::plan::Plan::build(&blueprint, duration, &saved_minutes)?;
+            sqlx::query("INSERT INTO audit_events(id,interviewer_id,entity_id,action,metadata) VALUES($1,$2,$3,'generation.planned',$4)")
+                .bind(Uuid::new_v4()).bind(claim.recruiter).bind(claim.session)
+                .bind(serde_json::json!({"version":1,"plan":plan})).execute(&mut *tx).await?;
+            plan
+        }
+    };
+    plan.validate(&saved_minutes)?;
+    anyhow::ensure!(
+        plan.duration_minutes == duration,
+        "Interview duration changed after planning"
+    );
+    tx.commit().await?;
+    let total = plan.blueprint.slots.len();
     anyhow::ensure!(
         saved.len() < total,
-        "All questions are already saved; task status needs reconciliation"
+        "All planned questions are already saved; task status needs reconciliation"
     );
-    let mut remaining = duration
-        - saved
-            .iter()
-            .map(|row| row.get::<i32, _>("minutes"))
-            .sum::<i32>();
     let mut excluded = recent;
     for index in saved.len()..total {
         let position = index + 1;
-        let left = (total - index) as i32;
-        anyhow::ensure!(
-            remaining >= left,
-            "Remaining interview duration cannot fit the unsaved questions"
-        );
-        let budget = (remaining / left).clamp(1, 30);
-        let mut single_blueprint = blueprint.clone();
-        single_blueprint.slots = vec![blueprint.slots[index].clone()];
+        let budget = plan.allocations[index].minutes;
+        let mut single_blueprint = plan.blueprint.clone();
+        single_blueprint.slots = vec![plan.blueprint.slots[index].clone()];
         let context = Preparation {
             pool,
             provider,
@@ -110,6 +126,8 @@ pub(super) async fn prepare(
             blueprint: &single_blueprint,
             duration: budget,
             position,
+            planned_scope: &plan.allocations[index].scope,
+            planned_total: total,
             job_blueprint: &blueprint,
         };
         let seconds = match std::env::var("GENERATION_TASK_TIMEOUT_SECONDS") {
@@ -127,13 +145,12 @@ pub(super) async fn prepare(
                 super::drafts::prepare(&context, excluded.clone(), &initial_feedback).await?;
             let question = &questions.questions[0];
             super::checkpoint::save(&context, question, &review.questions[0], &vectors[0]).await?;
-            Ok::<_, anyhow::Error>((question.prompt.clone(), question.estimated_minutes))
+            Ok::<_, anyhow::Error>(question.prompt.clone())
         };
-        let (prompt,minutes)=match tokio::time::timeout(std::time::Duration::from_secs(seconds),prepared).await {
+        let prompt=match tokio::time::timeout(std::time::Duration::from_secs(seconds),prepared).await {
             Ok(result)=>result?,
             Err(_)=>return Err(super::PreparationRejected(format!("Question {position} exceeded its preparation time budget; saved questions are preserved")).into()),
         };
-        remaining -= minutes as i32;
         excluded.push(prompt);
         tracing::info!(
             event = "task.phase",

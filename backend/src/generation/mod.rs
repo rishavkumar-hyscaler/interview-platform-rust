@@ -4,7 +4,7 @@ mod quality;
 pub mod types;
 use serde_json::json;
 use uuid::Uuid;
-const PROMPT_VERSION: &str = "jd-questions-v5";
+const PROMPT_VERSION: &str = "jd-questions-v6";
 #[derive(Clone, Copy)]
 pub(crate) struct AutomaticPreparation(pub bool);
 
@@ -44,12 +44,12 @@ mod diagnostics;
 mod drafts;
 mod http;
 mod pipeline;
+mod plan;
 mod worker;
 pub use http::routes;
 pub use worker::process_next;
 
-/// Quality failures are already repaired locally. Do not regenerate whole sets
-/// three more times; retry only transient provider/database failures automatically.
+/// Preserve bounded diagnostic messages; the worker retries every failure category.
 #[derive(Debug)]
 pub(super) struct PreparationRejected(pub String);
 impl std::fmt::Display for PreparationRejected {

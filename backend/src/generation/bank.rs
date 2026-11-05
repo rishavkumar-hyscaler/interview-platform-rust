@@ -43,7 +43,7 @@ pub(crate) async fn assign(
         .bind(job)
         .fetch_one(&mut **tx)
         .await?;
-    let set = sqlx::query("SELECT p.id,p.seed FROM question_sets p WHERE p.job_id=$1 AND p.duration_minutes=$2 AND p.status='completed' AND p.id IN (SELECT id FROM question_sets WHERE job_id=p.job_id ORDER BY created_at,id LIMIT (SELECT question_set_count FROM jobs WHERE id=p.job_id)) ORDER BY (SELECT count(*) FROM interview_sessions s WHERE s.generation_id=p.id),p.created_at,p.id FOR UPDATE OF p LIMIT 1")
+    let set = sqlx::query("SELECT p.id,p.seed FROM question_sets p WHERE p.job_id=$1 AND p.duration_minutes=$2 AND p.status='completed' AND EXISTS(SELECT 1 FROM interview_questions q WHERE q.set_id=p.id) AND p.id IN (SELECT id FROM question_sets WHERE job_id=p.job_id ORDER BY created_at,id LIMIT (SELECT question_set_count FROM jobs WHERE id=p.job_id)) ORDER BY (SELECT count(*) FROM interview_sessions s WHERE s.generation_id=p.id),p.created_at,p.id FOR UPDATE OF p LIMIT 1")
         .bind(job).bind(duration).fetch_optional(&mut **tx).await?;
     let Some(set) = set else {
         return Ok(false);

@@ -6,7 +6,6 @@ use crate::{
     error::{bad, conflict, missing},
 };
 use crate::{digest, invitations::InvitationCipher, new_token};
-use axum::Extension;
 use axum::{
     Json,
     extract::{Path, State},
@@ -26,7 +25,6 @@ pub(super) struct Invitation {
 pub(super) async fn invite(
     State(pool): State<PgPool>,
     Path(job): Path<Uuid>,
-    Extension(automatic): Extension<crate::generation::AutomaticPreparation>,
     headers: HeaderMap,
     Json(input): Json<Invitation>,
 ) -> Result<(StatusCode, Json<Value>)> {
@@ -65,8 +63,10 @@ pub(super) async fn invite(
     let id = Uuid::new_v4();
     let inserted = sqlx::query("INSERT INTO interview_sessions(id,interviewer_id,job_id,request_key,candidate_name,candidate_email,duration_minutes,created_by,interviewee_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(interviewer_id,request_key) DO NOTHING")
         .bind(id).bind(recruiter).bind(job).bind(input.request_key).bind(name).bind(&email).bind(input.duration_minutes).bind(user).bind(interviewee).execute(&mut *tx).await?.rows_affected()==1;
-    if inserted {
-        crate::generation::prepare_automatically(&mut tx, recruiter, id, automatic.0).await?;
+    if inserted && !crate::generation::bank::assign(&mut tx, recruiter, id).await? {
+        return Err(conflict(
+            "No completed question set is available for this job and interview duration. Complete question preparation before inviting a candidate.",
+        ));
     }
     let result: Value = sqlx::query_scalar("SELECT to_jsonb(s)-'request_key'-'created_by' FROM interview_sessions s WHERE interviewer_id=$1 AND request_key=$2")
         .bind(recruiter).bind(input.request_key).fetch_one(&mut *tx).await?;

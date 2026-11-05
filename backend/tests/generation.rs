@@ -81,6 +81,14 @@ async fn responses(
             ),
         );
     }
+    if malformed == 24 {
+        return (
+            StatusCode::OK,
+            Json(
+                json!({"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"{\"unexpected\":true}"}]}]}),
+            ),
+        );
+    }
     assert_eq!(input["model"], "gpt-5-mini");
     assert_eq!(input["store"], false);
     assert_eq!(input["text"]["format"]["strict"], true);
@@ -88,7 +96,7 @@ async fn responses(
     let request: Value =
         serde_json::from_str(input["input"][0]["content"].as_str().unwrap()).unwrap();
     let count = if name == "interview_blueprint" {
-        6
+        request["question_count"].as_u64().unwrap() as usize
     } else {
         request["blueprint"]["slots"]
             .as_array()
@@ -128,7 +136,7 @@ async fn responses(
             } else {
                 "rust"
             };
-            let slots:Vec<Value>=(0..6).map(|i|json!({"competency_id":id,"kind":if i%2==0 {"text"}else{"scenario"},"difficulty":if i<2{"easy"}else if i<4{"medium"}else{"hard"}})).collect();
+            let slots:Vec<Value>=(0..count).map(|i|json!({"competency_id":id,"kind":if i%2==0 {"text"}else{"scenario"},"difficulty":if i<count/3{"easy"}else if i<count-count/3{"medium"}else{"hard"}})).collect();
             let bad = malformed == 1 || (malformed == 9 && request["blueprint_attempt"] == 1);
             if malformed == 9 && request["blueprint_attempt"] == 2 {
                 assert!(request["previous_blueprint"].is_object());
@@ -198,7 +206,7 @@ async fn responses(
             };
             let mut question = json!({"competency_id":slot["competency_id"],"kind":slot["kind"],"difficulty":slot["difficulty"],
                 "prompt":format!("Variant {variant} task {task}: explain an appropriate reliability decision for a Rust service with PostgreSQL under these constraints.{suffix}"),
-                "estimated_minutes":if malformed==5 {30}else{4}});
+                "estimated_minutes":if malformed==5 {json!(30)}else{request["duration_minutes"].clone()}});
             question
                 .as_object_mut()
                 .unwrap()
@@ -319,14 +327,53 @@ async fn account(app: &Router) -> Value {
     assert_eq!(status, StatusCode::CREATED);
     value
 }
-async fn invitation(app: &Router, base: &str, job: &str, token: &str) -> Value {
+async fn invitation(
+    pool: &PgPool,
+    owner: Uuid,
+    app: &Router,
+    base: &str,
+    job: &str,
+    token: &str,
+) -> Value {
     let (status,value)=call(app,"POST",&format!("{base}/jobs/{job}/invitations"),json!({"candidate_name":"Generation candidate","candidate_email":"generation@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
+    if status == StatusCode::CONFLICT {
+        // Explicit legacy fixture: old pending invitations must remain recoverable.
+        // New production invitations are separately tested to reject unprepared jobs.
+        use sha2::{Digest, Sha256};
+        let id = Uuid::new_v4();
+        let user = Uuid::new_v4();
+        let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+        let mut tx = interviewer_transaction(pool, owner).await.unwrap();
+        sqlx::query("INSERT INTO users(id,email,role) VALUES($1,$2,'interviewee')")
+            .bind(user)
+            .bind(format!("{user}@example.test"))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO interview_sessions(id,interviewer_id,job_id,request_key,candidate_name,candidate_email,duration_minutes,created_by,interviewee_id) VALUES($1,$2,$3,$4,'Legacy generation candidate',$5,30,$2,$6)")
+            .bind(id).bind(owner).bind(job.parse::<Uuid>().unwrap()).bind(Uuid::new_v4()).bind(format!("{user}@example.test")).bind(user).execute(&mut *tx).await.unwrap();
+        let sealed = platform_api::invitations::InvitationCipher::from_environment()
+            .unwrap()
+            .seal(&token, owner, id)
+            .unwrap();
+        sqlx::query("INSERT INTO auth_sessions(token_hash,user_id,interviewer_id,interview_session_id,sealed_token) VALUES($1,$2,$3,$4,$5)")
+            .bind(format!("{:x}",Sha256::digest(token.as_bytes()))).bind(user).bind(owner).bind(id).bind(sealed).execute(&mut *tx).await.unwrap();
+        let session: Value =
+            sqlx::query_scalar("SELECT to_jsonb(s) FROM interview_sessions s WHERE id=$1")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        tx.commit().await.unwrap();
+        return json!({"session":session,"invitation_token":token});
+    }
     assert_eq!(status, StatusCode::CREATED);
     value
 }
-async fn run_due(pool: &PgPool, session: Uuid, provider: &AiProvider, owner: Uuid) {
+// Content-validation cases exercise a final worker attempt; the retry test below covers all four attempts.
+async fn run_final_attempt(pool: &PgPool, session: Uuid, provider: &AiProvider, owner: Uuid) {
     let mut tx = interviewer_transaction(pool, owner).await.unwrap();
-    sqlx::query("UPDATE interview_sessions SET generation_available_at=now(),generation_status=CASE WHEN generation_status='not_started' THEN 'pending' ELSE generation_status END,generation_id=coalesce(generation_id,gen_random_uuid()),generation_seed=coalesce(generation_seed,gen_random_uuid()) WHERE id=$1")
+    sqlx::query("UPDATE interview_sessions SET generation_attempts=3,generation_available_at=now(),generation_status=CASE WHEN generation_status='not_started' THEN 'pending' ELSE generation_status END,generation_id=coalesce(generation_id,gen_random_uuid()),generation_seed=coalesce(generation_seed,gen_random_uuid()) WHERE id=$1")
         .bind(session)
         .execute(&mut *tx)
         .await
@@ -391,7 +438,7 @@ async fn generation_is_unique_recoverable_validated_and_private() {
     )
     .await;
     let job = job["id"].as_str().unwrap();
-    let first = invitation(&app, &base, job, token).await;
+    let first = invitation(&pool, recruiter, &app, &base, job, token).await;
     assert_eq!(
         first["session"]["generation_status"], "not_started",
         "invitations wait for configured sets without creating paid extras"
@@ -488,7 +535,7 @@ async fn generation_is_unique_recoverable_validated_and_private() {
         StatusCode::NOT_FOUND
     );
     mock.variant.store(2, Ordering::SeqCst);
-    let second = invitation(&app, &base, job, token).await;
+    let second = invitation(&pool, recruiter, &app, &base, job, token).await;
     let second_id: Uuid = second["session"]["id"].as_str().unwrap().parse().unwrap();
     let second_route = format!("{base}/sessions/{second_id}/generation");
     call(&app, "POST", &second_route, json!({}), token).await;
@@ -505,7 +552,7 @@ async fn generation_is_unique_recoverable_validated_and_private() {
         );
     }
     // Exact bank collisions are rejected even before paying for embeddings.
-    let duplicate = invitation(&app, &base, job, token).await;
+    let duplicate = invitation(&pool, recruiter, &app, &base, job, token).await;
     let duplicate_id: Uuid = duplicate["session"]["id"]
         .as_str()
         .unwrap()
@@ -513,7 +560,7 @@ async fn generation_is_unique_recoverable_validated_and_private() {
         .unwrap();
     let references_before = mock.references();
     let embeddings_before = mock.embedding_calls.load(Ordering::SeqCst);
-    run_due(&pool, duplicate_id, &provider, recruiter).await;
+    run_final_attempt(&pool, duplicate_id, &provider, recruiter).await;
     assert_eq!(mock.references() - references_before, 2);
     assert_eq!(
         mock.embedding_calls.load(Ordering::SeqCst),
@@ -521,12 +568,12 @@ async fn generation_is_unique_recoverable_validated_and_private() {
     );
     // Semantic duplicate content with different text must also be rejected.
     mock.variant.store(3, Ordering::SeqCst);
-    let third = invitation(&app, &base, job, token).await;
+    let third = invitation(&pool, recruiter, &app, &base, job, token).await;
     let third_id: Uuid = third["session"]["id"].as_str().unwrap().parse().unwrap();
     let third_route = format!("{base}/sessions/{third_id}/generation");
     call(&app, "POST", &third_route, json!({}), token).await;
     let references_before = mock.references();
-    run_due(&pool, third_id, &provider, recruiter).await;
+    run_final_attempt(&pool, third_id, &provider, recruiter).await;
     assert_eq!(
         mock.references() - references_before,
         2,
@@ -560,7 +607,7 @@ async fn generation_is_unique_recoverable_validated_and_private() {
         call(&app, "POST", &third_route, json!({}), token).await.0,
         StatusCode::ACCEPTED
     );
-    run_due(&pool, third_id, &provider, recruiter).await;
+    run_final_attempt(&pool, third_id, &provider, recruiter).await;
     let (_, bad_rubric) = call(&app, "GET", &third_route, Value::Null, token).await;
     assert_eq!(bad_rubric["status"], "failed");
     assert!(
@@ -596,7 +643,15 @@ async fn generation_is_unique_recoverable_validated_and_private() {
             token,
         )
         .await;
-        let fresh = invitation(&app, &base, fresh_job["id"].as_str().unwrap(), token).await;
+        let fresh = invitation(
+            &pool,
+            recruiter,
+            &app,
+            &base,
+            fresh_job["id"].as_str().unwrap(),
+            token,
+        )
+        .await;
         let id: Uuid = fresh["session"]["id"].as_str().unwrap().parse().unwrap();
         let references_before = mock.references();
         let calls_before: Vec<usize> = mock
@@ -611,7 +666,7 @@ async fn generation_is_unique_recoverable_validated_and_private() {
             .map(|n| n.load(Ordering::SeqCst))
             .collect();
         let sizes_before = mock.prompt_sizes.lock().unwrap().len();
-        run_due(&pool, id, &provider, recruiter).await;
+        run_final_attempt(&pool, id, &provider, recruiter).await;
         if matches!(malformed, 1 | 7) {
             assert_eq!(
                 mock.references(),
@@ -832,7 +887,7 @@ async fn generation_is_unique_recoverable_validated_and_private() {
             sqlx::query("UPDATE interview_sessions SET generation_status='running',generation_claim_token=$2,generation_lease_until=now()-interval '1 second',generation_attempts=1 WHERE id=$1")
                 .bind(id).bind(Uuid::new_v4()).execute(&mut *tx).await.unwrap();
             tx.commit().await.unwrap();
-            run_due(&pool, id, &provider, recruiter).await;
+            run_final_attempt(&pool, id, &provider, recruiter).await;
             let (_, resumed) = call(&app, "GET", &route, json!({}), token).await;
             assert_eq!(resumed["status"], "completed");
             assert_eq!(resumed["questions"].as_array().unwrap().len(), 6);
@@ -879,7 +934,7 @@ async fn generation_is_unique_recoverable_validated_and_private() {
     }
     mock.malformed.store(0, Ordering::SeqCst);
     // Existing invitations accepted before this feature queue on first visit.
-    let legacy = invitation(&unconfigured, &base, job, token).await;
+    let legacy = invitation(&pool, recruiter, &unconfigured, &base, job, token).await;
     let legacy_id: Uuid = legacy["session"]["id"].as_str().unwrap().parse().unwrap();
     let legacy_token = legacy["invitation_token"].as_str().unwrap();
     call(
@@ -1121,8 +1176,8 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     );
     let calls = mock.calls.load(Ordering::SeqCst);
     let (a, b) = tokio::join!(
-        invitation(&app, "/api/v1", id, token),
-        invitation(&app, "/api/v1", id, token)
+        invitation(&pool, recruiter, &app, "/api/v1", id, token),
+        invitation(&pool, recruiter, &app, "/api/v1", id, token)
     );
     assert_eq!(a["session"]["generation_status"], "completed");
     assert_eq!(b["session"]["generation_status"], "completed");
@@ -1163,12 +1218,12 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         "reusable source questions remain available in pool preview"
     );
     let unconfigured = platform_api::router_with_ai(pool.clone(), None);
-    let third = invitation(&unconfigured, "/api/v1", id, token).await;
+    let third = invitation(&pool, recruiter, &unconfigured, "/api/v1", id, token).await;
     assert_eq!(
         third["session"]["generation_status"], "completed",
         "existing sets work even with provider offline"
     );
-    let fourth = invitation(&app, "/api/v1", id, token).await;
+    let fourth = invitation(&pool, recruiter, &app, "/api/v1", id, token).await;
     assert_eq!(
         fourth["session"]["generation_status"], "completed",
         "the fourth candidate reuses one of the three prepared sets"
@@ -1206,7 +1261,7 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     sqlx::query("UPDATE question_sets SET status='failed',attempts=3,last_error='Synthetic quality failure' WHERE job_id=$1").bind(id.parse::<Uuid>().unwrap()).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
-    sqlx::query("UPDATE question_sets SET status='pending',attempts=0,available_at=now() WHERE id=(SELECT id FROM question_sets WHERE job_id=$1 ORDER BY id LIMIT 1)")
+    sqlx::query("UPDATE question_sets SET status='pending',attempts=3,available_at=now() WHERE id=(SELECT id FROM question_sets WHERE job_id=$1 ORDER BY id LIMIT 1)")
         .bind(id.parse::<Uuid>().unwrap()).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     mock.malformed.store(7, Ordering::SeqCst);
@@ -1225,7 +1280,7 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|set| set["status"] == "failed" && set["attempts"] == 1)
+            .any(|set| set["status"] == "failed" && set["attempts"] == 4)
     );
     assert_eq!(
         call(&unconfigured, "POST", &route, json!({}), token)
@@ -1252,6 +1307,14 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     let (_,checkpoint_job)=call(&app,"POST","/api/v1/jobs",json!({"job_code":format!("CHECKPOINT-{}",Uuid::new_v4()),"title":"Checkpoint pool role","description":JD,"request_key":Uuid::new_v4()}),token).await;
     let checkpoint_id = checkpoint_job["id"].as_str().unwrap();
     let checkpoint_route = format!("/api/v1/jobs/{checkpoint_id}/question-sets");
+    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    sqlx::query("UPDATE question_sets SET available_at=now()+interval '1 day' WHERE job_id<>$1 AND status='pending'").bind(checkpoint_id.parse::<Uuid>().unwrap()).execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE question_sets SET attempts=3 WHERE job_id=$1")
+        .bind(checkpoint_id.parse::<Uuid>().unwrap())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
     assert!(process_next(&pool, &provider).await.unwrap());
     let (_, partial) = call(&app, "GET", &checkpoint_route, json!({}), token).await;
     let partial_set = partial["sets"]
@@ -1273,7 +1336,7 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         .iter()
         .map(|question| question["id"].clone())
         .collect();
-    let candidate = invitation(&app, "/api/v1", checkpoint_id, token).await;
+    let candidate = invitation(&pool, recruiter, &app, "/api/v1", checkpoint_id, token).await;
     assert_eq!(
         candidate["session"]["generation_status"], "not_started",
         "an incomplete pool set must never be assigned or trigger extra generation"
@@ -1342,8 +1405,9 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     }
     // A one-set job serves the same content to every candidate with independent answers and no question copies.
     let calls_before_reuse = mock.calls.load(Ordering::SeqCst);
-    let first_candidate = invitation(&app, "/api/v1", checkpoint_id, token).await;
-    let second_candidate = invitation(&app, "/api/v1", checkpoint_id, token).await;
+    let first_candidate = invitation(&pool, recruiter, &app, "/api/v1", checkpoint_id, token).await;
+    let second_candidate =
+        invitation(&pool, recruiter, &app, "/api/v1", checkpoint_id, token).await;
     assert_eq!(
         first_candidate["session"]["generation_id"],
         second_candidate["session"]["generation_id"]
@@ -1463,7 +1527,147 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         "Candidate one independent answer"
     );
     assert_eq!(first_again["question"]["revision"], 1);
+    // Plan a short interview before drafting and keep exactly that plan on retry.
+    mock.malformed.store(19, Ordering::SeqCst);
+    let (_,short_job)=call(&app,"POST","/api/v1/jobs",json!({"job_code":format!("SHORT-{}",Uuid::new_v4()),"title":"Short focused role","description":JD,"preparation_duration_minutes":10,"question_set_count":1,"request_key":Uuid::new_v4()}),token).await;
+    let short_id = short_job["id"].as_str().unwrap();
+    let short_route = format!("/api/v1/jobs/{short_id}/question-sets");
+    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    sqlx::query("UPDATE question_sets SET available_at=now()+interval '1 day' WHERE job_id<>$1 AND status='pending'").bind(short_id.parse::<Uuid>().unwrap()).execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE question_sets SET attempts=3 WHERE job_id=$1")
+        .bind(short_id.parse::<Uuid>().unwrap())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert!(process_next(&pool, &provider).await.unwrap());
+    let (_, short_partial) = call(&app, "GET", &short_route, Value::Null, token).await;
+    let time_plan = short_partial["sets"][0]["plan"].clone();
+    assert_eq!(short_partial["sets"][0]["question_count"], 2);
+    assert_eq!(time_plan["allocations"].as_array().unwrap().len(), 5);
+    assert!(
+        time_plan["allocations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|a| a["minutes"] == 2)
+    );
+    mock.malformed.store(0, Ordering::SeqCst);
+    assert_eq!(
+        call(&app, "POST", &short_route, json!({}), token).await.0,
+        StatusCode::ACCEPTED
+    );
+    assert!(process_next(&pool, &provider).await.unwrap());
+    let (_, short_complete) = call(&app, "GET", &short_route, Value::Null, token).await;
+    assert_eq!(short_complete["sets"][0]["status"], "completed");
+    assert_eq!(short_complete["sets"][0]["plan"], time_plan);
+    assert_eq!(short_complete["questions"].as_array().unwrap().len(), 5);
+    assert!(
+        short_complete["questions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|q| q["rubric"]["estimated_minutes"] == 2)
+    );
     task.abort();
     let _ = task.await;
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL and local mock provider"]
+async fn every_generation_failure_gets_three_worker_retries() {
+    platform_api::infrastructure::load_environment().unwrap();
+    let pool = PgPoolOptions::new()
+        .max_connections(8)
+        .connect(
+            &std::env::var("RUNTIME_DATABASE_URL")
+                .or_else(|_| std::env::var("DATABASE_URL"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // Isolate this scheduling test from earlier synthetic jobs.
+    let owners: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE role='interviewer'")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    for owner in owners {
+        let mut tx = interviewer_transaction(&pool, owner).await.unwrap();
+        sqlx::query(
+            "UPDATE question_sets SET available_at=now()+interval '1 day' WHERE status='pending'",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE interview_sessions SET generation_available_at=now()+interval '1 day' WHERE generation_status='pending'").execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+    }
+    let mock = Mock::new();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let service = Router::new()
+        .route("/v1/responses", post(responses))
+        .route("/v1/embeddings", post(embeddings))
+        .with_state(mock.clone());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, service).await.unwrap();
+    });
+    let mut provider = AiProvider::new(
+        format!("http://{address}/v1"),
+        "mock-key".into(),
+        "mock-key".into(),
+        "gpt-5-mini".into(),
+        "text-embedding-3-small".into(),
+    )
+    .unwrap();
+    provider.dimensions = 12;
+    let app = platform_api::router_with_ai(pool.clone(), Some(provider.clone()));
+    let owner = account(&app).await;
+    let token = owner["token"].as_str().unwrap();
+    let user: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    // Invalid credentials, unexpected payload, quality rejection and structural failure.
+    for mode in [7, 24, 4, 19] {
+        mock.malformed.store(mode, Ordering::SeqCst);
+        let (_,job)=call(&app,"POST","/api/v1/jobs",json!({"job_code":format!("RETRY-{}",Uuid::new_v4()),"title":"Retry policy","description":JD,"request_key":Uuid::new_v4()}),token).await;
+        let job_id: Uuid = job["id"].as_str().unwrap().parse().unwrap();
+        let route = format!("/api/v1/jobs/{job_id}/question-sets");
+        let mut saved_ids = None;
+        for attempt in 1..=4 {
+            let mut tx = interviewer_transaction(&pool, user).await.unwrap();
+            sqlx::query("UPDATE question_sets SET available_at=now() WHERE job_id=$1")
+                .bind(job_id)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+            assert!(process_next(&pool, &provider).await.unwrap());
+            let (_, status) = call(&app, "GET", &route, Value::Null, token).await;
+            assert_eq!(status["max_attempts"], 4);
+            assert_eq!(status["sets"][0]["attempts"], attempt);
+            assert_eq!(
+                status["sets"][0]["status"],
+                if attempt < 4 { "pending" } else { "failed" }
+            );
+            if mode == 19 {
+                let ids: Vec<Value> = status["questions"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|q| q["id"].clone())
+                    .collect();
+                assert_eq!(ids.len(), 2);
+                if let Some(previous) = &saved_ids {
+                    assert_eq!(&ids, previous);
+                } else {
+                    saved_ids = Some(ids);
+                }
+            }
+            // There is no fifth attempt, and pending retries respect their delay.
+            assert!(!process_next(&pool, &provider).await.unwrap());
+        }
+    }
+    server.abort();
+    let _ = server.await;
     pool.close().await;
 }

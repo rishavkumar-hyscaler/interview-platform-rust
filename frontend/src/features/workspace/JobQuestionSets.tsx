@@ -9,7 +9,7 @@ function FailureDetails({ failure }: { failure: PreparationFailure }) {
   return <div className="preparation-findings"><strong>{failure.phase === 'reference' ? 'Reference review findings' : 'Question review findings'}</strong><ul>{issues.map((issue, index) => <li key={index}>Question {issue.position ?? '—'}: {issue.messages.join('; ')}</li>)}</ul></div>;
 }
 
-export function JobQuestionSets({ job, token }: { job: string; token: string }) {
+export function JobQuestionSets({ job, token, onReadyChange }: { job: string; token: string; onReadyChange?: (job: string, durations: number[]) => void }) {
   const api = useMemo(() => workspaceApi(token), [token]);
   const [pool, setPool] = useState<JobPool | null>(null);
   const [error, setError] = useState('');
@@ -24,16 +24,18 @@ export function JobQuestionSets({ job, token }: { job: string; token: string }) 
         const next = await api.questionSets(job, controller.signal);
         if (!active) return;
         setPool(next); setError('');
+        onReadyChange?.(job, [...new Set(next.sets.filter(set => set.status === 'completed' && set.question_count > 0).map(set => set.duration_minutes))]);
         if (next.sets.some(set => ['pending', 'running'].includes(set.status))) {
           timer = setTimeout(() => void load(), 10000);
         }
       } catch (failure) {
+        if (active) onReadyChange?.(job, []);
         if (active) setError(failure instanceof Error ? failure.message : 'Unable to load question sets.');
       }
     }
     void load();
     return () => { active = false; controller.abort(); clearTimeout(timer); };
-  }, [api, job, refresh]);
+  }, [api, job, refresh, onReadyChange]);
   async function retry() {
     setBusy(true); setError('');
     try { await api.retryQuestionSets(job); setRefresh(value => value + 1); }
@@ -56,7 +58,8 @@ export function JobQuestionSets({ job, token }: { job: string; token: string }) 
       <p>Configured for {pool.target} sets for {pool.duration_minutes}-minute interviews. Each question is validated and saved before the next begins. Prepared sets are reused across candidates, with separate answers for each candidate. No automatic replacements.</p>
       {!pool.configured && <p className="configuration-note">AI is not configured. Queued sets will wait until the generation and embedding services are available.</p>}
       {unused.map((set, index) => <details key={set.id}>
-        <summary>Set {index + 1} · {set.duration_minutes} min · {set.status} · {set.question_count} saved questions</summary>
+        <summary>Set {index + 1} · {set.duration_minutes} min · {set.status} · {set.question_count} saved questions{set.attempts > 0 && ` · attempt ${set.attempts}/${pool.max_attempts ?? 4}`}</summary>
+        {set.plan && <><p>{set.plan.allocations.length} planned questions · {set.plan.allocations.reduce((sum, slot) => sum + slot.minutes, 0)} minutes of tasks · {set.plan.duration_minutes - set.plan.allocations.reduce((sum, slot) => sum + slot.minutes, 0)} minutes for review</p><details><summary>Question time plan</summary><ol>{set.plan.allocations.map((slot, index) => <li key={index}>{slot.minutes} min · {slot.scope}</li>)}</ol></details></>}
         {set.last_error && <p className="error">{set.last_error}</p>}
         {set.status === 'failed' && set.last_failure && <FailureDetails failure={set.last_failure} />}
         {pool.questions.filter(question => question.set_id === set.id).map(question => <details key={question.id}>
