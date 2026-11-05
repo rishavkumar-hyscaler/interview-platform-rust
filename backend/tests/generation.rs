@@ -25,21 +25,97 @@ struct Mock {
     malformed: Arc<AtomicUsize>,
     calls: Arc<AtomicUsize>,
 }
-async fn responses(State(mock): State<Mock>, Json(input): Json<Value>) -> Json<Value> {
+async fn responses(
+    State(mock): State<Mock>,
+    Json(input): Json<Value>,
+) -> (StatusCode, Json<Value>) {
     mock.calls.fetch_add(1, Ordering::SeqCst);
+    if mock.malformed.load(Ordering::SeqCst) == 7 {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(
+                json!({"error":{"code":"invalid_api_key","message":"private provider diagnostic"}}),
+            ),
+        );
+    }
     assert_eq!(input["model"], "gpt-5-mini");
     assert_eq!(input["store"], false);
     assert_eq!(input["text"]["format"]["strict"], true);
+    let name = input["text"]["format"]["name"].as_str().unwrap();
+    let array = if name == "interview_blueprint" {
+        "slots"
+    } else {
+        "questions"
+    };
+    assert_eq!(
+        input["text"]["format"]["schema"]["properties"][array]["minItems"],
+        6
+    );
+    assert_eq!(
+        input["text"]["format"]["schema"]["properties"][array]["maxItems"],
+        6
+    );
+    assert_eq!(
+        input["reasoning"]["effort"],
+        if name == "interview_quality_review" {
+            "medium"
+        } else {
+            "low"
+        }
+    );
+
     let data = if input["text"]["format"]["name"] == "interview_blueprint" {
-        let slots:Vec<Value>=(0..6).map(|i|json!({"competency_id":"rust","kind":if i%2==0 {"text"}else{"scenario"},"difficulty":if i<2{"easy"}else if i<4{"medium"}else{"hard"}})).collect();
-        json!({"competencies":[{"id":"rust","name":"Reliable backend services","jd_evidence":if mock.malformed.load(Ordering::SeqCst)==1 {"Invented evidence which is absent"}else{JD},"weight":100}],"slots":slots})
+        let request: Value =
+            serde_json::from_str(input["input"][0]["content"].as_str().unwrap()).unwrap();
+        let id = if mock.malformed.load(Ordering::SeqCst) == 8 {
+            "Rust-Services"
+        } else {
+            "rust"
+        };
+        let slots:Vec<Value>=(0..6).map(|i|json!({"competency_id":id,"kind":if i%2==0 {"text"}else{"scenario"},"difficulty":if i<2{"easy"}else if i<4{"medium"}else{"hard"}})).collect();
+        let bad = mock.malformed.load(Ordering::SeqCst) == 1
+            || (mock.malformed.load(Ordering::SeqCst) == 9 && request["blueprint_attempt"] == 1);
+        if mock.malformed.load(Ordering::SeqCst) == 9 && request["blueprint_attempt"] == 2 {
+            assert!(request["previous_blueprint"].is_object());
+            assert!(
+                request["repair_feedback"]
+                    .as_str()
+                    .unwrap()
+                    .contains("quote the job description")
+            );
+        }
+        json!({"competencies":[{"id":id,"name":"Reliable backend services","jd_evidence":if bad {"Invented evidence which is absent"}else{JD},"weight":100}],"slots":slots})
+    } else if input["text"]["format"]["name"] == "interview_quality_review" {
+        let checks:Vec<Value>=(1..=6).map(|position|json!({"position":position,"jd_grounded":true,"reference_correct":mock.malformed.load(Ordering::SeqCst)!=4,"rubric_aligned":true,"feasible":true,"unambiguous":true,"no_answer_leak":true,"concerns":[]})).collect();
+        json!({"questions":checks})
     } else {
         let variant = mock.variant.load(Ordering::SeqCst);
-        let questions:Vec<Value>=(0..6).map(|i|json!({"competency_id":"rust","kind":if i%2==0{"text"}else{"scenario"},"difficulty":if i<2{"easy"}else if i<4{"medium"}else{"hard"},"prompt":format!("Variant {variant} task {i}: explain an appropriate reliability decision for a Rust service with PostgreSQL under these constraints."),"expected_answer":"Describe the relevant tradeoffs, failure handling, and job-relevant correctness guarantees.","criteria":[{"id":"correctness","description":"Explains the relevant correctness guarantees clearly.","max_points":5},{"id":"tradeoffs","description":"Identifies concrete tradeoffs and failure handling.","max_points":if mock.malformed.load(Ordering::SeqCst)==2{4}else{5}}]})).collect();
+        let request: Value =
+            serde_json::from_str(input["input"][0]["content"].as_str().unwrap()).unwrap();
+        let mut questions:Vec<Value>=(0..6).map(|i|json!({"competency_id":request["blueprint"]["slots"][i]["competency_id"],"kind":if i%2==0{"text"}else{"scenario"},"difficulty":if i<2{"easy"}else if i<4{"medium"}else{"hard"},"prompt":format!("Variant {variant} task {i}: explain an appropriate reliability decision for a Rust service with PostgreSQL under these constraints."),"expected_answer":"Use an atomic transaction to commit the durable state together. Retry transient errors with bounded exponential backoff and jitter. Compare the consistency and availability tradeoffs, and make the operation idempotent to prevent duplicate side effects.","estimated_minutes":if mock.malformed.load(Ordering::SeqCst)==5{30}else{4},"assumptions":["Assume a transactional PostgreSQL backend."],"acceptable_alternatives":["A transactional outbox is acceptable when delivery must occur outside the database transaction."],"common_mistakes":["Retrying a non-idempotent operation can apply a side effect twice."],"coding":null,"criteria":[{"id":"correctness","description":"Explains the relevant correctness guarantees clearly.","max_points":5,"partial_credit":"Identifies atomicity but omits failure handling details.","full_credit":"Explains how an atomic transaction preserves the durable state.","reference_answer":"Use an atomic transaction to commit the durable state together."},{"id":"tradeoffs","description":"Identifies concrete tradeoffs and failure handling.","max_points":if mock.malformed.load(Ordering::SeqCst)==2{4}else{5},"partial_credit":"Names a tradeoff without connecting it to this scenario.","full_credit":"Connects consistency and availability tradeoffs to idempotent retries.","reference_answer":if mock.malformed.load(Ordering::SeqCst)==3{"Missing"}else{"Compare the consistency and availability tradeoffs"}}]})).collect();
+        // A malformed first draft can recover on the bounded repair pass.
+        if mock.malformed.load(Ordering::SeqCst) == 6 {
+            let request: Value =
+                serde_json::from_str(input["input"][0]["content"].as_str().unwrap()).unwrap();
+            if request["draft_attempt"] == 1 {
+                questions[0]["criteria"][0]["reference_answer"] = json!("Missing");
+            } else {
+                assert!(request["previous_draft"]["questions"].as_array().is_some());
+                assert!(
+                    request["repair_feedback"]
+                        .as_str()
+                        .unwrap()
+                        .contains("worked reference section")
+                );
+            }
+        }
         json!({"questions":questions})
     };
-    Json(
-        json!({"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":data.to_string()}]}]}),
+    (
+        StatusCode::OK,
+        Json(
+            json!({"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":data.to_string()}]}]}),
+        ),
     )
 }
 async fn embeddings(Json(input): Json<Value>) -> Json<Value> {
@@ -165,7 +241,7 @@ async fn generation_is_unique_recoverable_validated_and_private() {
         &app,
         "POST",
         &format!("{base}/jobs"),
-        json!({"title":"Rust reliability engineer","description":JD,"request_key":Uuid::new_v4()}),
+        json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Rust reliability engineer","description":JD,"request_key":Uuid::new_v4()}),
         token,
     )
     .await;
@@ -304,6 +380,62 @@ async fn generation_is_unique_recoverable_validated_and_private() {
             .contains("total 10")
     );
     assert_eq!(bad_rubric["questions"].as_array().unwrap().len(), 0);
+    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    sqlx::query("UPDATE interview_sessions SET generation_status='failed' WHERE id=$1")
+        .bind(third_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    // Reference alignment, critique rejection, timing and bounded repair are independently exercised.
+    for malformed in [1, 3, 4, 5, 6, 7, 8, 9] {
+        mock.malformed.store(malformed, Ordering::SeqCst);
+        let (_, fresh_job) = call(
+            &app,
+            "POST",
+            &format!("{base}/jobs"),
+            json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Reference quality case","description":JD,"request_key":Uuid::new_v4()}),
+            token,
+        )
+        .await;
+        let fresh = invitation(&app, &base, fresh_job["id"].as_str().unwrap(), token).await;
+        let id: Uuid = fresh["session"]["id"].as_str().unwrap().parse().unwrap();
+        run_due(&pool, id, &provider, recruiter).await;
+        let (_, result) = call(
+            &app,
+            "GET",
+            &format!("{base}/sessions/{id}/generation"),
+            Value::Null,
+            token,
+        )
+        .await;
+        if matches!(malformed, 6 | 8 | 9) {
+            assert_eq!(result["status"], "completed");
+            assert_eq!(
+                result["questions"][0]["rubric"]["quality_review"]["reference_correct"],
+                true
+            );
+        } else {
+            assert_eq!(
+                result["status"],
+                if malformed == 7 { "failed" } else { "pending" }
+            );
+            assert!(result["questions"].as_array().unwrap().is_empty());
+            let message = result["job"]["last_error"].as_str().unwrap();
+            assert!(match malformed {
+                1 => message.contains("quote the job description"),
+                3 => message.contains("worked reference section"),
+                4 => message.contains("Quality review rejected"),
+                5 => message.contains("duration"),
+                7 => message.contains("invalid_api_key") && !message.contains("private provider"),
+                _ => false,
+            });
+        }
+        let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+        sqlx::query("UPDATE interview_sessions SET generation_status='failed' WHERE id=$1 AND generation_status<>'completed'").bind(id).execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+    }
+    mock.malformed.store(0, Ordering::SeqCst);
     // Existing invitations accepted before this feature queue on first visit.
     let legacy = invitation(&unconfigured, &base, job, token).await;
     let legacy_id: Uuid = legacy["session"]["id"].as_str().unwrap().parse().unwrap();

@@ -39,6 +39,7 @@ fn valid(event: &Observation) -> bool {
             | "camera_denied"
             | "microphone_enabled"
             | "microphone_denied"
+            | "recording_denied"
             | "typing_burst"
             | "rapid_answer"
             | "multiple_displays"

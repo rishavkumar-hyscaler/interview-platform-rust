@@ -19,7 +19,7 @@ All routes below are prefixed `/api/v1`. Ownership comes from the authenticated 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/summary` | Counts for the authenticated interviewer |
-| GET, POST | `/jobs` | List jobs / create `{title,description,request_key:UUID}` |
+| GET, POST | `/jobs` | List jobs / create `{job_code,title,description,request_key:UUID}` |
 | POST | `/jobs/{id}/invitations` | Create `{candidate_name,candidate_email,duration_minutes,request_key:UUID}` |
 | GET | `/sessions` | List owned interviews |
 | GET | `/sessions/{id}` | Details and invitation availability |
@@ -58,14 +58,14 @@ Configuration uses `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-5-mini`, `LLM_API_KEY`,
 
 When AI is configured, creating an invitation automatically queues question preparation in the same transaction. Opening or accepting an older, unprepared invitation also queues it once. Repeated candidate polls do not duplicate jobs, regenerate prepared questions, or reset failed attempts. Failed generation still requires an explicit interviewer retry. With missing configuration, the candidate sees a setup message rather than a promise of progress.
 
-A preparation request moves the session's generation status through pending/running/completed/failed. A five-minute lease and fencing token support recovery. Failures retry up to three attempts; explicit retry resets the attempt budget. Schema, evidence quotations, rubric totals, and embedding output are validated before publishing. Exact fingerprints and pgvector cosine similarity reject repeats across sessions for the same job. Each question stores its rubric snapshot and generation provenance.
+A preparation request moves the session's generation status through pending/running/completed/failed. A five-minute lease, renewed every 30 seconds during preparation, and a fencing token support recovery. Failures retry up to three attempts; explicit retry resets the attempt budget. Schema, evidence quotations, rubric totals, and embedding output are validated before publishing. Exact fingerprints and pgvector cosine similarity reject repeats across sessions for the same job. Each question stores its rubric snapshot and generation provenance.
 
 Provider request formats follow the official [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses) and [embeddings](https://developers.openai.com/api/reference/resources/embeddings/methods/create) documentation. No raw provider response or API secret is written to audit records.
 
 ### Browser observation capture
 `POST /api/v1/candidate/events` accepts 1–40 `{id: UUID, kind, client_time: epoch_ms, count?: number}` observations using the invitation bearer capability. Only active interviews can write. Server timestamps are authoritative receipt times; client times and all browser observations are unverified. UUID retries are deduplicated in the immutable audit log. The session row serializes writes and caps storage at 10,000 observations. Paste events contain character counts, never clipboard text. Existing interviewer audit pagination displays the observation evidence.
 
-The browser queues unsent observations on this device and retries after reconnect. This is best-effort capture, not tamper-proof telemetry: client scripts/storage can be modified and cross-tab delivery is not guaranteed. Fullscreen is requested through an explicit browser gesture; denial keeps monitoring active. Device permission denial is recorded when the device button is used. Server receipt signatures, browser single-tab locking and configurable integrity risk points are implemented. Optional face/voice analysis and recorded media answers are not included. Dev-tools detection is a window-size heuristic and can be wrong; multiple-display detection depends on browser support.
+The browser queues unsent observations on this device and retries after reconnect. This is best-effort capture, not tamper-proof telemetry: client scripts/storage can be modified and cross-tab delivery is not guaranteed. Fullscreen is requested through an explicit browser gesture; denial keeps monitoring active. Device permission denial is recorded when the device button is used. Server receipt signatures, browser single-tab locking and configurable integrity risk points are implemented. Optional recorded media answers are implemented separately; optional face/voice analysis is not included. Dev-tools detection is a window-size heuristic and can be wrong; multiple-display detection depends on browser support.
 
 ### Single active browser tab
 The candidate view acquires an exclusive Web Lock named with a SHA-256 invitation digest before mounting any candidate API calls, editor, autosave or device capture. Another tab waits without mounting these features and automatically enters after the owner closes. Browser-managed release handles refresh/crashes without stale local-storage leases. Unsupported browsers show an explicit compatibility message. This guards one origin/profile only; localhost vs 127.0.0.1, separate profiles, browsers and devices are independent. It is not a server authorization boundary. The server continues to enforce answer revisions and deadlines. Lock waiting does not pause time.
@@ -90,3 +90,46 @@ The existing background worker automatically claims submitted interviews, writes
 Proctor events carry monotonic server sequence, previous signature, authoritative receipt time and a domain-separated HMAC using a key derived from the stable invitation key. Reusing an event ID for changed content returns 409. Legacy events remain visibly unsigned. These signatures detect changes to received records; a browser controlled by the candidate can still suppress or fabricate telemetry before receipt. Never label browser observations as trusted solely because the server signed receipt.
 
 Streaming implementation follows [official OpenAI documentation](https://developers.openai.com/api/docs/guides/streaming-responses). Partial output is not citation-verified until completion.
+
+
+### Optional recorded answers
+- `POST /api/v1/candidate/questions/{question}/recordings/{recording UUID}`: raw audio/video bytes with `Content-Type` (`audio/webm`, `video/webm`, `audio/ogg`, `audio/mp4`, `video/mp4`; codec parameters allowed). Container header and size are checked. Up to 15 MB per clip, 12 clips per interview. New uploads require the assigned question and an active interview both before and after file persistence. Identical retries return the same audit reference even after submission; changed content under the same ID returns 409.
+- `GET /api/v1/candidate/recordings` and `GET /api/v1/candidate/recordings/{id}`: private own-session metadata and bytes, authenticated with the invitation capability.
+- `GET /api/v1/sessions/{session}/recordings` and `GET /api/v1/sessions/{session}/recordings/{id}`: interviewer-only metadata and playback. Files never have public URLs or URL credentials. Playback fetches an authenticated blob and verifies the stored SHA-256 before delivery.
+
+Browser MediaRecorder stops at 60 seconds (or a conservative size threshold), stores a completed blob in IndexedDB, then attempts upload. Interrupted uploads can retry after reconnect or reopening the tab; unsent clips can be downloaded or explicitly discarded. Pending recordings block manual navigation/finish. The overall deadline continues and can end a recording; a late clip remains local rather than silently entering the submitted assessment. The submitted receipt offers local downloads for clips that may not have reached the server. An unfinished recording lost in a browser crash is not guaranteed recoverable; stopped recordings are journalled before upload.
+
+Storage is `MEDIA_STORAGE_DIR`, default `backend/storage/media`, outside static frontend assets. Files use owner/session/recording UUID paths and Unix mode 0600; lightweight references, content hashes and timestamps use existing append-only `answer.recorded` audit events. Cancelled uncommitted files can be repaired on retry under a session lock. Back up the private media directory with the database. There is no new table or migration. JSON report exports carry references, not embedded media files.
+
+Recordings count toward answered-question progress. AI scoring uses written answers only; a media-only question is marked `media_requires_human_review` with a null score and excluded from numeric AI totals/weighted competency coverage. Reviewer chat can retrieve attachment metadata, but cannot interpret the recording contents without a written transcript.
+
+
+### Generation v2: worked reference answers and publication gates
+New question sets use `jd-questions-v2`. Existing prepared question/rubric snapshots are preserved. New blueprints check distinct competencies and prevent severe allocation drift from JD weights while preserving one-slot coverage.
+
+A candidate draft must match the blueprint, fit the overall interview duration and include:
+- A worked reference explanation (not a generic instruction to explain), assumptions, defensible alternatives and concrete common mistakes.
+- Two to six distinct observable rubric criteria totalling ten points. Each has different partial/full-credit anchors and a substantive criterion-keyed reference answer. The server assembles the worked reference and links each criterion to its reference section deterministically.
+- For coding tasks only: language, a reference solution, complexity analysis and both typical and edge-case input/output examples. Reference code is not executed. A separate model review recomputes examples and checks plausibility; this is not a formal correctness proof.
+
+Each draft passes deterministic checks, embedding validation, in-set and whole-JD-bank duplicate checks, then a separate structured quality review of every question. The critic checks JD relevance, answer correctness, rubric alignment, timing, ambiguity and answer leakage. A failed check cannot publish partial questions. One bounded in-claim repair draft receives the rejected draft, question-specific failure feedback and actual colliding bank prompts, followed by the existing three-attempt durable retry policy. A final advisory-lock-protected duplicate check handles concurrent sessions before atomic publication. Extended model calls retain their lease through fenced heartbeat updates.
+
+Rubric JSON stores the worked answer, alternatives, pitfalls, coding examples, criterion anchors, estimated minutes and per-question quality-review result alongside generator/model provenance. Interviewer details expose this information; candidate APIs continue to exclude all answer-key material. Scoring accepts criterion-satisfying alternatives rather than requiring the reference wording. AI review reduces weak outputs but cannot guarantee factual or executable correctness; reviewers should inspect the evidence and reference examples.
+
+Strict schema normalization marks nullable properties as required and allows explicit null values, matching the provider contract. Operational errors expose only whitelisted status/code information, never raw provider messages. Authentication, schema and quota failures stop promptly; transient rate-limit/server failures retain the durable retry path.
+
+
+Blueprint generation has its own bounded repair pass. New internal competency IDs are normalized deterministically and all slot references are remapped together; empty, duplicate or unknown IDs are rejected. Accepted stored blueprints are not rewritten.
+
+Question/reference generation has a separate per-model-request timeout: `GENERATION_REQUEST_TIMEOUT_SECONDS`, default 180 seconds, clamped to 30–300. Other existing requests retain their prior timeouts. Long generation calls retain worker lease renewal and finite repair/attempt budgets.
+
+Generation reference sections are authored directly under their criterion IDs, rather than asking the model to copy quotes from its own prose. Publication compiles `expected_answer` from `reference_overview` plus `reference_sections`, and stores each criterion’s reference text/source link. These are generated answer-key materials checked by a separate critic, not candidate evidence. Candidate-answer quotes used for scoring remain strict exact-substring checks. Schema-level length/range/array bounds guide generation, and equivalent server-side checks remain authoritative.
+
+Strict schema requirements follow [OpenAI’s structured-output documentation](https://developers.openai.com/api/docs/guides/structured-outputs), including required nullable fields and supported value constraints for the configured base model.
+
+Generation request schemas are serialized in authoring order (question, worked answer, then rubric), following the provider’s documented schema-key ordering behavior. This request-only serializer does not alter the canonical JSON serialization used for stored audit signatures.
+
+Generation schemas enforce the exact requested number of blueprint slots, questions and quality-review results using equal min/max array counts. For the configured `gpt-5-mini`, blueprint/question drafting defaults to low reasoning effort (`GENERATION_DRAFT_REASONING_EFFORT` can override minimal/low/medium/high); independent quality review explicitly uses medium effort. Other configured model IDs retain their original request settings. The question-set output budget is 20,000 tokens to accommodate worked answers without dropping questions. Reasoning controls follow [official OpenAI guidance](https://developers.openai.com/api/docs/guides/reasoning).
+
+### Human-readable Job IDs
+`POST /api/v1/jobs` requires `job_code`. The API trims and uppercases it; codes are 1–64 ASCII letters, digits, hyphens or underscores and must start with a letter or digit. The database enforces uniqueness per interviewer, so case/whitespace-equivalent duplicate creation (including simultaneous requests) returns 409. Identical retries using the same request key remain idempotent; changing the Job ID under an existing key returns 409. Another interviewer may use the same code independently. Job lists, session lists/details, candidate session data and JSON reports include `job_code`; internal `id`/`job_id` UUIDs and route parameters are unchanged. Existing jobs receive deterministic `LEGACY-…` codes through one additive migration.

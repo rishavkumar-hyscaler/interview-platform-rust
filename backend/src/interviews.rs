@@ -85,15 +85,31 @@ fn paginated(mut items: Vec<Value>, limit: i64) -> Value {
 }
 #[derive(Deserialize)]
 struct NewJob {
+    job_code: String,
     title: String,
     description: String,
     request_key: Uuid,
+}
+fn normalize_job_code(value: &str) -> Result<String> {
+    let code = value.trim().to_ascii_uppercase();
+    if !(1..=64).contains(&code.len())
+        || !code.as_bytes()[0].is_ascii_alphanumeric()
+        || !code
+            .bytes()
+            .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == b'-' || ch == b'_')
+    {
+        return Err(bad(
+            "Job ID must be 1–64 characters: letters, numbers, hyphens or underscores; start with a letter or number",
+        ));
+    }
+    Ok(code)
 }
 async fn create_job(
     State(pool): State<PgPool>,
     headers: HeaderMap,
     Json(input): Json<NewJob>,
 ) -> Result<(StatusCode, Json<Value>)> {
+    let job_code = normalize_job_code(&input.job_code)?;
     let title = input.title.trim();
     let description = input.description.trim();
     if title.contains('\0')
@@ -108,8 +124,8 @@ async fn create_job(
     let (user, mut tx) = staff(&pool, &headers).await?;
     let recruiter = user;
     let id = Uuid::new_v4();
-    let created = sqlx::query("INSERT INTO jobs(id,interviewer_id,request_key,title,created_by,description) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(interviewer_id,request_key) DO NOTHING")
-        .bind(id).bind(recruiter).bind(input.request_key).bind(title).bind(user).bind(description).execute(&mut *tx).await?.rows_affected() == 1;
+    let created = sqlx::query("INSERT INTO jobs(id,interviewer_id,request_key,title,created_by,description,job_code) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING")
+        .bind(id).bind(recruiter).bind(input.request_key).bind(title).bind(user).bind(description).bind(&job_code).execute(&mut *tx).await?.rows_affected() == 1;
     if created {
         audit(
             &mut tx,
@@ -117,13 +133,16 @@ async fn create_job(
             Some(user),
             id,
             "job.created",
-            json!({"version":1}),
+            json!({"version":1,"job_code":job_code}),
         )
         .await?;
     }
-    let result: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',j.id,'title',j.title,'description',j.description,'created_at',j.created_at) FROM jobs j WHERE j.interviewer_id=$1 AND j.request_key=$2")
-        .bind(recruiter).bind(input.request_key).fetch_one(&mut *tx).await?;
-    if result["title"] != title || result["description"] != description {
+    let result: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',j.id,'job_code',j.job_code,'title',j.title,'description',j.description,'created_at',j.created_at) FROM jobs j WHERE j.interviewer_id=$1 AND j.request_key=$2")
+        .bind(recruiter).bind(input.request_key).fetch_optional(&mut *tx).await?.ok_or(conflict("A job with this Job ID already exists"))?;
+    if result["job_code"] != job_code
+        || result["title"] != title
+        || result["description"] != description
+    {
         return Err(conflict(
             "Request key was already used with different job details",
         ));
@@ -145,7 +164,7 @@ async fn list_jobs(
 ) -> Result<Json<Value>> {
     let limit = page.limit()?;
     let (recruiter, mut tx) = staff(&pool, &headers).await?;
-    let items: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',j.id,'title',j.title,'description',j.description,'created_at',j.created_at,'session_count',(SELECT count(*) FROM interview_sessions s WHERE s.job_id=j.id)) FROM jobs j WHERE j.interviewer_id=$1 AND ($2::uuid IS NULL OR (j.created_at,j.id)<(SELECT created_at,id FROM jobs WHERE id=$2)) ORDER BY j.created_at DESC,j.id DESC LIMIT $3")
+    let items: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',j.id,'job_code',j.job_code,'title',j.title,'description',j.description,'created_at',j.created_at,'session_count',(SELECT count(*) FROM interview_sessions s WHERE s.job_id=j.id)) FROM jobs j WHERE j.interviewer_id=$1 AND ($2::uuid IS NULL OR (j.created_at,j.id)<(SELECT created_at,id FROM jobs WHERE id=$2)) ORDER BY j.created_at DESC,j.id DESC LIMIT $3")
         .bind(recruiter).bind(page.cursor).bind(limit+1).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(paginated(items, limit)))
@@ -343,7 +362,7 @@ async fn list_sessions(
 ) -> Result<Json<Value>> {
     let limit = page.limit()?;
     let (recruiter, mut tx) = staff(&pool, &headers).await?;
-    let items: Vec<Value> = sqlx::query_scalar("SELECT (to_jsonb(s)-'request_key'-'created_by') || jsonb_build_object('job_title',j.title) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.interviewer_id=$1 AND ($2::uuid IS NULL OR (s.created_at,s.id)<(SELECT created_at,id FROM interview_sessions WHERE id=$2)) ORDER BY s.created_at DESC,s.id DESC LIMIT $3")
+    let items: Vec<Value> = sqlx::query_scalar("SELECT (to_jsonb(s)-'request_key'-'created_by') || jsonb_build_object('job_title',j.title,'job_code',j.job_code) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.interviewer_id=$1 AND ($2::uuid IS NULL OR (s.created_at,s.id)<(SELECT created_at,id FROM interview_sessions WHERE id=$2)) ORDER BY s.created_at DESC,s.id DESC LIMIT $3")
         .bind(recruiter).bind(page.cursor).bind(limit+1).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(paginated(items, limit)))
@@ -354,7 +373,7 @@ async fn session_detail(
     headers: HeaderMap,
 ) -> Result<Json<Value>> {
     let (recruiter, mut tx) = staff(&pool, &headers).await?;
-    let result: Value=sqlx::query_scalar("SELECT (to_jsonb(s)-'request_key'-'created_by') || jsonb_build_object('job_title',j.title,'description',j.description,'question_count',(SELECT count(*) FROM interview_questions q WHERE q.session_id=s.id),'answer_count',(SELECT count(*) FROM interview_answers a WHERE a.session_id=s.id),'invitation_recoverable',coalesce((SELECT sealed_token IS NOT NULL FROM auth_sessions c WHERE c.interview_session_id=s.id),false),'invitation_active',s.state IN ('invited','ready','in_progress') AND least(s.expires_at,coalesce(s.deadline_at,s.expires_at))>now()) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1 AND s.interviewer_id=$2")
+    let result: Value=sqlx::query_scalar("SELECT (to_jsonb(s)-'request_key'-'created_by') || jsonb_build_object('job_title',j.title,'job_code',j.job_code,'description',j.description,'question_count',(SELECT count(*) FROM interview_questions q WHERE q.session_id=s.id),'answer_count',(SELECT count(*) FROM interview_questions q WHERE q.session_id=s.id AND (EXISTS(SELECT 1 FROM interview_answers a WHERE a.question_id=q.id AND length(btrim(a.content))>0) OR EXISTS(SELECT 1 FROM audit_events m WHERE m.entity_id=q.session_id AND m.action='answer.recorded' AND m.metadata->>'question_id'=q.id::text))),'invitation_recoverable',coalesce((SELECT sealed_token IS NOT NULL FROM auth_sessions c WHERE c.interview_session_id=s.id),false),'invitation_active',s.state IN ('invited','ready','in_progress') AND least(s.expires_at,coalesce(s.deadline_at,s.expires_at))>now()) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1 AND s.interviewer_id=$2")
         .bind(id).bind(recruiter).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
     tx.commit().await?;
     Ok(Json(result))
@@ -393,7 +412,7 @@ pub(crate) async fn candidate<'a>(
 }
 pub(crate) async fn candidate_view(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<Value> {
     // Deliberately excludes rubrics, other candidates, email, and internal audit data.
-    Ok(sqlx::query_scalar("SELECT jsonb_build_object('id',s.id,'role','interviewee','interviewee_id',s.interviewee_id,'job_title',j.title,'state',CASE WHEN s.state IN ('invited','ready','in_progress') AND least(s.expires_at,coalesce(s.deadline_at,s.expires_at))<=now() THEN CASE WHEN s.state='in_progress' THEN 'submitted' ELSE 'expired' END ELSE s.state END,'duration_minutes',s.duration_minutes,'expires_at',s.expires_at,'deadline_at',s.deadline_at,'server_time',now(),'started_at',s.started_at,'submitted_at',s.submitted_at,'generation_status',s.generation_status,'answer_count',(SELECT count(*) FROM interview_answers WHERE session_id=s.id AND length(btrim(content))>0),'question_count',(SELECT count(*) FROM interview_questions WHERE session_id=s.id)) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1")
+    Ok(sqlx::query_scalar("SELECT jsonb_build_object('id',s.id,'role','interviewee','interviewee_id',s.interviewee_id,'job_title',j.title,'job_code',j.job_code,'state',CASE WHEN s.state IN ('invited','ready','in_progress') AND least(s.expires_at,coalesce(s.deadline_at,s.expires_at))<=now() THEN CASE WHEN s.state='in_progress' THEN 'submitted' ELSE 'expired' END ELSE s.state END,'duration_minutes',s.duration_minutes,'expires_at',s.expires_at,'deadline_at',s.deadline_at,'server_time',now(),'started_at',s.started_at,'submitted_at',s.submitted_at,'generation_status',s.generation_status,'answer_count',(SELECT count(*) FROM interview_questions q WHERE q.session_id=s.id AND (EXISTS(SELECT 1 FROM interview_answers a WHERE a.question_id=q.id AND length(btrim(a.content))>0) OR EXISTS(SELECT 1 FROM audit_events m WHERE m.entity_id=q.session_id AND m.action='answer.recorded' AND m.metadata->>'question_id'=q.id::text))),'question_count',(SELECT count(*) FROM interview_questions WHERE session_id=s.id)) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1")
         .bind(id).fetch_one(&mut **tx).await?)
 }
 async fn candidate_session(
@@ -492,5 +511,13 @@ mod tests {
         ] {
             assert!(next_state(state, action).is_err());
         }
+    }
+    #[test]
+    fn job_codes_are_normalized_and_bounded() {
+        assert_eq!(normalize_job_code("  be-2026_01 ").unwrap(), "BE-2026_01");
+        for code in ["", " ", "_BAD", "BAD ID", "../BAD", "é123"] {
+            assert!(normalize_job_code(code).is_err());
+        }
+        assert!(normalize_job_code(&"A".repeat(65)).is_err());
     }
 }

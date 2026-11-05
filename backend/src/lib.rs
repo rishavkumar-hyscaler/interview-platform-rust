@@ -4,6 +4,7 @@ pub mod infrastructure;
 mod interview_room;
 mod interviews;
 pub mod invitations;
+mod media;
 mod proctoring;
 mod review;
 pub mod scoring;
@@ -73,6 +74,7 @@ pub fn router_with_ai(pool: PgPool, provider: Option<generation::provider::AiPro
         .route("/api/me", get(me))
         .merge(interviews::routes())
         .merge(interview_room::routes())
+        .merge(media::routes())
         .merge(proctoring::routes())
         .merge(scoring::routes())
         .merge(review::routes())

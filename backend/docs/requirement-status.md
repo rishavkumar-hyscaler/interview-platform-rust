@@ -1,12 +1,12 @@
 # Assignment implementation status
 
-Stack follows the user's explicit correction: Rust, React, PostgreSQL and pgvector. One backend executable, seven application tables and one baseline migration remain.
+Stack follows the user's explicit correction: Rust, React, PostgreSQL and pgvector. One backend executable, seven application tables, one baseline migration and one additive Job ID migration remain.
 
 | Requirement | Implementation |
 | --- | --- |
-| JD blueprint, seeded unique questions, exact/vector dedup, rubric snapshots | Generation worker and interviewer preparation view |
+| JD blueprint, seeded unique questions, exact/vector dedup, rubric snapshots | Generation v2: worked references, assumptions, alternatives, mistakes, criterion-keyed reference sections, partial/full-credit anchors, coding examples, deterministic checks, a separate AI critic, bounded repairs and renewed worker leases |
 | Adaptive difficulty | Next question evaluates the saved answer and chooses a suitable unserved question from the prepared set; manual question navigation remains available |
-| Timed room, cursor resume, text/code, autosave | Server deadline, optimistic revisions, local unsent draft recovery, refreshed cursor |
+| Timed room, cursor resume, text/code/media, autosave | Server deadline, optimistic revisions, local unsent draft recovery, refreshed cursor; optional bounded audio/video attachments with private playback and IndexedDB retry recovery |
 | Fullscreen and one browser tab | Editor requires fullscreen; exclusive Web Lock gates the candidate view on one origin/profile |
 | Browser proctoring | Focus/visibility/fullscreen, copy/paste count, context menu, typing bursts, rapid answer timing, window-size dev-tools suspicion, supported display-extension signal |
 | Immutable evidence | Server timestamp, event IDs, idempotency, measurement units, signed receipt chain, RLS-protected append-only audit |
@@ -20,10 +20,12 @@ Stack follows the user's explicit correction: Rust, React, PostgreSQL and pgvect
 
 ## Explicit limits
 
-- Optional recorded audio/video answers and optional face/look-away/background-voice analysis are not implemented. Camera/mic currently provide local previews and device checks without upload. Browser monitoring continues if device access is denied.
+- Optional audio/video answer recording is implemented. Face/look-away/background-voice analysis is not implemented. Device preview stays local; recordings upload only after the candidate starts a recording and stops it. Browser monitoring continues if device access is denied. Media-only answers require human review, not an automatic zero; include written answers for AI scoring.
 - Web Locks cannot coordinate different origins, profiles, browsers or devices. They prevent accidental duplicate tabs, not malicious API clients.
 - Web apps cannot reliably detect every display or dev-tools instance. Unsupported browser signals are unavailable; window-size heuristics can produce false positives. Typing bursts may come from assistive tools, input methods or accessibility software.
 - A server signature proves receipt integrity, not the truth or completeness of client telemetry. Browser-side suppression cannot be ruled out.
 - RAG operates on explicit bounded evidence pages, not an unbounded model context. Citations prove that quoted text exists, not that a model's interpretation is necessarily correct. Provisional streamed text is clearly labelled and discarded when final validation fails.
 - AI scoring and recommendations support a human reviewer. Rubric/identity bias and statistical validity still need evaluation on representative, consented data; small-sample analytics are not validated discrimination or fairness measures.
-- Live integration is covered with a local mock provider. Current provider keys/model availability and real-world camera/browser compatibility need deployment acceptance testing.
+- Recording capture/upload/playback and local recovery have been smoke-tested with synthetic video/audio tracks, without accessing real camera/microphone hardware. Live AI integration is covered with a local mock provider. Current provider keys/model availability and real-world camera/browser compatibility need deployment acceptance testing.
+
+Private media files live under `MEDIA_STORAGE_DIR` (default `backend/storage/media`). Back up this directory alongside PostgreSQL and the stable invitation key. Do not expose it through a static web server. JSON exports include audit references and content hashes, not the binary recordings. Browser recording is capped at 60 seconds, server size at 15 MB and server count at 12 clips per session. There is no server-side codec decoding or duration verification.

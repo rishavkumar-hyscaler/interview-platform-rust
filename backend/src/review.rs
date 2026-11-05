@@ -296,7 +296,7 @@ async fn chat_answer(
     let (owner, mut tx) = staff(&pool, &headers).await?;
     exists(&mut tx, session).await?;
     let questions:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',q.id,'position',q.position,'prompt',q.prompt,'rubric',q.rubric,'answer',coalesce(a.content,'')) FROM interview_questions q LEFT JOIN interview_answers a ON a.question_id=q.id WHERE q.session_id=$1 ORDER BY q.position").bind(session).fetch_all(&mut *tx).await?;
-    let events:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',id,'at',created_at,'action',action,'metadata',metadata) FROM audit_events WHERE entity_id=$1 AND action IN ('proctor.observed','integrity.annotated','assessment.completed','session.timed_out') ORDER BY created_at DESC,id DESC LIMIT 20000").bind(session).fetch_all(&mut *tx).await?;
+    let events:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',id,'at',created_at,'action',action,'metadata',metadata) FROM audit_events WHERE entity_id=$1 AND action IN ('proctor.observed','integrity.annotated','assessment.completed','session.timed_out','answer.recorded') ORDER BY created_at DESC,id DESC LIMIT 20000").bind(session).fetch_all(&mut *tx).await?;
     let memory:Vec<Value>=sqlx::query_scalar("SELECT metadata-'vectors' FROM audit_events WHERE entity_id=$1 AND actor_id=$2 AND action='reviewer.message' AND metadata->>'conversation'=$3 ORDER BY created_at DESC,id DESC LIMIT 6").bind(session).bind(owner).bind(input.conversation.to_string()).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     let mut docs = Vec::new();
@@ -419,7 +419,7 @@ async fn export_report(
         .0;
     let (owner, mut tx) = staff(&pool, &headers).await?;
     exists(&mut tx, session).await?;
-    let interview:Value=sqlx::query_scalar("SELECT jsonb_build_object('id',s.id,'job_title',j.title,'job_description',j.description,'state',s.state,'started_at',s.started_at,'submitted_at',s.submitted_at,'candidate_name',s.candidate_name,'candidate_email',s.candidate_email) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1").bind(session).fetch_one(&mut *tx).await?;
+    let interview:Value=sqlx::query_scalar("SELECT jsonb_build_object('id',s.id,'job_title',j.title,'job_code',j.job_code,'job_description',j.description,'state',s.state,'started_at',s.started_at,'submitted_at',s.submitted_at,'candidate_name',s.candidate_name,'candidate_email',s.candidate_email) FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1").bind(session).fetch_one(&mut *tx).await?;
     let questions:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',q.id,'position',q.position,'prompt',q.prompt,'rubric',q.rubric,'answer',a.content,'saved_at',a.updated_at) FROM interview_questions q LEFT JOIN interview_answers a ON a.question_id=q.id WHERE q.session_id=$1 ORDER BY q.position").bind(session).fetch_all(&mut *tx).await?;
     let events:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',id,'at',created_at,'action',action,'actor_id',actor_id,'evidence',metadata) FROM audit_events WHERE entity_id=$1 AND action NOT IN ('reviewer.indexed','invitation.link_retrieved') ORDER BY created_at,id").bind(session).fetch_all(&mut *tx).await?;
     audit(

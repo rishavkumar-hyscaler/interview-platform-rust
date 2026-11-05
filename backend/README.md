@@ -25,7 +25,7 @@ An optional Compose database remains available via `docker compose -f compose.ya
 
 ## Schema
 
-One baseline migration: `migrations/202611040001_initial_schema.sql`.
+One baseline migration (`202611040001_initial_schema.sql`) plus one additive Job ID upgrade (`202611050001_job_codes.sql`). Existing migration checksums are preserved.
 
 Seven application tables: `users`, `auth_sessions`, `jobs`, `interview_sessions`, `interview_questions`, `interview_answers`, and `audit_events`. Users are either interviewers or interviewees. Jobs store descriptions/blueprints; interviews store generation state; questions also serve as the embedding-backed question bank. Organizations, memberships, and separate queue/JD/blueprint/bank/access tables are absent.
 
@@ -70,3 +70,11 @@ Interviewers sign in with email and password directly. The interviewer account m
 `INVITATION_ENCRYPTION_KEY` in `.env` must contain a stable 64-character hex key (`openssl rand -hex 32`). The local configuration has been provisioned privately. Keep this key backed up separately from PostgreSQL; do not change it without a key migration. New invitation secrets are stored encrypted and can be retrieved by the authorized recruiter from session details. Existing hash-only invitations require an explicit replacement before acceptance. Retrieval and replacement are audited; expiry is preserved. This enables manual resharing, not automatic email delivery.
 
 After changing backend code, stop the running cargo process with Ctrl-C and start `cargo run` again. Rust is not hot-reloaded by Vite. The timed room uses the existing schema; no additional migration is required.
+
+## Private answer recordings
+
+Candidates can attach short audio/video recordings. `MEDIA_STORAGE_DIR` defaults to `backend/storage/media` and is gitignored; back it up alongside the database. Clips are served only through authenticated APIs, with content-hash checks. Browser capture stops at 60 seconds, server uploads are limited to 15 MB and 12 recordings per interview. Completed unsent clips recover through IndexedDB. Written answers drive AI scoring; media-only answers remain for human review. No migration is needed.
+
+## Interviewer-entered Job IDs
+
+Job creation requires `job_code`, shown as Job ID in the UI (for example `BE-2026-001`). Codes are trimmed, normalized to uppercase and unique within the interviewer account. Use 1–64 ASCII letters/digits/hyphens/underscores, starting with a letter or digit. The internal UUID remains the foreign key used by invitation and question-bank routes. The additive migration assigns existing records `LEGACY-<UUID without hyphens>` without deleting data. Apply using `cargo run -- --migrate`, then restart the backend.

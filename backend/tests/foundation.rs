@@ -76,7 +76,7 @@ async fn authentication_and_tenant_isolation() {
     let (status, b) = call(&app,"POST","/api/auth/register",json!({"email":format!("{}@example.test",Uuid::new_v4()),"password":"another-strong-password"}),None).await;
     assert_eq!(status, StatusCode::CREATED);
     let other: Uuid = b["user_id"].as_str().unwrap().parse().unwrap();
-    let job_input = json!({"title":"Backend engineer","description":"Build reliable Rust services and PostgreSQL APIs.","request_key":Uuid::new_v4()});
+    let job_input = json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Backend engineer","description":"Build reliable Rust services and PostgreSQL APIs.","request_key":Uuid::new_v4()});
     let (status, job) = call(&app, "POST", "/api/v1/jobs", job_input, Some(token)).await;
     assert_eq!(status, StatusCode::CREATED);
     let (_, mine) = call(&app, "GET", "/api/v1/jobs", Value::Null, Some(token)).await;

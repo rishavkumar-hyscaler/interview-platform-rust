@@ -33,3 +33,7 @@ Generation and expiry run concurrently. Generation validates model output and ch
 Passwords use Argon2id. Opaque login tokens expire after 12 hours and are hashed in PostgreSQL. Recruiter-side browser sessions persist per tab and are validated through `/api/me` after refresh. Passwords are never stored in the browser. Audit records and question snapshots have no runtime update/delete grants. Production still needs TLS, rate limits, account recovery, retention controls, monitoring, and security review.
 
 The browser journals unacknowledged answers locally without storing invitation tokens in that journal. It clears matching drafts only after server acknowledgement, restores pending text after refresh, retries on reconnect, and requires explicit conflict resolution when another tab has changed an answer. The authoritative saved answer, cursor trail, and deadline remain on the server.
+
+## Job identity
+
+`jobs.id` remains the immutable internal UUID. `jobs.job_code` is the interviewer-entered Job ID, normalized to uppercase and constrained unique on `(interviewer_id, job_code)`. Sessions and the question bank retain UUID foreign keys. One additive migration backfills existing jobs with deterministic legacy codes and preserves the applied baseline checksum.

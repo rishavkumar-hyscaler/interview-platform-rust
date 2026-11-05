@@ -43,7 +43,7 @@ async fn account(app: &Router) -> Value {
 async fn setup(pool: &PgPool, app: &Router, owner: &Value) -> (Value, Vec<Uuid>) {
     let token = owner["token"].as_str().unwrap();
     let user: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
-    let(s,job)=call(app,"POST","/api/v1/jobs",json!({"title":"Interview room test","description":"Build reliable applications in Rust and PostgreSQL.","request_key":Uuid::new_v4()}),token).await;
+    let(s,job)=call(app,"POST","/api/v1/jobs",json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Interview room test","description":"Build reliable applications in Rust and PostgreSQL.","request_key":Uuid::new_v4()}),token).await;
     assert_eq!(s, StatusCode::CREATED);
     let(s,invite)=call(app,"POST",&format!("/api/v1/jobs/{}/invitations",job["id"].as_str().unwrap()),json!({"candidate_name":"Room test candidate","candidate_email":"room-test@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
     assert_eq!(s, StatusCode::CREATED);

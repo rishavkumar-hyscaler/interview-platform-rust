@@ -77,7 +77,7 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
     let other = outsider["token"].as_str().unwrap();
     assert_eq!(recruiter_account["role"], "interviewer");
     let base = "/api/v1".to_string();
-    let job_input = json!({"title":"Backend engineer","description":"Build reliable Rust APIs and PostgreSQL services.","request_key":Uuid::new_v4()});
+    let job_input = json!({"job_code":"  be-2026-001  ","title":"Backend engineer","description":"Build reliable Rust APIs and PostgreSQL services.","request_key":Uuid::new_v4()});
     let (status, job) = call(
         &app,
         "POST",
@@ -97,6 +97,46 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(job["id"], retry["id"]);
+    assert_eq!(job["job_code"], "BE-2026-001");
+    let mut duplicate = job_input.clone();
+    duplicate["request_key"] = json!(Uuid::new_v4());
+    duplicate["job_code"] = json!("Be-2026-001");
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("{base}/jobs"),
+            duplicate.clone(),
+            token
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(&app, "POST", &format!("{base}/jobs"), duplicate, other)
+            .await
+            .0,
+        StatusCode::CREATED
+    );
+    let mut invalid = job_input.clone();
+    invalid["request_key"] = json!(Uuid::new_v4());
+    invalid["job_code"] = json!("../invalid job");
+    assert_eq!(
+        call(&app, "POST", &format!("{base}/jobs"), invalid, token)
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    let mut missing = job_input.clone();
+    missing.as_object_mut().unwrap().remove("job_code");
+    assert_eq!(
+        call(&app, "POST", &format!("{base}/jobs"), missing, token)
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+
     let mut changed = job_input.clone();
     changed["title"] = json!("Different job");
     assert_eq!(
@@ -106,7 +146,7 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
         StatusCode::CONFLICT
     );
     // Another job exercises cursor ordering and pagination without offset drift.
-    let (_,second)=call(&app,"POST",&format!("{base}/jobs"),json!({"title":"Frontend engineer","description":"Build accessible React interfaces and browser integrations.","request_key":Uuid::new_v4()}),token).await;
+    let (_,second)=call(&app,"POST",&format!("{base}/jobs"),json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Frontend engineer","description":"Build accessible React interfaces and browser integrations.","request_key":Uuid::new_v4()}),token).await;
     let (_, page) = call(
         &app,
         "GET",
@@ -400,7 +440,7 @@ async fn concurrent_workers_expire_once_and_tenant_foreign_keys_hold() {
     let other_org: Uuid = other["user_id"].as_str().unwrap().parse().unwrap();
     let token = recruiter_account["token"].as_str().unwrap();
     let base = "/api/v1".to_string();
-    let (_,job)=call(&app,"POST",&format!("{base}/jobs"),json!({"title":"Expiry test","description":"A role for testing durable expiry and tenant boundaries.","request_key":Uuid::new_v4()}),token).await;
+    let (_,job)=call(&app,"POST",&format!("{base}/jobs"),json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Expiry test","description":"A role for testing durable expiry and tenant boundaries.","request_key":Uuid::new_v4()}),token).await;
     let (_,invite)=call(&app,"POST",&format!("{base}/jobs/{}/invitations",job["id"].as_str().unwrap()),json!({"candidate_name":"Expiry candidate","candidate_email":"expiry@example.test","duration_minutes":5,"request_key":Uuid::new_v4()}),token).await;
     let id: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
     let candidate = invite["invitation_token"].as_str().unwrap();
@@ -495,7 +535,7 @@ async fn invalid_requests_have_json_error_contracts_without_database_access() {
         &app,
         "POST",
         &format!("{base}/jobs"),
-        json!({"title":"missing required fields"}),
+        json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"missing required fields"}),
         "",
     )
     .await;
@@ -532,7 +572,7 @@ async fn legacy_invitation_replacement_is_explicit_scoped_and_preserves_expiry()
         .unwrap();
     let token = recruiter_account["token"].as_str().unwrap();
     let base = "/api/v1".to_string();
-    let (_,job)=call(&app,"POST",&format!("{base}/jobs"),json!({"title":"Legacy link test","description":"A job description used for testing safe invitation recovery.","request_key":Uuid::new_v4()}),token).await;
+    let (_,job)=call(&app,"POST",&format!("{base}/jobs"),json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Legacy link test","description":"A job description used for testing safe invitation recovery.","request_key":Uuid::new_v4()}),token).await;
     let (_,invite)=call(&app,"POST",&format!("{base}/jobs/{}/invitations",job["id"].as_str().unwrap()),json!({"candidate_name":"Legacy candidate","candidate_email":"legacy@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
     let id: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
     let original = invite["invitation_token"].as_str().unwrap();
@@ -682,4 +722,25 @@ async fn legacy_invitation_replacement_is_explicit_scoped_and_preserves_expiry()
         StatusCode::CONFLICT
     );
     pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL and restricted runtime credentials"]
+async fn concurrent_job_ids_are_unique_and_case_insensitive() {
+    let pool = database().await;
+    let app = platform_api::router_with_ai(pool.clone(), None);
+    let owner = account(&app).await;
+    let token = owner["token"].as_str().unwrap();
+    let input = |code: &str| json!({"job_code":code,"title":"Concurrent code test","description":"A sufficiently detailed job description for concurrency tests.","request_key":Uuid::new_v4()});
+    let (a, b) = tokio::join!(
+        call(&app, "POST", "/api/v1/jobs", input("race-001"), token),
+        call(&app, "POST", "/api/v1/jobs", input("RACE-001"), token)
+    );
+    assert!(
+        (a.0 == StatusCode::CREATED && b.0 == StatusCode::CONFLICT)
+            || (b.0 == StatusCode::CREATED && a.0 == StatusCode::CONFLICT)
+    );
+    let (_, jobs) = call(&app, "GET", "/api/v1/jobs", Value::Null, token).await;
+    assert_eq!(jobs["items"].as_array().unwrap().len(), 1);
+    assert_eq!(jobs["items"][0]["job_code"], "RACE-001");
 }

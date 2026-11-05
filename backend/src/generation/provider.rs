@@ -4,6 +4,146 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::time::Duration;
 
+#[derive(Debug)]
+pub struct ProviderFailure {
+    pub retryable: bool,
+    status: u16,
+    code: &'static str,
+}
+impl std::fmt::Display for ProviderFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "AI service returned HTTP {} ({})",
+            self.status, self.code
+        )
+    }
+}
+impl std::error::Error for ProviderFailure {}
+fn provider_failure(status: u16, body: &Value) -> ProviderFailure {
+    // Whitelist operational error codes; never echo arbitrary remote text or API keys.
+    let code = match body["error"]["code"]
+        .as_str()
+        .or(body["error"]["type"].as_str())
+        .unwrap_or("")
+    {
+        "invalid_json_schema" => "invalid_json_schema",
+        "invalid_api_key" => "invalid_api_key",
+        "insufficient_quota" => "insufficient_quota",
+        "rate_limit_exceeded" => "rate_limit_exceeded",
+        "unsupported_parameter" => "unsupported_parameter",
+        "model_not_found" => "model_not_found",
+        "context_length_exceeded" => "context_length_exceeded",
+        _ => "provider_error",
+    };
+    ProviderFailure {
+        status,
+        code,
+        retryable: (status == 408 || status == 429 || status >= 500)
+            && code != "insufficient_quota",
+    }
+}
+fn generation_schema_bounds(schema: &mut Value, name: &str, input: &Value) {
+    let (property, count) = match name {
+        "interview_blueprint" => (
+            "slots",
+            input["question_count"].as_u64().map(|n| n as usize),
+        ),
+        "interview_questions" => (
+            "questions",
+            input["blueprint"]["slots"].as_array().map(Vec::len),
+        ),
+        "interview_quality_review" => (
+            "questions",
+            input["proposed_set"]["questions"].as_array().map(Vec::len),
+        ),
+        _ => return,
+    };
+    if let Some(count) = count.filter(|count| (1..=20).contains(count))
+        && let Some(array) = schema["properties"][property].as_object_mut()
+    {
+        array.insert("minItems".into(), json!(count));
+        array.insert("maxItems".into(), json!(count));
+    }
+}
+// Serialize request schemas in authoring order without changing serde_json's
+// canonical map order used by persisted audit signatures elsewhere in the app.
+struct OrderedPayload<'a> {
+    value: &'a Value,
+    properties: bool,
+}
+impl serde::Serialize for OrderedPayload<'_> {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::{SerializeMap, SerializeSeq};
+        match self.value {
+            Value::Object(map) => {
+                let order: &[&str] = if self.properties
+                    && map.contains_key("prompt")
+                    && map.contains_key("expected_answer")
+                {
+                    &[
+                        "competency_id",
+                        "kind",
+                        "difficulty",
+                        "estimated_minutes",
+                        "prompt",
+                        "expected_answer",
+                        "assumptions",
+                        "acceptable_alternatives",
+                        "common_mistakes",
+                        "coding",
+                        "criteria",
+                    ]
+                } else if self.properties && map.contains_key("max_points") {
+                    &[
+                        "id",
+                        "description",
+                        "max_points",
+                        "reference_answer",
+                        "partial_credit",
+                        "full_credit",
+                    ]
+                } else if self.properties && map.contains_key("solution") {
+                    &["language", "solution", "complexity", "tests"]
+                } else {
+                    &[]
+                };
+                let mut keys: Vec<_> = map.keys().collect();
+                keys.sort_by_key(|key| {
+                    order
+                        .iter()
+                        .position(|item| item == key)
+                        .unwrap_or(order.len())
+                });
+                let mut output = serializer.serialize_map(Some(map.len()))?;
+                for key in keys {
+                    output.serialize_entry(
+                        key,
+                        &OrderedPayload {
+                            value: &map[key],
+                            properties: key == "properties",
+                        },
+                    )?;
+                }
+                output.end()
+            }
+            Value::Array(values) => {
+                let mut output = serializer.serialize_seq(Some(values.len()))?;
+                for value in values {
+                    output.serialize_element(&OrderedPayload {
+                        value,
+                        properties: false,
+                    })?;
+                }
+                output.end()
+            }
+            _ => self.value.serialize(serializer),
+        }
+    }
+}
 #[derive(Clone)]
 pub struct AiProvider {
     client: reqwest::Client,
@@ -67,19 +207,32 @@ impl AiProvider {
         })
     }
     async fn post(&self, path: &str, key: &str, body: Value) -> Result<Value> {
-        let mut response = self
+        let encoded = serde_json::to_vec(&OrderedPayload {
+            value: &body,
+            properties: false,
+        })?;
+        let mut request = self
             .client
             .post(format!("{}{path}", self.base))
             .bearer_auth(key)
-            .json(&body)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(encoded);
+        if matches!(
+            body["text"]["format"]["name"].as_str(),
+            Some("interview_blueprint" | "interview_questions" | "interview_quality_review")
+        ) {
+            let seconds = std::env::var("GENERATION_REQUEST_TIMEOUT_SECONDS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(180)
+                .clamp(30, 300);
+            request = request.timeout(Duration::from_secs(seconds));
+        }
+        let mut response = request
             .send()
             .await
             .map_err(|_| anyhow::anyhow!("AI service connection failed or timed out"))?;
-        ensure!(
-            response.status().is_success(),
-            "AI service returned HTTP {}",
-            response.status().as_u16()
-        );
+        let status = response.status();
         let mut bytes = Vec::new();
         while let Some(chunk) = response
             .chunk()
@@ -92,8 +245,13 @@ impl AiProvider {
             );
             bytes.extend_from_slice(&chunk);
         }
-        serde_json::from_slice(&bytes)
-            .map_err(|_| anyhow::anyhow!("AI service returned invalid JSON"))
+        let parsed = serde_json::from_slice::<Value>(&bytes);
+        if !status.is_success() {
+            return Err(
+                provider_failure(status.as_u16(), parsed.as_ref().unwrap_or(&Value::Null)).into(),
+            );
+        }
+        parsed.map_err(|_| anyhow::anyhow!("AI service returned invalid JSON"))
     }
     pub async fn structured<T: JsonSchema + DeserializeOwned>(
         &self,
@@ -103,12 +261,24 @@ impl AiProvider {
     ) -> Result<T> {
         let mut schema = serde_json::to_value(schemars::schema_for!(T))?;
         clean_schema(&mut schema);
-        let response=self.post("/responses",&self.llm_key,json!({
-            "model":self.model,"store":false,"max_output_tokens":12000,
-            "instructions":instructions,
-            "input":[{"role":"user","content":serde_json::to_string(&input)?}],
+        generation_schema_bounds(&mut schema, name, &input);
+        let mut body = json!({
+            "model":self.model,"store":false,"max_output_tokens":if name=="interview_questions"{20000}else{12000},
+            "instructions":instructions,"input":[{"role":"user","content":serde_json::to_string(&input)?}],
             "text":{"format":{"type":"json_schema","name":name,"strict":true,"schema":schema}}
-        })).await?;
+        });
+        if self.model == "gpt-5-mini" {
+            if matches!(name, "interview_blueprint" | "interview_questions") {
+                let effort = std::env::var("GENERATION_DRAFT_REASONING_EFFORT")
+                    .ok()
+                    .filter(|value| matches!(value.as_str(), "minimal" | "low" | "medium" | "high"))
+                    .unwrap_or_else(|| "low".into());
+                body["reasoning"] = json!({"effort":effort});
+            } else if name == "interview_quality_review" {
+                body["reasoning"] = json!({"effort":"medium"});
+            }
+        }
+        let response = self.post("/responses", &self.llm_key, body).await?;
         ensure!(
             response["status"] == "completed",
             "AI response was incomplete or refused"
@@ -262,6 +432,18 @@ fn clean_schema(value: &mut Value) {
         Value::Object(map) => {
             map.remove("$schema");
             map.remove("format");
+            map.remove("default");
+            // Strict output schemas require every property, including nullable
+            // Option<T> fields that Schemars otherwise considers omittable.
+            if let Some(properties) = map.get("properties").and_then(Value::as_object) {
+                let required = properties
+                    .keys()
+                    .map(|key| Value::String(key.clone()))
+                    .collect();
+                map.insert("required".into(), Value::Array(required));
+                map.insert("additionalProperties".into(), Value::Bool(false));
+            }
+
             for child in map.values_mut() {
                 clean_schema(child);
             }
@@ -272,5 +454,71 @@ fn clean_schema(value: &mut Value) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn strict_nullable_properties_are_required() {
+        let mut schema =
+            serde_json::to_value(schemars::schema_for!(crate::generation::types::QuestionSet))
+                .unwrap();
+        clean_schema(&mut schema);
+        let question = &schema["$defs"]["Question"];
+        assert!(
+            question["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("coding"))
+        );
+        assert!(
+            question["properties"]["coding"]
+                .to_string()
+                .contains("null")
+        );
+        assert_eq!(question["additionalProperties"], false);
+    }
+    #[test]
+    fn provider_errors_do_not_echo_remote_payloads_and_classify_retries() {
+        let fatal = provider_failure(
+            400,
+            &json!({"error":{"code":"invalid_json_schema","message":"private remote payload"}}),
+        );
+        assert!(!fatal.retryable);
+        assert!(!fatal.to_string().contains("private"));
+        assert!(provider_failure(429, &json!({"error":{"code":"rate_limit_exceeded"}})).retryable);
+        assert!(!provider_failure(429, &json!({"error":{"code":"insufficient_quota"}})).retryable);
+        assert!(!provider_failure(401, &Value::Null).retryable);
+    }
+    #[test]
+    fn generation_schema_authors_the_prompt_before_answer_and_rubric() {
+        let value =
+            json!({"properties":{"criteria":{},"expected_answer":{},"prompt":{},"kind":{}}});
+        let encoded = serde_json::to_string(&OrderedPayload {
+            value: &value,
+            properties: false,
+        })
+        .unwrap();
+        assert!(encoded.find("\"prompt\"").unwrap() < encoded.find("\"expected_answer\"").unwrap());
+        assert!(
+            encoded.find("\"expected_answer\"").unwrap() < encoded.find("\"criteria\"").unwrap()
+        );
+        assert_eq!(serde_json::from_str::<Value>(&encoded).unwrap(), value);
+    }
+    #[test]
+    fn exact_generation_counts_are_enforced_in_the_output_schema() {
+        let mut schema =
+            serde_json::to_value(schemars::schema_for!(crate::generation::types::QuestionSet))
+                .unwrap();
+        clean_schema(&mut schema);
+        generation_schema_bounds(
+            &mut schema,
+            "interview_questions",
+            &json!({"blueprint":{"slots":[{},{},{},{},{},{}]}}),
+        );
+        assert_eq!(schema["properties"]["questions"]["minItems"], 6);
+        assert_eq!(schema["properties"]["questions"]["maxItems"], 6);
     }
 }

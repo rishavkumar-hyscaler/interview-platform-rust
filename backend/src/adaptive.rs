@@ -39,7 +39,7 @@ async fn next(
         tx.commit().await?;
         return Err(ApiError(StatusCode::CONFLICT, "Interview is not active"));
     }
-    let question:Option<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',q.id,'position',q.position,'prompt',q.prompt,'rubric',q.rubric,'difficulty',q.difficulty,'answer',coalesce(a.content,''),'revision',coalesce(a.revision,0)) FROM interview_questions q LEFT JOIN interview_answers a ON a.question_id=q.id WHERE q.session_id=$1 AND q.id=$2").bind(session).bind(input.question_id).fetch_optional(&mut *tx).await?;
+    let question:Option<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',q.id,'position',q.position,'prompt',q.prompt,'rubric',q.rubric,'difficulty',q.difficulty,'answer',coalesce(a.content,''),'revision',coalesce(a.revision,0),'recordings',(SELECT count(*) FROM audit_events m WHERE m.entity_id=q.session_id AND m.action='answer.recorded' AND m.metadata->>'question_id'=q.id::text)) FROM interview_questions q LEFT JOIN interview_answers a ON a.question_id=q.id WHERE q.session_id=$1 AND q.id=$2").bind(session).bind(input.question_id).fetch_optional(&mut *tx).await?;
     let question = question.ok_or(ApiError(StatusCode::NOT_FOUND, "Question not found"))?;
     tx.commit().await?;
     let grade = crate::scoring::evaluate(&provider, &question)
@@ -52,7 +52,7 @@ async fn next(
         })?;
     let target = target_difficulty(
         question["difficulty"].as_str().unwrap_or("medium"),
-        grade["score"].as_u64().unwrap_or(0),
+        grade["score"].as_u64().unwrap_or(5),
     );
     let (_, _, mut tx) = candidate(&pool, &headers).await?;
     finalize_due_session(&mut tx, owner, session).await?;
