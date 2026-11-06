@@ -63,3 +63,21 @@ All signal durations are whole milliseconds. Browser `performance.now()` is frac
 ## Copying question text
 
 A copy selection wholly inside the displayed question is recorded as `copy_from_question`. Pasting that same text while that question is current is `paste_from_question`; only whitespace differences are ignored. Opening the question's context menu is `question_context_menu`. These are permitted activities with zero risk points, even when custom weights are configured, and do not trigger anomaly screenshots. Clipboard text stays in browser memory; only event type and character count are recorded. Unobserved, modified, external or other-question pastes remain normal paste observations.
+
+### Analysis health and delivery feedback
+
+The candidate view shows live face count, sustained-condition countdowns, speech
+confidence, and the most recent flag. A countdown resets when the condition clears
+or samples become stale; short movements are not flagged. Hidden tabs and paused
+previews show an explicit paused state. A worker that stops producing fresh results
+for five seconds is marked unavailable, rather than silently appearing healthy.
+Analysis failures trigger at most three automatic restarts per mounted interview
+media view. The candidate can also use **Restart face/voice checks**; restarting
+requires fresh gaze calibration.
+
+Evidence uploads retry each queued record independently. A rejected record does not
+block subsequent observations, and successful attachments are checkpointed before
+retrying remaining attachments. Analysis-ready/calibration events are status-only:
+they intentionally have no attached screenshots or clips. These changes do not add
+speaker identification; possible background speech remains a face/mouth-and-speech
+heuristic, not verified detection of another speaker.

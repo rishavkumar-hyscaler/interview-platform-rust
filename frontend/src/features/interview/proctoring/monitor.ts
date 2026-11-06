@@ -3,7 +3,7 @@ import { SignalPolicy, type FaceSample, type MediaObservation, type Measurements
 import { type evidenceQueue, snapshot, shortClip } from './evidence';
 const announce = (kind: string) => window.dispatchEvent(new CustomEvent('interview-device', { detail: kind }));
 /** Owns workers/audio processing; never owns or stops the preview's camera/mic tracks. */
-export function startMediaMonitor(video: HTMLVideoElement, stream: MediaStream, status: (value: string) => void, queue: ReturnType<typeof evidenceQueue>, live: (value: string) => void = () => {}) {
+export function startMediaMonitor(video: HTMLVideoElement, stream: MediaStream, status: (value: string) => void, queue: ReturnType<typeof evidenceQueue>, live: (value: string) => void = () => {}, recover: () => void = () => {}) {
   let stopped = false; let frameBusy = false; let audioBusy = false; let visionReady = false; let audioReady = false;
   let activeClip: Promise<Blob | null> | null = null;
   let clipCaptured = 0;
@@ -11,7 +11,11 @@ export function startMediaMonitor(video: HTMLVideoElement, stream: MediaStream, 
   let context: AudioContext | null = null; let audioNode: AudioWorkletNode | null = null;
   const policy = new SignalPolicy();
   let speechWindow: SpeechWindow | null = null;
+  let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
   let faceReported = false;
+  let lastVision = performance.now(); let lastAudio = performance.now();
+  let lastFlag = '';
+  const showLive = () => live(`${policy.summary}${lastFlag ? ` · Last flag: ${lastFlag}` : ''}`);
   // Classic workers support MediaPipe's WASM loader; bundled locally by setup:proctoring.
   const base = new URL(`${import.meta.env.BASE_URL}proctoring`, location.origin).href.replace(/\/$/, '');
   let vision: Worker; let audio: Worker;
@@ -26,10 +30,13 @@ export function startMediaMonitor(video: HTMLVideoElement, stream: MediaStream, 
   function failure(kind: string) {
     if (stopped || unavailable.has(kind)) return;
     unavailable.add(kind); announce('model_unavailable');
+    recoveryTimer ??= setTimeout(() => { if (!stopped && unavailable.size) recover(); recoveryTimer = undefined; }, 3000);
     if (kind === 'vision') live('Camera analysis unavailable · no face conclusions can be drawn');
     report(`${kind === 'vision' ? 'Camera analysis' : 'Speech analysis'} unavailable · browser monitoring continues`);
   }
   async function flag(kind: string, measurements: Measurements) {
+    lastFlag = kind.replaceAll('_', ' '); showLive();
+    report(`${lastFlag} detected · saving observation and evidence`);
     const observation: MediaObservation = { id: crypto.randomUUID(), kind, client_time: Date.now(), measurements };
     const speech = kind === 'possible_background_speech' || kind === 'speech_detected'
       ? speechWindow?.capture(performance.now()) : null;
@@ -44,6 +51,7 @@ export function startMediaMonitor(video: HTMLVideoElement, stream: MediaStream, 
       const captured = Date.now();
       const image = await snapshot(video);
       if (image) await queue.enqueue(observation, [{ id: crypto.randomUUID(), blob: image, captured }]);
+      else if (stream.getVideoTracks().some(track => track.readyState === 'live')) { announce('evidence_capture_failed'); report('Camera snapshot unavailable · observation retained'); }
     } catch { announce('evidence_capture_failed'); report('Camera snapshot failed · observation retained'); }
     if (stopped) return;
     if (speech) {
@@ -72,24 +80,27 @@ export function startMediaMonitor(video: HTMLVideoElement, stream: MediaStream, 
   vision.onmessage = ({ data }) => {
     if (stopped) return;
     frameBusy = false;
-    if (data.type === 'ready') { visionReady = true; unavailable.delete('vision'); report('Look toward the camera for 8 seconds to calibrate eye/head direction'); }
+    if (data.type === 'ready') { lastVision = performance.now(); visionReady = true; unavailable.delete('vision'); report('Look toward the camera for 8 seconds to calibrate eye/head direction'); }
     if (data.type === 'failure') { visionReady = false; failure('vision'); }
     if (data.type === 'face') {
-      if (performance.now() - data.at > 2500) return;
+      lastVision = performance.now();
+      if (lastVision - data.at > 2500) { failure('vision'); return; }
+      unavailable.delete('vision');
       const sample = data.sample as FaceSample;
       if (!faceReported) { faceReported = true; announce('face_analysis_ready'); }
-      live(sample.faces === 0 ? 'No face detected' : sample.faces > 1 ? `${sample.faces} faces detected` : policy.calibrated ? 'One face detected · eye/head checks active' : 'One face detected · calibrating for 8 seconds');
+
       const wasCalibrated = policy.calibrated;
       for (const event of policy.face(sample, data.at)) void flag(event.kind, event.measurements);
+      showLive();
       if (!wasCalibrated && policy.calibrated) { announce('gaze_calibrated'); report('Face and eye/head direction checks active'); }
     }
   };
   audio.onmessage = ({ data }) => {
     if (stopped) return;
     audioBusy = false;
-    if (data.type === 'ready') { audioReady = true; unavailable.delete('audio'); void setupAudio(); }
+    if (data.type === 'ready') { lastAudio = performance.now(); audioReady = true; unavailable.delete('audio'); void setupAudio(); }
     if (data.type === 'failure') { audioReady = false; failure('audio'); }
-    if (data.type === 'speech' && performance.now() - data.at <= 2500) { const event = policy.audio(data.probability, data.at); if (event) void flag(event.kind, event.measurements); }
+    if (data.type === 'speech') { lastAudio = performance.now(); if (lastAudio - data.at > 2500) { failure('audio'); return; } unavailable.delete('audio'); const event = policy.audio(data.probability, data.at); if (event) void flag(event.kind, event.measurements); showLive(); }
   };
   async function setupAudio() {
     try {
@@ -115,7 +126,14 @@ export function startMediaMonitor(video: HTMLVideoElement, stream: MediaStream, 
     if (stream.getVideoTracks().length && !visionReady) failure('vision');
     if (stream.getAudioTracks().length && !audioReady) failure('audio');
   }, 30000);
+  const watchdog = setInterval(() => {
+    if (stopped || document.hidden) return;
+    if (visionReady && stream.getVideoTracks().some(track => track.readyState === 'live') && performance.now() - lastVision > 5000) failure('vision');
+    if (audioReady && stream.getAudioTracks().some(track => track.readyState === 'live') && performance.now() - lastAudio > 5000) failure('audio');
+  }, 1000);
   const timer = setInterval(() => {
+    if (document.hidden) { live('Camera sampling paused · tab is hidden'); return; }
+    if (video.paused && stream.getVideoTracks().some(track => track.readyState === 'live')) { live('Camera analysis paused · retry camera preview'); return; }
     if (stopped || !visionReady || frameBusy || document.hidden || video.readyState < 2 || video.paused) return;
     frameBusy = true;
     void createImageBitmap(video, { resizeWidth: 640, resizeHeight: Math.max(1, Math.round(640 * video.videoHeight / video.videoWidth)) }).then(frame => {
@@ -126,6 +144,6 @@ export function startMediaMonitor(video: HTMLVideoElement, stream: MediaStream, 
   announce('monitoring_started');
   return {
     recalibrate() { policy.recalibrate(); report('Look toward the camera for 8 seconds to recalibrate'); },
-    stop() { stopped = true; clearTimeout(timeout); clearInterval(timer); stopClip?.(); speechWindow?.clear(); vision.terminate(); audio.terminate(); audioNode?.disconnect(); void context?.close(); announce('monitoring_stopped'); },
+    stop() { stopped = true; clearTimeout(timeout); clearTimeout(recoveryTimer); clearInterval(timer); clearInterval(watchdog); stopClip?.(); speechWindow?.clear(); vision.terminate(); audio.terminate(); audioNode?.disconnect(); void context?.close(); announce('monitoring_stopped'); },
   };
 }

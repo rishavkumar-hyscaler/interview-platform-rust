@@ -107,8 +107,13 @@ test('speech evidence includes triggering audio in a bounded playable PCM WAV', 
   window.clear(); assert.equal(window.capture(4000), null);
 });
 test('overlapping face/voice flags retain their own images and shared clips', async () => {
-  const keys = ['window', 'Worker', 'location', 'performance', 'CustomEvent', 'MediaStream'];
+  const keys = ['window', 'Worker', 'location', 'performance', 'CustomEvent', 'MediaStream', 'document', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'];
   const original = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
+  const intervals = []; const timeouts = []; let recovered = 0; let health = '';
+  globalThis.document = {hidden:false};
+  globalThis.setInterval = (callback,ms) => {const entry={callback,ms};intervals.push(entry);return entry;};
+  globalThis.setTimeout = (callback,ms) => {const entry={callback,ms};timeouts.push(entry);return entry;};
+  globalThis.clearInterval = globalThis.clearTimeout = () => {};
   let now = 0; const sent = []; const screen = []; const workers = []; let finishClip;
   globalThis.window = new EventTarget();
   globalThis.CustomEvent = class extends Event { constructor(type, options) { super(type); this.detail = options.detail; } };
@@ -134,7 +139,7 @@ test('overlapping face/voice flags retain their own images and shared clips', as
     const { startMediaMonitor } = await import(moduleUrl(monitor));
     const track = { readyState: 'live' };
     const stream = { getVideoTracks: () => [track], getAudioTracks: () => [track], getTracks: () => [track] };
-    running = startMediaMonitor({ paused: true }, stream, () => {}, { enqueue: async (observation, assets) => { sent.push({ observation, assets }); } });
+    running = startMediaMonitor({ paused: true }, stream, value => {health=value;}, { enqueue: async (observation, assets) => { sent.push({ observation, assets }); } },()=>{},()=>{recovered++;});
     for (now = 0; now <= 5000; now += 1000) {
       workers[0].onmessage({ data: { type: 'face', at: now, sample: { faces: 0 } } });
       workers[1].onmessage({ data: { type: 'speech', at: now, probability: 0.9 } });
@@ -147,6 +152,14 @@ test('overlapping face/voice flags retain their own images and shared clips', as
       const assets = sent.filter(item => item.observation.id === event.id).flatMap(item => item.assets);
       assert.deepEqual(assets.map(asset => asset.blob.type).sort(), ['image/jpeg', 'video/webm']);
     }
+    workers[0].onmessage({data:{type:'ready'}});
+    now += 6000; intervals.find(timer=>timer.ms===1000).callback();
+    assert.match(health,/Camera analysis unavailable/);
+    timeouts.find(timer=>timer.ms===3000).callback();
+    assert.equal(recovered,1);
+    running.stop();
+    timeouts.find(timer=>timer.ms===3000).callback();
+    assert.equal(recovered,1,'stopped monitoring must not restart');
   } finally {
     running?.stop(); Object.assign(globalThis, original); delete globalThis.__proctorCaptureTest;
   }
@@ -176,4 +189,17 @@ test('only an observed selection from the same current question makes a paste ne
   assert.equal(clipboard.copy('q1',' ',text),false);
   clipboard.copy('q1','Rust ownership.',text);clipboard.clear();
   assert.equal(clipboard.matches('q1','Rust ownership.',text),false);
+});
+test('live diagnostics show sustained face and voice timers and reset after recovery', () => {
+  const policy = new SignalPolicy();
+  policy.face({faces:0},0); policy.face({faces:0},1200);
+  assert.match(policy.summary,/No face: 1.2\/5s/);
+  policy.face({faces:2},1400); policy.face({faces:2},2400);
+  assert.match(policy.summary,/2 faces: 1.0\/3s/);
+  policy.audio(0.9,2400); policy.audio(0.9,3400);
+  assert.match(policy.summary,/possible background speech 1.0\/3s/);
+  policy.face(neutral,3500);policy.audio(0.1,3500);
+  assert.match(policy.summary,/One face/);
+  assert.match(policy.summary,/Speech 10%/);
+  assert.doesNotMatch(policy.summary,/possible background speech/);
 });

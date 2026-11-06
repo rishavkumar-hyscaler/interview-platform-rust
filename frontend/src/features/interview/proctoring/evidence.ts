@@ -26,7 +26,10 @@ export function evidenceQueue(token: string, session: string, status: (message: 
     sending = true;
     try {
       const records = await store<Pending[]>('readonly', value => value.getAll());
+      let failed = 0;
       for (const record of records) {
+        if (stopped) break;
+        try {
         if (Date.now() - record.created > 14 * 60000) { await store('readwrite', value => value.delete(record.id)); notice('Some pending evidence expired before upload. Browser events remain separate.'); continue; }
         if (record.session !== session) continue;
         // Older clients stored fractional performance.now() durations, which the
@@ -52,10 +55,19 @@ export function evidenceQueue(token: string, session: string, status: (message: 
             const response = await loggedFetch(`/api/v1/candidate/events/${record.observation.id}/evidence/${asset.id}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': asset.blob.type, 'X-Evidence-Source': asset.source ?? 'camera', ...(asset.phase ? {'X-Evidence-Capture':asset.phase} : {}), ...(asset.surface ? {'X-Capture-Surface':asset.surface} : {}), ...(asset.captured ? {'X-Evidence-Captured-At':String(asset.captured)} : {}) }, body: asset.blob, signal: AbortSignal.timeout(30000) });
             if (!response.ok) throw new ApiError('Evidence upload rejected', response.status);
             finish('succeeded');
+            // Checkpoint each asset so later failures do not replay successful uploads.
+            record.assets = record.assets.filter(pending => pending.id !== asset.id);
+            await store('readwrite', value => value.put(record));
           } catch (error) { finish('failed'); throw error; }
         }
-        await store('readwrite', value => value.delete(record.id)); notice('Media observations and evidence synced');
+        await store('readwrite', value => value.delete(record.id));
+        } catch (error) {
+          failed++;
+          notice(error instanceof ApiError ? `Media evidence pending · server returned HTTP ${error.status}: ${error.message}` : 'Media evidence pending · reconnect to retry (up to 14 minutes)');
+          // Keep this record for retry; a failed upload must not block later flags.
+        }
       }
+      if (!failed && !stopped) notice('Media observations and evidence synced');
     } catch (error) { notice(error instanceof ApiError ? `Media evidence pending · server returned HTTP ${error.status}: ${error.message}` : 'Media evidence pending · reconnect to retry (up to 14 minutes)'); }
     finally { sending = false; }
   }
