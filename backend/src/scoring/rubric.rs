@@ -82,6 +82,27 @@ pub(crate) async fn evaluate(provider: &AiProvider, question: &Value) -> anyhow:
 
     Ok(result)
 }
+/// Recheck a saved, input-hashed grade before reusing it on a new attempt.
+pub(super) fn valid_checkpoint(score: &Value, question: &Value) -> bool {
+    if score["question_id"] != question["id"]
+        || score["position"] != question["position"]
+        || score["competency_id"] != question["competency_id"]
+        || score["max_score"] != question["rubric"]["max_score"]
+    {
+        return false;
+    }
+    let answer = question["answer"].as_str().unwrap_or("");
+    if score["status"] == "media_requires_human_review" {
+        return answer.trim().is_empty()
+            && question["recordings"].as_i64().unwrap_or(0) > 0
+            && score["score"].is_null();
+    }
+    let Ok(grade) = serde_json::from_value::<Grade>(json!({"criteria":score["criteria"]})) else {
+        return false;
+    };
+    validate(&grade, &question["rubric"], answer)
+        .is_ok_and(|total| score["score"].as_u64() == Some(u64::from(total)))
+}
 pub(super) fn competency_profile(scores: &[Value], blueprint: Option<&Value>) -> Value {
     let mut profile = Vec::new();
     let mut weighted = 0.0;
@@ -123,6 +144,21 @@ pub(super) fn competency_profile(scores: &[Value], blueprint: Option<&Value>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn checkpoints_reject_changed_evidence_points_and_question_identity() {
+        let question = json!({"id":"q1","position":1,"competency_id":"rust","answer":"real answer","recordings":0,"rubric":{"max_score":2,"criteria":[{"id":"a","max_points":2}]}});
+        let score = json!({"question_id":"q1","position":1,"competency_id":"rust","score":1,"max_score":2,"criteria":[{"criterion_id":"a","points":1,"evidence":"real","reasoning":"Supported"}]});
+        assert!(valid_checkpoint(&score, &question));
+        let mut changed = score.clone();
+        changed["score"] = json!(2);
+        assert!(!valid_checkpoint(&changed, &question));
+        changed = score.clone();
+        changed["criteria"][0]["evidence"] = json!("invented");
+        assert!(!valid_checkpoint(&changed, &question));
+        changed = score;
+        changed["question_id"] = json!("another");
+        assert!(!valid_checkpoint(&changed, &question));
+    }
     #[test]
     fn rejects_invented_evidence_and_duplicate_criteria() {
         let rubric = json!({"criteria":[{"id":"a","max_points":2}]});

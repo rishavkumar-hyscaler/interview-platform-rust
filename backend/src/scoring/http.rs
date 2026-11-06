@@ -35,10 +35,11 @@ async fn report(
     .bind(session)
     .fetch_one(&mut *tx)
     .await?;
+    let last_failure: Option<Value> = sqlx::query_scalar("SELECT jsonb_build_object('reason',metadata->>'reason','question_position',metadata->'question_position') FROM audit_events WHERE entity_id=$1 AND action='assessment.failed' AND created_at>coalesce((SELECT max(created_at) FROM audit_events WHERE entity_id=$1 AND action='assessment.retry'),'-infinity'::timestamptz) ORDER BY created_at DESC,id DESC LIMIT 1").bind(session).fetch_optional(&mut *tx).await?;
     let observations: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'received_at',created_at,'observation',metadata) FROM audit_events WHERE entity_id=$1 AND action='proctor.observed' ORDER BY created_at,id LIMIT 10000").bind(session).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(
-        json!({"configured":AiProvider::from_environment().is_ok(),"state":state,"assessment":result,"attempts":attempts,"failed":result.is_none() && attempts>=3 && state=="submitted","observations":observations,"integrity_notice":"Browser observations are unverified signals, not proof of cheating. Human review required."}),
+        json!({"configured":AiProvider::from_environment().is_ok(),"state":state,"assessment":result,"attempts":attempts,"max_attempts":4,"last_failure":last_failure,"failed":result.is_none() && attempts>=4 && state=="submitted","observations":observations,"integrity_notice":"Browser observations are unverified signals, not proof of cheating. Human review required."}),
     ))
 }
 async fn retry(
@@ -58,7 +59,7 @@ async fn retry(
             "Only unfinished assessments can be retried",
         ));
     }
-    let active:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM audit_events WHERE entity_id=$1 AND action='assessment.started' AND created_at>now()-interval '15 minutes')").bind(session).fetch_one(&mut *tx).await?;
+    let active:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM audit_events a WHERE a.entity_id=$1 AND a.action='assessment.started' AND a.created_at>now()-interval '15 minutes' AND NOT EXISTS(SELECT 1 FROM audit_events done WHERE done.entity_id=a.entity_id AND done.action IN ('assessment.failed','assessment.completed') AND done.metadata->>'claim'=a.metadata->>'claim'))").bind(session).fetch_one(&mut *tx).await?;
     if active {
         return Err(ApiError(
             StatusCode::CONFLICT,

@@ -1,5 +1,6 @@
 //! Assessment HTTP interface, worker orchestration and rubric rules.
 mod http;
+mod recovery;
 mod rubric;
 mod worker;
 pub use http::routes;

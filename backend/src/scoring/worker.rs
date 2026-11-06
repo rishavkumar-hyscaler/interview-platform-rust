@@ -15,7 +15,7 @@ pub async fn process_next(pool: &PgPool, provider: &AiProvider) -> anyhow::Resul
         .await?;
     for owner in owners {
         let mut tx = interviewer_transaction(pool, owner).await?;
-        let exhausted:Option<Uuid>=sqlx::query_scalar("SELECT s.id FROM interview_sessions s WHERE s.state='scoring' AND NOT EXISTS(SELECT 1 FROM audit_events a WHERE a.entity_id=s.id AND a.action='assessment.started' AND a.created_at>now()-interval '15 minutes') AND (SELECT count(*) FROM audit_events a WHERE a.entity_id=s.id AND a.action='assessment.started' AND a.created_at>coalesce((SELECT max(r.created_at) FROM audit_events r WHERE r.entity_id=s.id AND r.action='assessment.retry'),'-infinity'::timestamptz))>=3 FOR UPDATE SKIP LOCKED LIMIT 1").fetch_optional(&mut *tx).await?;
+        let exhausted:Option<Uuid>=sqlx::query_scalar("SELECT s.id FROM interview_sessions s WHERE s.state='scoring' AND NOT EXISTS(SELECT 1 FROM audit_events a WHERE a.entity_id=s.id AND a.action='assessment.started' AND a.created_at>now()-interval '15 minutes' AND NOT EXISTS(SELECT 1 FROM audit_events done WHERE done.entity_id=s.id AND done.action IN ('assessment.failed','assessment.completed') AND done.metadata->>'claim'=a.metadata->>'claim')) AND (SELECT count(*) FROM audit_events a WHERE a.entity_id=s.id AND a.action='assessment.started' AND a.created_at>coalesce((SELECT max(r.created_at) FROM audit_events r WHERE r.entity_id=s.id AND r.action='assessment.retry'),'-infinity'::timestamptz))>=4 FOR UPDATE SKIP LOCKED LIMIT 1").fetch_optional(&mut *tx).await?;
         if let Some(id) = exhausted {
             sqlx::query("UPDATE interview_sessions SET state='submitted' WHERE id=$1")
                 .bind(id)
@@ -35,7 +35,7 @@ pub async fn process_next(pool: &PgPool, provider: &AiProvider) -> anyhow::Resul
             return Ok(true);
         }
 
-        let session:Option<Uuid> = sqlx::query_scalar("SELECT s.id FROM interview_sessions s WHERE s.state IN ('submitted','scoring') AND NOT EXISTS(SELECT 1 FROM audit_events a WHERE a.entity_id=s.id AND a.action='assessment.completed') AND (SELECT count(*) FROM audit_events a WHERE a.entity_id=s.id AND a.action='assessment.started' AND a.created_at>coalesce((SELECT max(r.created_at) FROM audit_events r WHERE r.entity_id=s.id AND r.action='assessment.retry'),'-infinity'::timestamptz))<3 AND NOT EXISTS(SELECT 1 FROM audit_events a WHERE a.entity_id=s.id AND a.action='assessment.started' AND a.created_at>now()-interval '15 minutes') ORDER BY s.submitted_at FOR UPDATE SKIP LOCKED LIMIT 1").fetch_optional(&mut *tx).await?;
+        let session:Option<Uuid> = sqlx::query_scalar("SELECT s.id FROM interview_sessions s WHERE s.state IN ('submitted','scoring') AND NOT EXISTS(SELECT 1 FROM audit_events a WHERE a.entity_id=s.id AND a.action='assessment.completed') AND (SELECT count(*) FROM audit_events a WHERE a.entity_id=s.id AND a.action='assessment.started' AND a.created_at>coalesce((SELECT max(r.created_at) FROM audit_events r WHERE r.entity_id=s.id AND r.action='assessment.retry'),'-infinity'::timestamptz))<4 AND NOT EXISTS(SELECT 1 FROM audit_events a WHERE a.entity_id=s.id AND a.action='assessment.started' AND a.created_at>now()-interval '15 minutes' AND NOT EXISTS(SELECT 1 FROM audit_events done WHERE done.entity_id=s.id AND done.action IN ('assessment.failed','assessment.completed') AND done.metadata->>'claim'=a.metadata->>'claim')) AND NOT EXISTS(SELECT 1 FROM audit_events f WHERE f.entity_id=s.id AND f.action='assessment.failed' AND f.created_at>now()-interval '15 seconds' AND f.created_at>coalesce((SELECT max(r.created_at) FROM audit_events r WHERE r.entity_id=s.id AND r.action='assessment.retry'),'-infinity'::timestamptz)) ORDER BY s.submitted_at FOR UPDATE SKIP LOCKED LIMIT 1").fetch_optional(&mut *tx).await?;
         let Some(session) = session else {
             tx.commit().await?;
             continue;
@@ -79,15 +79,29 @@ pub async fn process_next(pool: &PgPool, provider: &AiProvider) -> anyhow::Resul
                 let blueprint:Option<Value>=sqlx::query_scalar("SELECT j.blueprint FROM jobs j JOIN interview_sessions s ON s.job_id=j.id WHERE s.id=$1").bind(session).fetch_one(&mut *tx).await?;
                 let profile = competency_profile(&scores, blueprint.as_ref());
 
-                audit(&mut tx,owner,None,session,"assessment.completed",json!({"questions":scores,"competency_profile":profile,"model":provider.model,"version":"rubric-v1","human_review_required":true})).await.map_err(|_| anyhow::anyhow!("Assessment audit failed"))?;
+                audit(&mut tx,owner,None,session,"assessment.completed",json!({"questions":scores,"competency_profile":profile,"model":provider.model,"version":"rubric-v1","human_review_required":true,"claim":claim})).await.map_err(|_| anyhow::anyhow!("Assessment audit failed"))?;
                 sqlx::query("UPDATE interview_sessions SET state='completed' WHERE id=$1")
                     .bind(session)
                     .execute(&mut *tx)
                     .await?;
             }
-            Err(_) => {
-                tracing::warn!(%session,"assessment failed validation or provider request");
-                audit(&mut tx,owner,None,session,"assessment.failed",json!({"claim":claim,"reason":"Provider request or evidence validation failed"})).await.map_err(|_| anyhow::anyhow!("Assessment audit failed"))?;
+            Err(error) => {
+                let failure = error.downcast_ref::<super::recovery::QuestionFailure>();
+                let reason = failure
+                    .map(|f| f.reason.clone())
+                    .unwrap_or_else(|| "Scoring persistence or claim validation failed".into());
+                let position = failure.map(|f| f.position);
+                tracing::warn!(%session,?position,%reason,"assessment attempt failed");
+                audit(
+                    &mut tx,
+                    owner,
+                    None,
+                    session,
+                    "assessment.failed",
+                    json!({"claim":claim,"reason":reason,"question_position":position}),
+                )
+                .await
+                .map_err(|_| anyhow::anyhow!("Assessment audit failed"))?;
                 sqlx::query("UPDATE interview_sessions SET state='submitted' WHERE id=$1")
                     .bind(session)
                     .execute(&mut *tx)
@@ -111,7 +125,23 @@ async fn assess(
     anyhow::ensure!(!questions.is_empty(), "No questions");
     let mut scores = Vec::new();
     for question in questions {
-        scores.push(evaluate(provider, question).await?);
+        let fingerprint = super::recovery::fingerprint(question, &provider.model);
+        let mut saved_tx = interviewer_transaction(pool, owner).await?;
+        let saved: Option<Value> = sqlx::query_scalar("SELECT metadata->'result' FROM audit_events WHERE entity_id=$1 AND action='assessment.question.scored' AND metadata->>'input_hash'=$2 ORDER BY created_at DESC,id DESC LIMIT 1")
+            .bind(session).bind(&fingerprint).fetch_optional(&mut *saved_tx).await?;
+        saved_tx.commit().await?;
+        let cached = saved.filter(|score| super::rubric::valid_checkpoint(score, question));
+        let reused = cached.is_some();
+        let score = match cached {
+            Some(score) => score,
+            None => evaluate(provider, question).await.map_err(|error| {
+                super::recovery::QuestionFailure {
+                    position: question["position"].as_u64().unwrap_or(0),
+                    reason: super::recovery::safe_reason(&error),
+                }
+            })?,
+        };
+        scores.push(score);
         let mut tx = interviewer_transaction(pool, owner).await?;
         let current:Value=sqlx::query_scalar("SELECT metadata FROM audit_events WHERE entity_id=$1 AND action='assessment.started' ORDER BY created_at DESC,id DESC LIMIT 1").bind(session).fetch_one(&mut *tx).await?;
         anyhow::ensure!(current["claim"] == json!(claim), "Assessment superseded");
@@ -121,7 +151,7 @@ async fn assess(
             None,
             session,
             "assessment.question.scored",
-            json!({"claim":claim,"result":scores.last(),"provisional":true}),
+            json!({"claim":claim,"result":scores.last(),"provisional":true,"input_hash":fingerprint,"reused":reused}),
         )
         .await
         .map_err(|_| anyhow::anyhow!("Scoring progress unavailable"))?;

@@ -37,6 +37,7 @@ export function JobQuestionSets({ job, token, onReadyChange }: { job: string; to
     return () => { active = false; controller.abort(); clearTimeout(timer); };
   }, [api, job, refresh, onReadyChange]);
   async function retry() {
+    if (busy) return;
     setBusy(true); setError('');
     try { await api.retryQuestionSets(job); setRefresh(value => value + 1); }
     catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to retry preparation.'); }
@@ -69,7 +70,7 @@ export function JobQuestionSets({ job, token, onReadyChange }: { job: string; to
           <h4>Scoring criteria</h4><ul>{question.rubric.criteria.map(criterion => <li key={criterion.id}>{criterion.max_points} points · {criterion.description}</li>)}</ul>
         </details>)}
       </details>)}
-      {unused.some(set => set.status === 'failed') && <button className="button" disabled={busy || !pool.configured} onClick={() => void retry()}>{busy ? 'Queueing…' : 'Retry failed sets'}</button>}
+      {unused.some(set => set.status === 'failed') && <button className="button" disabled={busy || !pool.configured} onClick={() => void retry()}>{busy ? 'Queueing…' : 'Retry failed sets manually'}</button>}
       <p className="muted">Reference answers are visible only to the interviewer. A different invitation duration is prepared separately.</p>
     </>}
   </details>;

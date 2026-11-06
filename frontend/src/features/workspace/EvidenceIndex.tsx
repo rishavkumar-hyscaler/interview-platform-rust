@@ -1,3 +1,4 @@
+import { HelpTip } from './HelpTip';
 import { useEffect, useState } from 'react';
 import { request } from '../../api';
 type IndexStatus = { status: string; attempts: number; max_attempts: number; configured: boolean; last_error?: string };
@@ -20,9 +21,11 @@ export function EvidenceIndex({ session, token }: { session: string; token: stri
     void poll(); return () => { controller.abort(); clearTimeout(timer); };
   }, [session, token, refresh]);
   async function retry() {
+    if (busy) return;
     setBusy(true); setError('');
     try {
       await request(`/api/v1/sessions/${session}/rag`, { method: 'POST' }, token);
+      setState(previous => previous ? {...previous,status:'pending',attempts:0,last_error:undefined} : previous);
       setRefresh(value => value + 1);
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to retry evidence indexing'); }
     finally { setBusy(false); }
@@ -32,5 +35,5 @@ export function EvidenceIndex({ session, token }: { session: string; token: stri
     : state?.status === 'failed' ? `Evidence indexing failed after ${state.attempts} attempts. Saved scores are unaffected.`
     : state?.status === 'running' ? `Preparing evidence search · attempt ${state.attempts}/${state.max_attempts}`
     : 'Evidence indexing queued';
-  return <div className="configuration-note"><p role="status">{state ? label : 'Loading evidence index status…'}</p>{state && state.status !== 'completed' && <small>Session keyword search remains available while vectors are pending.</small>}{state && !state.configured && <p>AI configuration is unavailable; automatic indexing is waiting.</p>}{state?.status === 'failed' && <button type="button" className="button secondary" disabled={busy || !state.configured} onClick={() => void retry()}>{busy ? 'Queuing…' : 'Retry evidence indexing'}</button>}{error && <p role="alert">{error}</p>}</div>;
+  return <div className="configuration-note"><p role="status">{state ? label : 'Loading evidence index status…'} <HelpTip text="Evidence vectors support semantic search within this interview. They are prepared after scoring; keyword search remains available while indexing is pending or failed." /></p>{state && state.status !== 'completed' && <small>Session keyword search remains available while vectors are pending.</small>}{state && !state.configured && <p>AI configuration is unavailable; automatic indexing is waiting.</p>}{state?.status === 'failed' && <button type="button" className="button secondary" disabled={busy || !state.configured} onClick={() => void retry()}>{busy ? 'Queuing…' : 'Retry evidence indexing manually'}</button>}{error && <p role="alert">{error}</p>}</div>;
 }

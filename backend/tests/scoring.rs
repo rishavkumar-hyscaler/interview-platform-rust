@@ -257,3 +257,98 @@ async fn blank_answers_are_zero_scoring_is_idempotent_and_private() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+#[ignore = "requires disposable migrated PostgreSQL; provider is unreachable loopback only"]
+async fn failed_scoring_retries_promptly_and_reuses_validated_checkpoints() {
+    platform_api::infrastructure::load_environment().unwrap();
+    let pool = PgPoolOptions::new()
+        .connect(&std::env::var("RUNTIME_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let app = platform_api::router_with_ai(pool.clone(), None);
+    let owner = account(&app).await;
+    let (invite, ids) = setup(&pool, &app, &owner).await;
+    let session: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
+    let owner_id: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let token = owner["token"].as_str().unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    sqlx::query("UPDATE interview_sessions SET state='submitted',submitted_at=now() WHERE id=$1")
+        .bind(session)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO interview_answers(id,interviewer_id,session_id,question_id,content) VALUES($1,$2,$3,$4,'Local synthetic answer')").bind(Uuid::new_v4()).bind(owner_id).bind(session).bind(ids[1]).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let provider = platform_api::generation::provider::AiProvider::new(
+        "http://127.0.0.1:1".into(),
+        "mock".into(),
+        "mock".into(),
+        "mock".into(),
+        "mock".into(),
+    )
+    .unwrap();
+    assert!(
+        platform_api::scoring::process_next(&pool, &provider)
+            .await
+            .unwrap()
+    );
+    let path = format!("/api/v1/sessions/{session}/assessment");
+    let (_, report) = call(&app, "GET", &path, Value::Null, token).await;
+    assert_eq!(report["state"], "submitted");
+    assert_eq!(report["attempts"], 1);
+    assert_eq!(report["last_failure"]["question_position"], 2);
+    assert_eq!(
+        report["last_failure"]["reason"],
+        "AI service connection failed or timed out"
+    );
+    assert!(
+        !platform_api::scoring::process_next(&pool, &provider)
+            .await
+            .unwrap(),
+        "backoff prevents a hot loop"
+    );
+    // Wait only the short retry delay; the original started claim remains fresh.
+    tokio::time::sleep(std::time::Duration::from_secs(16)).await;
+    assert!(
+        platform_api::scoring::process_next(&pool, &provider)
+            .await
+            .unwrap(),
+        "explicit failure must not hold a 15 minute lease"
+    );
+    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let reused:i64=sqlx::query_scalar("SELECT count(*) FROM audit_events WHERE entity_id=$1 AND action='assessment.question.scored' AND metadata->>'reused'='true'").bind(session).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(reused, 1);
+    tx.commit().await.unwrap();
+    // Explicit retry is also allowed immediately after an ended attempt.
+    assert_eq!(
+        call(&app, "POST", &format!("{path}/retry"), json!({}), token)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    sqlx::query("UPDATE interview_answers SET content='' WHERE session_id=$1")
+        .bind(session)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert!(
+        platform_api::scoring::process_next(&pool, &provider)
+            .await
+            .unwrap()
+    );
+    let (_, report) = call(&app, "GET", &path, Value::Null, token).await;
+    assert_eq!(report["state"], "completed");
+    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let queued: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM embedding_jobs WHERE session_id=$1 AND status='pending')",
+    )
+    .bind(session)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert!(queued, "scoring completion queues embeddings independently");
+    tx.commit().await.unwrap();
+}
