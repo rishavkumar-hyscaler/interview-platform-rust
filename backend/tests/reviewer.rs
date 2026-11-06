@@ -164,6 +164,38 @@ async fn reviewer_stream_and_adaptive_selection_are_scoped_and_grounded() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(next["position"], 2);
     assert!(next.get("provisional_grade").is_none());
+    // An invalid provisional AI quote must not block the Next button.
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/v1/candidate/answers/{}", questions[0]),
+        json!({"content":"Borrowing avoids copying","revision":1}),
+        candidate,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, next) = call(
+        &app,
+        "POST",
+        "/api/v1/candidate/recommendation",
+        json!({"question_id":questions[0]}),
+        candidate,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(next["position"], 2);
+    assert!(next.get("provisional_grade").is_none());
+    // Skipping an unanswered last question does not need AI configuration/grading.
+    let (status, next) = call(
+        &app,
+        "POST",
+        "/api/v1/candidate/recommendation",
+        json!({"question_id":questions[1]}),
+        candidate,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(next["position"].is_null());
     let response=app.clone().oneshot(Request::builder().method("POST").uri(format!("/api/v1/sessions/{session}/review")).header("authorization",format!("Bearer {}",owner["token"].as_str().unwrap())).header("content-type","application/json").body(Body::from(json!({"question":"What does the evidence show?","conversation":Uuid::new_v4(),"page":0}).to_string())).unwrap()).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = tokio::time::timeout(

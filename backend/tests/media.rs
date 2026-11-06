@@ -378,7 +378,7 @@ async fn proctor_evidence_is_linked_private_idempotent_and_excluded_from_answers
     let next_event = Uuid::new_v4();
     let observation = json!([
         {"id":event,"kind":"multiple_faces","client_time":1,"measurements":{"duration_ms":3000,"face_count":2}},
-        {"id":next_event,"kind":"face_missing","client_time":2,"measurements":{"duration_ms":5000,"face_count":0}}
+        {"id":next_event,"kind":"face_missing","client_time":2,"measurements":{"duration_ms":5197,"face_count":0}}
     ]);
     assert_eq!(
         call(

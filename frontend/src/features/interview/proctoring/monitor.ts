@@ -11,6 +11,7 @@ export function startMediaMonitor(video: HTMLVideoElement, stream: MediaStream, 
   let context: AudioContext | null = null; let audioNode: AudioWorkletNode | null = null;
   const policy = new SignalPolicy();
   let speechWindow: SpeechWindow | null = null;
+  let faceReported = false;
   // Classic workers support MediaPipe's WASM loader; bundled locally by setup:proctoring.
   const base = new URL(`${import.meta.env.BASE_URL}proctoring`, location.origin).href.replace(/\/$/, '');
   let vision: Worker; let audio: Worker;
@@ -22,7 +23,12 @@ export function startMediaMonitor(video: HTMLVideoElement, stream: MediaStream, 
   function report(message: string) {
     status(unavailable.size ? `${message} · Unavailable checks: ${[...unavailable].join(', ')}` : message);
   }
-  function failure(kind: string) { if (stopped || unavailable.has(kind)) return; unavailable.add(kind); announce('model_unavailable'); report(`${kind === 'vision' ? 'Camera analysis' : 'Speech analysis'} unavailable · browser monitoring continues`); }
+  function failure(kind: string) {
+    if (stopped || unavailable.has(kind)) return;
+    unavailable.add(kind); announce('model_unavailable');
+    if (kind === 'vision') live('Camera analysis unavailable · no face conclusions can be drawn');
+    report(`${kind === 'vision' ? 'Camera analysis' : 'Speech analysis'} unavailable · browser monitoring continues`);
+  }
   async function flag(kind: string, measurements: Measurements) {
     const observation: MediaObservation = { id: crypto.randomUUID(), kind, client_time: Date.now(), measurements };
     const speech = kind === 'possible_background_speech' || kind === 'speech_detected'
@@ -66,21 +72,22 @@ export function startMediaMonitor(video: HTMLVideoElement, stream: MediaStream, 
   vision.onmessage = ({ data }) => {
     if (stopped) return;
     frameBusy = false;
-    if (data.type === 'ready') { visionReady = true; report('Look toward the camera for 8 seconds to calibrate eye/head direction'); }
+    if (data.type === 'ready') { visionReady = true; unavailable.delete('vision'); report('Look toward the camera for 8 seconds to calibrate eye/head direction'); }
     if (data.type === 'failure') { visionReady = false; failure('vision'); }
     if (data.type === 'face') {
       if (performance.now() - data.at > 2500) return;
       const sample = data.sample as FaceSample;
+      if (!faceReported) { faceReported = true; announce('face_analysis_ready'); }
       live(sample.faces === 0 ? 'No face detected' : sample.faces > 1 ? `${sample.faces} faces detected` : policy.calibrated ? 'One face detected · eye/head checks active' : 'One face detected · calibrating for 8 seconds');
       const wasCalibrated = policy.calibrated;
       for (const event of policy.face(sample, data.at)) void flag(event.kind, event.measurements);
-      if (!wasCalibrated && policy.calibrated) report('Face and eye/head direction checks active');
+      if (!wasCalibrated && policy.calibrated) { announce('gaze_calibrated'); report('Face and eye/head direction checks active'); }
     }
   };
   audio.onmessage = ({ data }) => {
     if (stopped) return;
     audioBusy = false;
-    if (data.type === 'ready') { audioReady = true; void setupAudio(); }
+    if (data.type === 'ready') { audioReady = true; unavailable.delete('audio'); void setupAudio(); }
     if (data.type === 'failure') { audioReady = false; failure('audio'); }
     if (data.type === 'speech' && performance.now() - data.at <= 2500) { const event = policy.audio(data.probability, data.at); if (event) void flag(event.kind, event.measurements); }
   };
@@ -99,7 +106,7 @@ export function startMediaMonitor(video: HTMLVideoElement, stream: MediaStream, 
         if (!stopped && audioReady && !audioBusy) { audioBusy = true; audio.postMessage({ type: 'audio', at: performance.now(), samples: data, sampleRate: created.sampleRate }, [data.buffer]); }
       };
       source.connect(node); node.connect(created.destination); await created.resume();
-      report('Speech checks active · speaker identity is not determined');
+      announce('audio_analysis_ready'); report('Speech checks active · speaker identity is not determined');
     } catch { failure('audio'); }
   }
   if (stream.getVideoTracks().some(track => track.readyState === 'live')) vision.postMessage({ type: 'init', kind: 'vision', base });

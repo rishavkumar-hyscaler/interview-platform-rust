@@ -114,6 +114,9 @@ fn valid(event: &Observation) -> bool {
             | "possible_background_speech"
             | "speech_detected"
             | "model_unavailable"
+            | "face_analysis_ready"
+            | "audio_analysis_ready"
+            | "gaze_calibrated"
             | "monitoring_started"
             | "monitoring_stopped"
             | "camera_disabled"
@@ -261,5 +264,23 @@ mod tests {
         event.count = None;
         event.kind = "cheating_confirmed".into();
         assert!(!valid(&event));
+    }
+    #[test]
+    fn media_measurements_require_whole_milliseconds_and_health_events_are_valid() {
+        let mut payload = json!({"id":Uuid::new_v4(),"kind":"face_missing","client_time":1,"measurements":{"duration_ms":5001.8,"face_count":0}});
+        assert!(serde_json::from_value::<Observation>(payload.clone()).is_err());
+        payload["measurements"]["duration_ms"] = json!(5001);
+        let event: Observation = serde_json::from_value(payload).unwrap();
+        assert!(valid(&event));
+        for kind in [
+            "face_analysis_ready",
+            "audio_analysis_ready",
+            "gaze_calibrated",
+        ] {
+            let event: Observation =
+                serde_json::from_value(json!({"id":Uuid::new_v4(),"kind":kind,"client_time":1}))
+                    .unwrap();
+            assert!(valid(&event));
+        }
     }
 }

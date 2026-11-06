@@ -151,3 +151,11 @@ test('overlapping face/voice flags retain their own images and shared clips', as
     running?.stop(); Object.assign(globalThis, original); delete globalThis.__proctorCaptureTest;
   }
 });
+test('fractional browser clocks produce integer durations accepted by the API', () => {
+  const policy = new SignalPolicy(); let events = [];
+  for (let i = 0; i <= 26; i++) events.push(...policy.face({ faces: 0 }, 100.33 + i * 200.07));
+  assert.equal(events.length, 1);
+  assert.equal(events[0].kind, 'face_missing');
+  assert.equal(events[0].measurements.duration_ms, 5001);
+  assert.equal(Number.isInteger(events[0].measurements.duration_ms), true);
+});

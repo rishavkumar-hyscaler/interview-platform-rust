@@ -29,6 +29,12 @@ export function evidenceQueue(token: string, session: string, status: (message: 
       for (const record of records) {
         if (Date.now() - record.created > 14 * 60000) { await store('readwrite', value => value.delete(record.id)); notice('Some pending evidence expired before upload. Browser events remain separate.'); continue; }
         if (record.session !== session) continue;
+        // Older clients stored fractional performance.now() durations, which the
+        // API correctly rejects for its integer millisecond field. Repair queued,
+        // unaccepted events without changing their IDs or original capture times.
+        if (!record.accepted && record.observation.measurements) {
+          record.observation.measurements.duration_ms = Math.floor(record.observation.measurements.duration_ms);
+        }
         if (!record.accepted && !acknowledged.has(record.observation.id)) {
           try { await candidateApi(token).events([record.observation]); }
           catch (error) {
@@ -50,7 +56,7 @@ export function evidenceQueue(token: string, session: string, status: (message: 
         }
         await store('readwrite', value => value.delete(record.id)); notice('Media observations and evidence synced');
       }
-    } catch { notice('Media evidence pending · reconnect to retry (up to 14 minutes)'); }
+    } catch (error) { notice(error instanceof ApiError ? `Media evidence pending · server returned HTTP ${error.status}: ${error.message}` : 'Media evidence pending · reconnect to retry (up to 14 minutes)'); }
     finally { sending = false; }
   }
   const timer = setInterval(() => void flush(), 5000); window.addEventListener('online', flush); void flush();

@@ -53,3 +53,9 @@ Implementation references: [Face Landmarker](https://developers.google.com/edge/
 ## Review assistant resilience
 
 Integrity questions use exact session-wide database counts and bounded keyword retrieval without an embedding call. Other review questions retain semantic retrieval and fall back to session-scoped keyword retrieval if embedding fails. Counts include neutral capability/permission events and repeated observations, so they are not confirmed breaches or unique incidents. The configured LLM is still needed for chat replies, and every cited quote is validated against retrieved sources.
+
+## Analysis readiness and event delivery
+
+Camera permission and `monitoring_started` do not establish that inference is functioning. `face_analysis_ready` is recorded only after the first fresh face result; `gaze_calibrated` after baseline calibration; `audio_analysis_ready` after local microphone analysis starts. These status events and model failures are visible alongside media observations and carry no default risk points. Prolonged look-away still requires calibration and eight sustained seconds; missing face requires five sustained seconds, including when the lens is covered (the detector cannot establish why a face is absent).
+
+All signal durations are whole milliseconds. Browser `performance.now()` is fractional; sending those fractions previously failed integer API validation and prevented flags/attachments from reaching the report. Unaccepted IndexedDB records now normalize only their durations before retry, retaining their IDs and capture timestamps. Upload failures show the HTTP status on the candidate page. Historical flags never accepted by the server cannot be reconstructed after submission.

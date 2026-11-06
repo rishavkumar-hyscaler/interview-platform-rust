@@ -37,7 +37,7 @@ export class SustainedSignal {
     this.lastSample = now;
     if (!active) { this.since = null; return null; }
     this.since ??= now;
-    const duration = Math.min(120000, now - this.since);
+    const duration = Math.min(120000, Math.floor(now - this.since));
     if (duration < this.minimumMs || now - this.lastFlag < this.cooldownMs) return null;
     this.lastFlag = now; return duration;
   }

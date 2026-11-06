@@ -159,3 +159,7 @@ Generation v4 saves fully validated questions individually. Owner generation/sta
 ### Invitation readiness
 
 Creating a candidate invitation requires a completed, nonempty question set for the same job and duration, within the configured set count. Otherwise the API returns HTTP 409 and rolls back candidate/session/token creation. A successful invitation assigns that reusable set immediately. Replaying an existing request key still recovers the original invitation. The interviewer UI disables invitations until a ready set is available. Existing historical waiting invitations are preserved.
+
+### Candidate Next resilience
+
+`POST /api/v1/candidate/recommendation` saves no answers itself: the room flushes the current draft first. A valid provisional grade for the same question/answer revision is reused. Otherwise written-answer grading is capped at six seconds; missing AI configuration, provider/validation errors and timeouts fall back to prepared question order. Empty/media-only answers skip provisional AI grading. A revision change during the request discards the stale grade and uses normal navigation rather than returning a conflict. Active-session, ownership and deadline checks remain mandatory. Once every question has been visited, Next advances by position; beyond the last position it returns null and the room asks for submission confirmation. No scores/reference answers are returned to the candidate.
