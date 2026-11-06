@@ -17,7 +17,7 @@ cargo run -- --migrate
 cargo run
 ```
 
-The same process starts the expiry job loop automatically; no second backend command is needed. Ctrl-C or SIGTERM stops both HTTP and background processing gracefully.
+The same process starts the expiry job loop automatically; no second backend command is needed. Ctrl-C or SIGTERM starts shutdown of HTTP and background processing. Active connections get at most five seconds to finish; a second signal skips that wait. Database cleanup is capped at one additional second so open live-review streams cannot keep the process running indefinitely.
 
 The API defaults to `127.0.0.1:8080`. Set `FRONTEND_ORIGIN` to the frontend's exact origin. For a preview on an occupied machine, `FRONTEND_ORIGIN=http://localhost:5174 cargo run` overrides `.env` without editing it.
 

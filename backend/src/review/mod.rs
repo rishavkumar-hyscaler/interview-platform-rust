@@ -1,7 +1,9 @@
 //! Review route composition and shared session ownership check.
 mod assistant;
+mod citations;
 mod integrity;
 mod live;
+mod performance;
 mod reports;
 use crate::{ApiError, Result};
 use assistant::chat;

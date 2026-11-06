@@ -1,3 +1,5 @@
+use std::{future::Future, time::Duration};
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     platform_api::infrastructure::load_environment()?;
@@ -53,17 +55,49 @@ async fn main() -> anyhow::Result<()> {
         let _ = server_shutdown.send(true);
         result
     };
-    let signal = async move {
+    // Keep shutdown bounded: live SSE connections can otherwise drain forever.
+    let result = {
+        let services = async {
+            let (result, ()) = tokio::join!(server, worker);
+            result
+        };
+        tokio::pin!(services);
         tokio::select! {
-            _ = shutdown_signal() => { let _ = shutdown.send(true); }
-            _ = shutdown.closed() => {}
+            result = &mut services => result,
+            _ = shutdown_signal() => {
+                tracing::info!("Shutdown requested; press Ctrl+C again to exit immediately");
+                let _ = shutdown.send(true);
+                finish_shutdown(&mut services, shutdown_signal(), Duration::from_secs(5)).await
+            }
         }
     };
-    // Both futures run in this executable; no separate worker build/process.
-    let (result, (), ()) = tokio::join!(server, worker, signal);
-    pool.close().await;
+    // A stuck request/task may still hold a connection. Do not wait forever here either.
+    if tokio::time::timeout(Duration::from_secs(1), pool.close())
+        .await
+        .is_err()
+    {
+        tracing::warn!("Database cleanup timed out; exiting");
+    }
     result?;
     Ok(())
+}
+
+async fn finish_shutdown(
+    services: impl Future<Output = std::io::Result<()>>,
+    force: impl Future<Output = ()>,
+    grace: Duration,
+) -> std::io::Result<()> {
+    tokio::select! {
+        result = services => result,
+        _ = force => {
+            tracing::warn!("Second shutdown signal received; exiting immediately");
+            Ok(())
+        }
+        _ = tokio::time::sleep(grace) => {
+            tracing::warn!("Shutdown grace period expired; closing remaining connections");
+            Ok(())
+        }
+    }
 }
 
 async fn shutdown_signal() {
@@ -79,4 +113,43 @@ async fn shutdown_signal() {
     }
     #[cfg(not(unix))]
     let _ = tokio::signal::ctrl_c().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::future::{pending, ready};
+
+    #[tokio::test]
+    async fn open_stream_cannot_block_shutdown_indefinitely() {
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            finish_shutdown(pending(), pending(), Duration::from_millis(10)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn second_signal_skips_the_grace_period() {
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            finish_shutdown(pending(), ready(()), Duration::from_secs(60)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn completed_server_preserves_its_error() {
+        let result = finish_shutdown(
+            ready(Err(std::io::Error::other("server failed"))),
+            pending(),
+            Duration::from_secs(1),
+        )
+        .await;
+        assert!(result.is_err());
+    }
 }
