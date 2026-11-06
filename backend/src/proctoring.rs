@@ -56,8 +56,47 @@ pub(crate) fn evidence_kind(kind: &str) -> bool {
         "face_missing" | "multiple_faces" | "gaze_away" | "possible_background_speech"
     )
 }
-fn valid(event: &Observation) -> bool {
+fn permission_event(kind: &str) -> bool {
     matches!(
+        kind,
+        "camera_permission_requested"
+            | "microphone_permission_requested"
+            | "camera_enabled"
+            | "microphone_enabled"
+            | "camera_denied"
+            | "microphone_denied"
+            | "camera_unavailable"
+            | "microphone_unavailable"
+            | "camera_disabled"
+            | "microphone_disabled"
+            | "screen_share_requested"
+            | "screen_share_started"
+            | "screen_share_denied"
+            | "screen_share_unavailable"
+            | "screen_share_stopped"
+    )
+}
+pub(crate) fn screen_evidence_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "fullscreen_entered"
+            | "fullscreen_exited"
+            | "focus_lost"
+            | "hidden"
+            | "paste"
+            | "copy"
+            | "context_menu"
+            | "devtools_suspected"
+            | "multiple_displays"
+            | "typing_burst"
+            | "rapid_answer"
+            | "camera_disabled"
+            | "microphone_disabled"
+            | "screen_share_started"
+    )
+}
+fn valid(event: &Observation) -> bool {
+    (matches!(
         event.kind.as_str(),
         "face_missing"
             | "multiple_faces"
@@ -89,7 +128,8 @@ fn valid(event: &Observation) -> bool {
             | "multiple_displays"
             | "devtools_suspected"
             | "monitoring_capability"
-    ) && event.measurements.as_ref().is_none_or(Measurements::valid)
+    ) || permission_event(&event.kind))
+        && event.measurements.as_ref().is_none_or(Measurements::valid)
         && (0..=4_102_444_800_000).contains(&event.client_time)
         && event
             .count
@@ -107,13 +147,20 @@ async fn record(
         ));
     }
     let (owner, session, mut tx) = candidate(&pool, &headers).await?;
-    let state: String =
-        sqlx::query_scalar("SELECT state FROM interview_sessions WHERE id=$1 FOR UPDATE")
-            .bind(session)
-            .fetch_one(&mut *tx)
-            .await?;
-    if state != "in_progress" {
-        return Err(ApiError(StatusCode::CONFLICT, "Interview is not active"));
+    let (state, active): (String, bool) = sqlx::query_as(
+        "SELECT state,expires_at>clock_timestamp() FROM interview_sessions WHERE id=$1 FOR UPDATE",
+    )
+    .bind(session)
+    .fetch_one(&mut *tx)
+    .await?;
+    let preflight = matches!(state.as_str(), "invited" | "ready") && active;
+    if state != "in_progress"
+        && !(preflight && events.iter().all(|event| permission_event(&event.kind)))
+    {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "Interview is not active; only permission checks can be recorded before starting",
+        ));
     }
     let total: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM audit_events WHERE entity_id=$1 AND action='proctor.observed'",
@@ -153,7 +200,7 @@ async fn record(
         let received: String = sqlx::query_scalar("SELECT clock_timestamp()::text")
             .fetch_one(&mut *tx)
             .await?;
-        let mut metadata = json!({"source":"browser","kind":event.kind,"client_time_ms":event.client_time,"character_count":if matches!(event.kind.as_str(),"paste"|"typing_burst"){event.count}else{None},"measurement":event.count,"unit":match event.kind.as_str(){"paste"|"typing_burst"=>"characters","devtools_suspected"=>"outer_inner_pixels","rapid_answer"=>"seconds","multiple_displays"=>"minimum_displays",_=>"capability_boolean"},"classification":"observation","verified":false,"sequence":sequence,"previous_signature":previous_signature,"received_at":received});
+        let mut metadata = json!({"source":"browser","kind":event.kind,"client_time_ms":event.client_time,"character_count":if matches!(event.kind.as_str(),"paste"|"typing_burst"){event.count}else{None},"measurement":event.count,"unit":match event.kind.as_str(){"paste"|"typing_burst"=>"characters","devtools_suspected"=>"outer_inner_pixels","rapid_answer"=>"seconds","multiple_displays"=>"minimum_displays",_=>"capability_boolean"},"classification":"observation","stage":if preflight {"preflight"}else{"interview"},"verified":false,"sequence":sequence,"previous_signature":previous_signature,"received_at":received});
         if let Some(measurements) = &event.measurements {
             metadata["measurements"] = json!(measurements);
         }

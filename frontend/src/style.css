@@ -80,3 +80,4 @@ dialog.modal-backdrop{border:0;background:transparent;backdrop-filter:none;posit
   .room-left{display:flex}.room-question{overflow:visible}.question-content{overflow:visible}
   .room-media{max-height:none}.room-composer textarea{min-height:180px;resize:vertical}
 }
+.device-check{margin:20px 0;padding:18px;border:1px solid #dce2da;border-radius:10px;background:#fafbf8}.device-check h2{font-size:18px;margin:0 0 10px}.device-check p{font-size:14px;line-height:1.65}.device-check .actions{flex-wrap:wrap}.device-check small{display:block;margin-top:12px;font-size:12px}.screen-evidence-status{display:block;color:#4b5c46;font-size:12px;margin-bottom:10px}.fullscreen-gate .button{margin:6px 10px 6px 0}

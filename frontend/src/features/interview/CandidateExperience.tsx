@@ -1,3 +1,7 @@
+import { DeviceCheck } from './DeviceCheck';
+import { useObservations } from './proctoring/observations';
+import { useInterviewDevices } from './useInterviewDevices';
+import { useScreenEvidence } from './useScreenEvidence';
 import { enterInterviewFullscreen } from './fullscreen';
 import { UnsubmittedRecordings } from './UnsubmittedRecordings';
 import { useEffect, useMemo, useState } from 'react';
@@ -16,6 +20,11 @@ function CandidateSessionView({ token }: { token: string }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(true);
   const [attempt, setAttempt] = useState(0);
+  const active = !!session && ['invited','ready','in_progress'].includes(session.state);
+  const observations = useObservations(token,session?.id,active);
+  const devices = useInterviewDevices(session?.id,active,observations.record);
+  const screen = useScreenEvidence(token,session?.id,session?.state==='in_progress',observations);
+  useEffect(()=>{if(session && !active)screen.stop();},[active,session?.id,screen.stop]);
   useEffect(() => {
     if (session?.state === 'in_progress' || ['submitted', 'scoring', 'completed', 'expired'].includes(session?.state ?? '')) return;
     const controller = new AbortController(); let active = true; let timer: ReturnType<typeof setTimeout>;
@@ -34,11 +43,11 @@ function CandidateSessionView({ token }: { token: string }) {
   }, [api, attempt, session?.state]);
   async function transition(action: 'ready' | 'start') {
     setBusy(true); setError('');
-    try { if (action === 'start') await enterInterviewFullscreen(); setSession(await api.transition(action)); }
+    try { if (action === 'start') { if (!screen.shared) throw new Error('Share your screen before starting the interview.'); await enterInterviewFullscreen(); } setSession(await api.transition(action)); }
     catch (error) { setError(error instanceof Error ? error.message : 'Unable to update your interview.'); }
     finally { setBusy(false); }
   }
-  if (session?.state === 'in_progress') return <InterviewRoom token={token} initial={session} onSession={setSession} />;
+  if (session?.state === 'in_progress') return <InterviewRoom token={token} initial={session} onSession={setSession} devices={devices} screen={screen} observations={observations} />;
   const finished = !!session && ['submitted', 'scoring', 'completed'].includes(session.state);
   const drafts = session ? pendingDrafts(session.id) : [];
   return <main className="access-page"><section className="access-card candidate-card"><p className="eyebrow">{finished ? 'INTERVIEW SUBMITTED' : 'INTERVIEWEE ACCESS'}</p><h1>{session?.job_title ?? 'Your next opportunity.'}</h1>
@@ -46,9 +55,9 @@ function CandidateSessionView({ token }: { token: string }) {
     {busy && !session && <p role="status">Opening your invitation…</p>}
     {session && <>
       {finished ? <><p className="success" role="status">Your saved answers have been submitted.</p><p>{session.answer_count} of {session.question_count} questions answered.</p><p className="muted">Your interviewer can now review the responses. You can close this page.</p><UnsubmittedRecordings session={session.id} />{drafts.length > 0 && <details className="unsubmitted-drafts"><summary>Local drafts that may not have reached the server</summary><p>These drafts are retained on this device for your records. They are not part of the submitted answers.</p>{drafts.map(draft => <pre key={draft.question}>{draft.content}</pre>)}</details>}</> : session.state === 'expired' ? <p>This invitation has expired. Please contact your interviewer.</p> : <>
-        <p>{session.duration_minutes} minutes · {session.question_count} prepared questions</p>
+        <p>{session.duration_minutes} minutes · {session.question_count} prepared questions</p><DeviceCheck devices={devices} screen={screen} />
         <ul className="interview-instructions"><li>Fullscreen is required throughout the interview. Allow camera and microphone access using the device controls.</li><li>Answer one question at a time. You may return to earlier questions.</li><li>Your answers save automatically. Wait for “All changes saved” before closing the tab.</li><li>The timer starts when you click Start interview and continues through refreshes and disconnections.</li><li>At the deadline, the server submits your saved answers.</li></ul>
-        {session.state === 'invited' ? <button className="button" disabled={busy} onClick={() => void transition('ready')}>{busy ? 'Accepting…' : 'Accept invitation'}</button> : (session.questions_ready ?? session.question_count > 0) ? <button className="button" disabled={busy} onClick={() => void transition('start')}>{busy ? 'Starting…' : 'Enter fullscreen & start →'}</button> : <div className="configuration-note" role="status"><strong>Invitation accepted.</strong><p>{session.generation_status === 'failed' ? 'Question preparation needs attention from your interviewer. Please contact them.' : session.generation_status === 'pending' || session.generation_status === 'running' ? 'Your questions are being prepared. This page updates automatically.' : session.preparation_available === false ? 'Question preparation is not configured yet. Please contact your interviewer.' : 'Waiting for a prepared question set. Please contact your interviewer if none is available.'}</p></div>}
+        {session.state === 'invited' ? <button className="button" disabled={busy} onClick={() => void transition('ready')}>{busy ? 'Accepting…' : 'Accept invitation'}</button> : (session.questions_ready ?? session.question_count > 0) ? <button className="button" disabled={busy || devices.busy || !screen.shared} onClick={() => void transition('start')}>{busy ? 'Starting…' : 'Enter fullscreen & start →'}</button> : <div className="configuration-note" role="status"><strong>Invitation accepted.</strong><p>{session.generation_status === 'failed' ? 'Question preparation needs attention from your interviewer. Please contact them.' : session.generation_status === 'pending' || session.generation_status === 'running' ? 'Your questions are being prepared. This page updates automatically.' : session.preparation_available === false ? 'Question preparation is not configured yet. Please contact your interviewer.' : 'Waiting for a prepared question set. Please contact your interviewer if none is available.'}</p></div>}
       </>}
     </>}
     {error && <button className="text-button" onClick={() => setAttempt(value => value + 1)}>Retry connection</button>}

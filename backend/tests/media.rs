@@ -77,17 +77,28 @@ async fn binary(
     bytes: Vec<u8>,
     token: &str,
 ) -> (StatusCode, Vec<u8>) {
+    binary_with_headers(app, method, path, mime, bytes, token, &[]).await
+}
+async fn binary_with_headers(
+    app: &Router,
+    method: &str,
+    path: &str,
+    mime: &str,
+    bytes: Vec<u8>,
+    token: &str,
+    headers: &[(&str, &str)],
+) -> (StatusCode, Vec<u8>) {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(path)
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", mime);
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
+    }
     let response = app
         .clone()
-        .oneshot(
-            Request::builder()
-                .method(method)
-                .uri(path)
-                .header("authorization", format!("Bearer {token}"))
-                .header("content-type", mime)
-                .body(Body::from(bytes))
-                .unwrap(),
-        )
+        .oneshot(builder.body(Body::from(bytes)).unwrap())
         .await
         .unwrap();
     let status = response.status();
@@ -555,5 +566,220 @@ async fn proctor_evidence_is_linked_private_idempotent_and_excluded_from_answers
         .0,
         StatusCode::INTERNAL_SERVER_ERROR
     );
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL and private temporary evidence storage"]
+async fn permission_denials_are_logged_before_start_and_screen_evidence_is_private() {
+    platform_api::infrastructure::load_environment().unwrap();
+    let dir = std::env::temp_dir().join(format!("screen-evidence-test-{}", Uuid::new_v4()));
+    let _cleanup = Cleanup(dir.clone());
+    unsafe {
+        std::env::set_var("MEDIA_STORAGE_DIR", &dir);
+    }
+    let pool = PgPoolOptions::new()
+        .connect(&std::env::var("RUNTIME_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let app = platform_api::router_with_ai(pool.clone(), None);
+    let owner = account(&app).await;
+    let stranger = account(&app).await;
+    let (invite, _) = setup(&pool, &app, &owner).await;
+    let token = invite["invitation_token"].as_str().unwrap();
+    let session: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
+    let owner_id: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let denied = Uuid::new_v4();
+    let sharing = Uuid::new_v4();
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/api/v1/candidate/events",
+            json!([
+                {"id":denied,"kind":"camera_denied","client_time":1},
+                {"id":Uuid::new_v4(),"kind":"microphone_denied","client_time":2},
+                {"id":sharing,"kind":"screen_share_started","client_time":3}
+            ]),
+            token
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/api/v1/candidate/events",
+            json!([{"id":Uuid::new_v4(),"kind":"paste","client_time":4}]),
+            token
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let stage: String =
+        sqlx::query_scalar("SELECT metadata->>'stage' FROM audit_events WHERE id=$1")
+            .bind(denied)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(stage, "preflight");
+    tx.commit().await.unwrap();
+    let mut jpeg = vec![0u8; 64];
+    jpeg[..3].copy_from_slice(&[0xff, 0xd8, 0xff]);
+    jpeg[62..].copy_from_slice(&[0xff, 0xd9]);
+    let headers = [
+        ("x-evidence-source", "screen"),
+        ("x-capture-surface", "monitor"),
+        ("x-evidence-captured-at", "1234"),
+    ];
+    assert_eq!(
+        binary_with_headers(
+            &app,
+            "POST",
+            &format!(
+                "/api/v1/candidate/events/{sharing}/evidence/{}",
+                Uuid::new_v4()
+            ),
+            "image/jpeg",
+            jpeg.clone(),
+            token,
+            &headers
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/api/v1/candidate/session/ready",
+            json!({}),
+            token
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/api/v1/candidate/session/start",
+            json!({}),
+            token
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let event = Uuid::new_v4();
+    let asset = Uuid::new_v4();
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/api/v1/candidate/events",
+            json!([{"id":event,"kind":"fullscreen_entered","client_time":1000}]),
+            token
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let path = format!("/api/v1/candidate/events/{event}/evidence/{asset}");
+    let (status, body) = binary_with_headers(
+        &app,
+        "POST",
+        &path,
+        "image/jpeg",
+        jpeg.clone(),
+        token,
+        &headers,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let metadata: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(metadata["evidence_source"], "screen");
+    assert_eq!(metadata["capture_surface"], "monitor");
+    assert_eq!(metadata["captured_at_ms"], 1234);
+    assert_eq!(metadata["verified"], false);
+    assert_eq!(
+        binary_with_headers(
+            &app,
+            "POST",
+            &path,
+            "image/jpeg",
+            jpeg.clone(),
+            token,
+            &headers
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let file = dir
+        .join(owner_id.to_string())
+        .join(session.to_string())
+        .join("screenshots")
+        .join(format!("{asset}.jpg"));
+    assert!(file.exists());
+    let read = format!("/api/v1/sessions/{session}/evidence/{asset}");
+    let (status, bytes) = binary(
+        &app,
+        "GET",
+        &read,
+        "",
+        vec![],
+        owner["token"].as_str().unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, jpeg);
+    assert_eq!(
+        binary(
+            &app,
+            "GET",
+            &read,
+            "",
+            vec![],
+            stranger["token"].as_str().unwrap()
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        binary(&app, "GET", &read, "", vec![], token).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (_, answers) = call(
+        &app,
+        "GET",
+        "/api/v1/candidate/recordings",
+        Value::Null,
+        token,
+    )
+    .await;
+    assert_eq!(answers["recordings"], json!([]));
+    let (_, report) = call(
+        &app,
+        "GET",
+        &format!("/api/v1/sessions/{session}/integrity"),
+        Value::Null,
+        owner["token"].as_str().unwrap(),
+    )
+    .await;
+    assert!(report["events"].as_array().unwrap().iter().any(|e| {
+        e["attachments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["asset_id"] == asset.to_string() && a["evidence_source"] == "screen")
+    }));
     pool.close().await;
 }

@@ -53,6 +53,35 @@ async fn upload(
         ));
     }
     let mime = format(&headers, &bytes)?;
+    let source = headers
+        .get("x-evidence-source")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("camera");
+    if !matches!(source, "screen" | "camera") || (source == "screen" && mime != "image/jpeg") {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "Invalid evidence source or screenshot format",
+        ));
+    }
+    let surface = headers
+        .get("x-capture-surface")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+    if !matches!(surface, "monitor" | "window" | "browser" | "unknown") {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "Invalid capture surface"));
+    }
+    let captured = headers.get("x-evidence-captured-at").map(|v| {
+        v.to_str()
+            .ok()
+            .and_then(|v| v.parse::<i64>().ok())
+            .filter(|n| (0..=4_102_444_800_000).contains(n))
+    });
+    if captured.is_some_and(|value| value.is_none()) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "Invalid capture timestamp",
+        ));
+    }
     let hash = hex::encode(Sha256::digest(&bytes));
     let (owner, session, mut tx) = candidate(&pool, &headers).await?;
     let mut task = crate::observability::TaskLog::start("proctor.evidence.upload", session);
@@ -62,7 +91,14 @@ async fn upload(
         .await?;
     let old:Option<Value>=sqlx::query_scalar("SELECT metadata FROM audit_events WHERE id=$1 AND entity_id=$2 AND action='proctor.evidence'").bind(asset).bind(session).fetch_optional(&mut *tx).await?;
     if let Some(old) = old {
-        if old["event_id"] != json!(event) || old["sha256"] != hash || old["mime"] != mime {
+        if old["event_id"] != json!(event)
+            || old["sha256"] != hash
+            || old["mime"] != mime
+            || old["evidence_source"].as_str().unwrap_or("camera") != source
+            || (source == "screen"
+                && (old["capture_surface"] != surface
+                    || old["captured_at_ms"] != json!(captured.flatten())))
+        {
             return Err(ApiError(StatusCode::CONFLICT, "Evidence ID already used"));
         }
         tx.commit().await?;
@@ -71,32 +107,44 @@ async fn upload(
     }
     let observed:Option<Value>=sqlx::query_scalar("SELECT metadata FROM audit_events WHERE id=$1 AND entity_id=$2 AND action='proctor.observed' AND created_at>clock_timestamp()-interval '15 minutes'").bind(event).bind(session).fetch_optional(&mut *tx).await?;
     let observed = observed
-        .filter(|m| proctoring::evidence_kind(m["kind"].as_str().unwrap_or("")))
+        .filter(|m| {
+            if source == "screen" {
+                proctoring::screen_evidence_kind(m["kind"].as_str().unwrap_or(""))
+                    && m["stage"] == "interview"
+            } else {
+                proctoring::evidence_kind(m["kind"].as_str().unwrap_or(""))
+            }
+        })
         .ok_or(ApiError(
             StatusCode::NOT_FOUND,
-            "Recent media observation not found",
+            "Recent matching observation not found",
         ))?;
     let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM audit_events WHERE entity_id=$1 AND action='proctor.evidence'",
+        "SELECT count(*) FROM audit_events WHERE entity_id=$1 AND action='proctor.evidence' AND coalesce(metadata->>'evidence_source','camera')=$2",
     )
     .bind(session)
+    .bind(source)
     .fetch_one(&mut *tx)
     .await?;
     let same_kind:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM audit_events WHERE entity_id=$1 AND action='proctor.evidence' AND metadata->>'event_id'=$2 AND (metadata->>'mime' LIKE 'image/%')=$3)").bind(session).bind(event.to_string()).bind(mime.starts_with("image/")).fetch_one(&mut *tx).await?;
-    if count >= 40 || same_kind {
+    if count >= if source == "screen" { 120 } else { 40 } || same_kind {
         return Err(ApiError(
             StatusCode::CONFLICT,
             "Evidence attachment limit reached",
         ));
     }
-    let mut metadata = json!({"asset_id":asset,"event_id":event,"mime":mime,"bytes":bytes.len(),"sha256":hash,"parent_signature":observed["signature"],"source":"browser","verified":false,"capture":"post_signal","notice":"Browser-submitted media; server signature proves receipt integrity only"});
+    let mut metadata = json!({"asset_id":asset,"event_id":event,"mime":mime,"bytes":bytes.len(),"sha256":hash,"parent_signature":observed["signature"],"source":"browser","evidence_source":source,"capture_surface":surface,"captured_at_ms":captured.flatten(),"verified":false,"capture":"post_signal","notice":"Browser-submitted media; server signature proves receipt integrity only"});
     metadata["signature"] = json!(proctoring::sign(owner, session, asset, &metadata).map_err(
         |_| ApiError(
             StatusCode::SERVICE_UNAVAILABLE,
             "Evidence signing unavailable"
         )
     )?);
-    let file = media::path(owner, session, asset).with_extension("evidence");
+    let file = if source == "screen" {
+        media::screen_snapshot_path(owner, session, asset)
+    } else {
+        media::path(owner, session, asset).with_extension("evidence")
+    };
     tokio::fs::create_dir_all(file.parent().unwrap())
         .await
         .map_err(|_| {
@@ -151,7 +199,11 @@ async fn read(
         ));
     }
     media::read_asset(
-        media::path(owner, session, asset).with_extension("evidence"),
+        if metadata["evidence_source"] == "screen" {
+            media::screen_snapshot_path(owner, session, asset)
+        } else {
+            media::path(owner, session, asset).with_extension("evidence")
+        },
         metadata,
         asset,
     )

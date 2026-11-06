@@ -33,6 +33,9 @@ async fn main() -> anyhow::Result<()> {
             axum::http::header::AUTHORIZATION,
             axum::http::header::CONTENT_TYPE,
             axum::http::HeaderName::from_static("x-request-id"),
+            axum::http::HeaderName::from_static("x-evidence-source"),
+            axum::http::HeaderName::from_static("x-capture-surface"),
+            axum::http::HeaderName::from_static("x-evidence-captured-at"),
         ])
         .expose_headers([axum::http::HeaderName::from_static("x-request-id")]);
     let (shutdown, receiver) = tokio::sync::watch::channel(false);

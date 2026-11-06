@@ -48,6 +48,13 @@ pub(crate) fn path(owner: Uuid, session: Uuid, recording: Uuid) -> PathBuf {
         .join(session.to_string())
         .join(recording.to_string())
 }
+pub(crate) fn screen_snapshot_path(owner: Uuid, session: Uuid, asset: Uuid) -> PathBuf {
+    root()
+        .join(owner.to_string())
+        .join(session.to_string())
+        .join("screenshots")
+        .join(format!("{asset}.jpg"))
+}
 pub(crate) fn mime(headers: &HeaderMap, bytes: &[u8]) -> Result<&'static str> {
     let input = headers
         .get(header::CONTENT_TYPE)

@@ -3,7 +3,7 @@ import { ApiError } from '../../../api';
 import { loggedFetch } from '../../../transport';
 import { startTask } from '../../../observability';
 import type { MediaObservation } from './signals';
-type Asset = { id: string; blob: Blob };
+type Asset = { id: string; blob: Blob; source?: 'camera' | 'screen'; surface?: string; captured?: number };
 type Pending = { id: string; session: string; observation: MediaObservation; assets: Asset[]; created: number; accepted: boolean };
 function store<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -43,7 +43,7 @@ export function evidenceQueue(token: string, session: string, status: (message: 
         for (const asset of record.assets) {
           const finish = startTask('proctor.evidence.upload');
           try {
-            const response = await loggedFetch(`/api/v1/candidate/events/${record.observation.id}/evidence/${asset.id}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': asset.blob.type }, body: asset.blob, signal: AbortSignal.timeout(30000) });
+            const response = await loggedFetch(`/api/v1/candidate/events/${record.observation.id}/evidence/${asset.id}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': asset.blob.type, 'X-Evidence-Source': asset.source ?? 'camera', ...(asset.surface ? {'X-Capture-Surface':asset.surface} : {}), ...(asset.captured ? {'X-Evidence-Captured-At':String(asset.captured)} : {}) }, body: asset.blob, signal: AbortSignal.timeout(30000) });
             if (!response.ok) throw new ApiError('Evidence upload rejected', response.status);
             finish('succeeded');
           } catch (error) { finish('failed'); throw error; }
@@ -64,9 +64,9 @@ export function evidenceQueue(token: string, session: string, status: (message: 
     stop() { stopped = true; clearInterval(timer); window.removeEventListener('online', flush); },
   };
 }
-export async function snapshot(video: HTMLVideoElement): Promise<Blob | null> {
+export async function snapshot(video: HTMLVideoElement, maxWidth = 640): Promise<Blob | null> {
   if (video.readyState < 2 || !video.videoWidth) return null;
-  const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360;
+  const canvas = document.createElement('canvas'); const scale=Math.min(1,maxWidth/video.videoWidth,900/video.videoHeight); canvas.width=Math.round(video.videoWidth*scale); canvas.height=Math.round(video.videoHeight*scale);
   canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
   return new Promise(resolve => canvas.toBlob(blob => resolve(blob && blob.size <= 512 * 1024 ? blob : null), 'image/jpeg', 0.65));
 }
