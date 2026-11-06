@@ -17,13 +17,15 @@ function store<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => I
     };
   });
 }
+// Camera and screen queues share IndexedDB; only one may drain a session at a time.
+const flushingSessions = new Set<string>();
 export function evidenceQueue(token: string, session: string, status: (message: string) => void) {
   let sending = false; let stopped = false;
   const acknowledged = new Set<string>();
   const notice = (message: string) => { if (!stopped) status(message); };
   async function flush() {
-    if (sending) return;
-    sending = true;
+    if (stopped || sending || flushingSessions.has(session)) return;
+    sending = true; flushingSessions.add(session);
     try {
       const records = await store<Pending[]>('readonly', value => value.getAll());
       let failed = 0;
@@ -69,13 +71,26 @@ export function evidenceQueue(token: string, session: string, status: (message: 
       }
       if (!failed && !stopped) notice('Media observations and evidence synced');
     } catch (error) { notice(error instanceof ApiError ? `Media evidence pending · server returned HTTP ${error.status}: ${error.message}` : 'Media evidence pending · reconnect to retry (up to 14 minutes)'); }
-    finally { sending = false; }
+    finally { sending = false; flushingSessions.delete(session); }
   }
   const timer = setInterval(() => void flush(), 5000); window.addEventListener('online', flush); void flush();
   return {
     async enqueue(observation: MediaObservation, assets: Asset[]) {
-      const records = await store<Pending[]>('readonly', value => value.getAll());
-      if (records.filter(record => record.session === session).length >= 20) { notice('Media evidence buffer full · reconnect to sync'); await candidateApi(token).events([observation]); return; }
+      let records: Pending[];
+      try { records = await store<Pending[]>('readonly', value => value.getAll()); }
+      catch {
+        // Preserve the observation even when IndexedDB is blocked or unavailable.
+        await candidateApi(token).events([observation]);
+        notice('Observation sent · local evidence recovery unavailable');
+        if (assets.length) throw new Error('Local evidence storage unavailable; attachment was not saved');
+        return;
+      }
+      if (records.filter(record => record.session === session).length >= 20) {
+        notice('Media evidence buffer full · observation sent, attachment could not be buffered');
+        await candidateApi(token).events([observation]);
+        if (assets.length) throw new Error('Evidence buffer full; attachment was not saved');
+        return;
+      }
       await store('readwrite', value => value.put({ id: crypto.randomUUID(), session, observation, assets, created: Date.now(), accepted: acknowledged.has(observation.id) } satisfies Pending));
       void flush();
     },
@@ -85,7 +100,9 @@ export function evidenceQueue(token: string, session: string, status: (message: 
 export async function snapshot(video: HTMLVideoElement, maxWidth = 640): Promise<Blob | null> {
   if (video.readyState < 2 || !video.videoWidth) return null;
   const canvas = document.createElement('canvas'); const scale=Math.min(1,maxWidth/video.videoWidth,900/video.videoHeight); canvas.width=Math.round(video.videoWidth*scale); canvas.height=Math.round(video.videoHeight*scale);
-  canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
   return new Promise(resolve => canvas.toBlob(blob => resolve(blob && blob.size <= 512 * 1024 ? blob : null), 'image/jpeg', 0.65));
 }
 export function shortClip(stream: MediaStream, register: (stop: () => void) => void): Promise<Blob | null> {

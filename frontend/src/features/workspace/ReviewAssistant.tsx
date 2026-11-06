@@ -22,7 +22,13 @@ export function ReviewAssistant({ session, token }: { session: string; token: st
   const [note, setNote] = useState('');
   const conversation = useRef(crypto.randomUUID());
   const abort = useRef<AbortController | null>(null);
-  async function refreshIntegrity(signal?: AbortSignal) { setIntegrity(await request<Integrity>(`/api/v1/sessions/${session}/integrity`, { signal }, token)); }
+  const integrityRequest = useRef(0);
+  async function refreshIntegrity(signal?: AbortSignal) {
+    const version = ++integrityRequest.current;
+    const result = await request<Integrity>(`/api/v1/sessions/${session}/integrity`, { signal }, token);
+    // A slower response for an earlier observation must not hide newer attachments.
+    if (version === integrityRequest.current && !signal?.aborted) setIntegrity(result);
+  }
   useEffect(() => {
     const controller = new AbortController(); let current: AbortController | null = null; let timer: ReturnType<typeof setTimeout>; let cursor = '';
     void refreshIntegrity(controller.signal).catch(() => {});
@@ -45,7 +51,7 @@ export function ReviewAssistant({ session, token }: { session: string; token: st
             if (!data) continue;
             const event: LiveEvent = JSON.parse(data); cursor = event.id;
             setEvents(previous => previous.some(item => item.id === event.id) ? previous : [...previous, event].slice(-30));
-            if (event.action === 'proctor.observed' || event.action === 'proctor.evidence') void refreshIntegrity(controller.signal).catch(() => {});
+            if (event.action === 'proctor.observed' || event.action === 'proctor.evidence' || event.action === 'integrity.annotated') void refreshIntegrity(controller.signal).catch(() => {});
           }
         }
         finishTask(controller.signal.aborted ? 'cancelled' : 'succeeded');

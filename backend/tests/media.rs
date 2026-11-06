@@ -548,6 +548,72 @@ async fn proctor_evidence_is_linked_private_idempotent_and_excluded_from_answers
         .0,
         StatusCode::PAYLOAD_TOO_LARGE
     );
+    // Both video and the pre-signal speech WAV survive storage and private reads.
+    let mut video = vec![0u8; 64];
+    video[..4].copy_from_slice(&[0x1a, 0x45, 0xdf, 0xa3]);
+    let mut wav = vec![0u8; 44 + 16000 * 2 * 2];
+    wav[..4].copy_from_slice(b"RIFF");
+    let length = wav.len();
+    wav[4..8].copy_from_slice(&((length - 8) as u32).to_le_bytes());
+    wav[8..16].copy_from_slice(b"WAVEfmt ");
+    wav[16..24].copy_from_slice(&[16, 0, 0, 0, 1, 0, 1, 0]);
+    wav[24..28].copy_from_slice(&16000u32.to_le_bytes());
+    wav[28..32].copy_from_slice(&32000u32.to_le_bytes());
+    wav[32..40].copy_from_slice(&[2, 0, 16, 0, b'd', b'a', b't', b'a']);
+    wav[40..44].copy_from_slice(&((length - 44) as u32).to_le_bytes());
+    for (kind, mime, bytes, capture) in [
+        ("face_missing", "video/webm", video, "post_signal"),
+        (
+            "possible_background_speech",
+            "audio/wav",
+            wav,
+            "signal_window",
+        ),
+    ] {
+        let observed = Uuid::new_v4();
+        let attachment = Uuid::new_v4();
+        assert_eq!(call(&app,"POST","/api/v1/candidate/events",json!([{"id":observed,"kind":kind,"client_time":3,"measurements":{"duration_ms":2000}}]),candidate).await.0,StatusCode::OK);
+        let upload = format!("/api/v1/candidate/events/{observed}/evidence/{attachment}");
+        assert_eq!(
+            binary_with_headers(
+                &app,
+                "POST",
+                &upload,
+                mime,
+                bytes.clone(),
+                candidate,
+                &[("x-evidence-capture", capture)]
+            )
+            .await
+            .0,
+            StatusCode::OK
+        );
+        let read = format!("/api/v1/sessions/{session}/evidence/{attachment}");
+        let (status, served) = binary(
+            &app,
+            "GET",
+            &read,
+            "",
+            vec![],
+            owner["token"].as_str().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(served, bytes);
+        assert_eq!(
+            binary(
+                &app,
+                "GET",
+                &read,
+                "",
+                vec![],
+                stranger["token"].as_str().unwrap()
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+    }
     let file = dir
         .join(owner_id.to_string())
         .join(session.to_string())

@@ -322,6 +322,7 @@ pub(crate) async fn read_asset(
             (header::CONTENT_TYPE, mime),
             (header::CONTENT_DISPOSITION, "inline".into()),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff".into()),
+            (header::CACHE_CONTROL, "private, no-store".into()),
             (header::ETAG, etag),
         ],
         bytes,

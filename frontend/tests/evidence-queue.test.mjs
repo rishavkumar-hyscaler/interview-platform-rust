@@ -34,5 +34,22 @@ test('a rejected observation does not block later flags; uploaded assets are che
   assert.match(notice,/pending/);
   tick();await settle();
   assert.equal(uploads.filter(url=>url.endsWith('/first')).length,1);
+  for(let i=0;i<20;i++)records.set(`full-${i}`,{id:`full-${i}`,session:'session',created:Date.now()});
+  await assert.rejects(queue.enqueue(observation('overflow'),[{id:'overflow-image',blob:new Blob(['image'])}]),/attachment was not saved/);
+  assert.ok(sent.includes('overflow'),'a full media buffer must still preserve the observation');
+  assert.match(notice,/buffer full/);
+  queue.stop();
+});
+test('unavailable local storage still sends observations and reports unsaved attachments', async () => {
+  const sent=[];let notice='';const exports={};
+  const source=readFileSync(new URL('../src/features/interview/proctoring/evidence.ts',import.meta.url),'utf8');
+  const compiled=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+  const modules={'../api':{candidateApi:()=>({events:async events=>sent.push(events[0].id)})},'../../../api':{ApiError:class extends Error{}},'../../../transport':{},'../../../observability':{}};
+  vm.runInNewContext(compiled,{exports,require:key=>modules[key],indexedDB:{open(){throw new Error('storage blocked');}},setInterval(){},clearInterval(){},window:{addEventListener(){},removeEventListener(){}}});
+  const queue=exports.evidenceQueue('token','session',message=>notice=message);
+  const event={id:'flag',kind:'face_missing',client_time:1};
+  await queue.enqueue(event,[]);
+  await assert.rejects(queue.enqueue(event,[{id:'image',blob:new Blob(['x'])}]),/attachment was not saved/);
+  assert.deepEqual(sent,['flag','flag']);assert.match(notice,/local evidence recovery unavailable/);
   queue.stop();
 });
