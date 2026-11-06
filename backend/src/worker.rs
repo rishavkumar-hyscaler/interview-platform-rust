@@ -7,7 +7,10 @@ pub async fn run(pool: PgPool, shutdown: watch::Receiver<bool>) {
     let generation_shutdown = shutdown.clone();
     let scoring_pool = pool.clone();
     let scoring_shutdown = shutdown.clone();
+    let embedding_pool = pool.clone();
+    let embedding_shutdown = shutdown.clone();
     tokio::join!(
+        embedding_loop(embedding_pool, embedding_shutdown),
         expiry_loop(pool, shutdown),
         generation_loop(generation_pool, generation_shutdown),
         scoring_loop(scoring_pool, scoring_shutdown)
@@ -77,6 +80,29 @@ async fn scoring_loop(pool: PgPool, mut shutdown: watch::Receiver<bool>) {
             }
         }
         tokio::select! { _ = shutdown.changed() => break, _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {} }
+    }
+}
+
+async fn embedding_loop(pool: PgPool, mut shutdown: watch::Receiver<bool>) {
+    let provider = crate::generation::provider::AiProvider::from_environment().ok();
+    loop {
+        if *shutdown.borrow() {
+            break;
+        }
+        if let Some(provider) = &provider {
+            tokio::select! {
+                _ = shutdown.changed() => break,
+                result = crate::rag::process_next(&pool, provider) => match result {
+                    Ok(true) => continue,
+                    Ok(false) => {},
+                    Err(_) => tracing::error!("evidence embedding polling failed"),
+                }
+            }
+        }
+        tokio::select! {
+            _ = shutdown.changed() => break,
+            _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {},
+        }
     }
 }
 

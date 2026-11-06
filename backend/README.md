@@ -27,7 +27,7 @@ An optional Compose database remains available via `docker compose -f compose.ya
 
 One development baseline migration: `migrations/202611040001_initial_schema.sql`.
 
-Eight application tables: `users`, `auth_sessions`, `jobs`, `question_sets`, `interview_sessions`, `interview_questions`, `interview_answers`, and `audit_events`. Users are interviewers or interviewees. Jobs own reusable question sets; generation attempts, retries and leases live only in `question_sets`. Sessions reference `question_set_id`; questions reference `set_id`. Answers are scoped by both session and question. Per-candidate generation, question copies, organizations and memberships are absent.
+Ten application tables: `users`, `auth_sessions`, `jobs`, `question_sets`, `interview_sessions`, `interview_questions`, `interview_answers`, `audit_events`, `embedding_jobs`, and `evidence_embeddings`. Users are interviewers or interviewees. Jobs own reusable question sets; generation attempts, retries and leases live only in `question_sets`. Sessions reference `question_set_id`; questions reference `set_id`. Answers are scoped by both session and question. Per-candidate generation, question copies, organizations and memberships are absent.
 
 The development database was rebaselined with existing records preserved. Fresh databases use `cargo run -- --migrate`. Older checkouts with the previous five-migration history require a deliberate development rebaseline or a fresh database; rewriting applied migrations is not a production upgrade strategy.
 
@@ -59,6 +59,8 @@ backend/
     generation/         # Scheduling, worker, validated question pipeline
     scoring/            # HTTP endpoints, worker, rubric rules
     review/             # Live streams, assistant, integrity and reports
+    rag/                # Evidence chunks, durable vector indexing, retrieval
+    schema.rs           # Explicit additive development baseline upgrade
     observability.rs    # Request IDs and task lifecycle logs
     infrastructure.rs   # Configuration, database, durable expiry transaction
     worker.rs           # In-process background job loop
@@ -97,3 +99,9 @@ See [media proctoring setup, flow and limits](docs/media-proctoring.md) for loca
 Job creation queues three unique question sets with reference answers, before invitations. Choose the preparation duration in the job form; inspect **Question sets** on the job card. Invitations reserve an unused matching set and queue its replacement. See [job question-set flow](docs/job-question-sets.md) for fallback generation, retries, migration and API details.
 
 Question preparation completes one question at a time: validate/deduplicate the prompt, generate/review its reference, then save a durable checkpoint before proceeding. Retries resume from the first unsaved question. Candidates can start only after the set is complete; interviewers can inspect saved progress and rejection findings. Each question has a five-minute default preparation budget. See [sequential generation and recovery](docs/generation-timing.md). Existing schema and completed interviews are preserved.
+
+## Persistent post-scoring RAG
+
+After `assessment.completed`, a separate durable embedding job indexes final answers, shared question/rubric text, assessment reasoning and proctoring/annotation/attachment metadata into pgvector. Review chat embeds only the interviewer’s query. The UI shows queued/running/ready/failed state and offers retry; scores remain complete if indexing fails. See [RAG indexing and recovery](docs/rag.md).
+
+For an existing database using the immediately preceding single baseline, run `cargo run -- --upgrade-rag` once from `backend/`, then restart `cargo run`. This adds only the two RAG tables, indexes and queue triggers and updates the verified development baseline checksum; it preserves existing rows. Fresh databases use `cargo run -- --migrate`. There is still only one migration file.

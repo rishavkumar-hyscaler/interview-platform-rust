@@ -27,7 +27,10 @@ pub fn routes() -> Router<PgPool> {
         .route("/api/v1/sessions/{session}/annotations", post(annotate))
         .route("/api/v1/sessions/{session}/review", post(chat))
 }
-async fn exists(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, session: Uuid) -> Result<()> {
+pub(crate) async fn exists(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    session: Uuid,
+) -> Result<()> {
     let found: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM interview_sessions WHERE id=$1)")
             .bind(session)

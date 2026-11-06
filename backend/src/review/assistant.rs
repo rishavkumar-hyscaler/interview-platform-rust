@@ -1,9 +1,6 @@
 //! Session-scoped retrieval and grounded review chat.
 use crate::{
-    ApiError, Result,
-    access::staff,
-    audit::record as audit,
-    generation::{provider::AiProvider, types::vector_text},
+    ApiError, Result, access::staff, audit::record as audit, generation::provider::AiProvider,
 };
 use axum::{
     Json,
@@ -32,32 +29,6 @@ pub(super) struct Chat {
     question: String,
     conversation: Uuid,
     page: Option<u32>,
-}
-fn keyword_sources(question: &str, docs: &[Document]) -> Vec<Document> {
-    let terms: std::collections::BTreeSet<String> = question
-        .to_lowercase()
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|term| term.len() > 2)
-        .map(String::from)
-        .collect();
-    let mut ranked: Vec<_> = docs
-        .iter()
-        .enumerate()
-        .map(|(index, doc)| {
-            let text = doc.text.to_lowercase();
-            let score = terms
-                .iter()
-                .filter(|term| text.contains(term.as_str()))
-                .count();
-            (score, index, doc)
-        })
-        .collect();
-    ranked.sort_by_key(|(score, index, _)| (std::cmp::Reverse(*score), *index));
-    ranked
-        .into_iter()
-        .take(8)
-        .map(|(_, _, doc)| doc.clone())
-        .collect()
 }
 pub(super) async fn chat(
     State(pool): State<PgPool>,
@@ -130,29 +101,7 @@ async fn chat_answer(
     }
     let provider = AiProvider::from_environment()
         .map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "AI is not configured"))?;
-    let questions:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',q.id,'position',q.position,'prompt',q.prompt,'rubric',q.rubric,'answer',coalesce(a.content,'')) FROM session_question_details() q LEFT JOIN interview_answers a ON a.question_id=q.id AND a.session_id=q.session_id WHERE q.session_id=$1 ORDER BY q.position").bind(session).fetch_all(&mut *tx).await?;
-    let events:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',id,'at',created_at,'action',action,'metadata',metadata) FROM audit_events WHERE entity_id=$1 AND action IN ('proctor.observed','integrity.annotated','assessment.completed','session.timed_out','answer.recorded') ORDER BY created_at DESC,id DESC LIMIT 20000").bind(session).fetch_all(&mut *tx).await?;
     let memory:Vec<Value>=sqlx::query_scalar("SELECT metadata-'vectors' FROM audit_events WHERE entity_id=$1 AND actor_id=$2 AND action='reviewer.message' AND metadata->>'conversation'=$3 ORDER BY created_at DESC,id DESC LIMIT 6").bind(session).bind(owner).bind(input.conversation.to_string()).fetch_all(&mut *tx).await?;
-    tx.commit().await?;
-    let mut docs = vec![assessment_source.clone()];
-    for q in questions {
-        let qid = q["id"].as_str().unwrap_or("");
-        for field in ["prompt", "rubric", "answer"] {
-            let text = if field == "rubric" {
-                q[field].to_string()
-            } else {
-                q[field].as_str().unwrap_or("").to_string()
-            };
-            let chars: Vec<char> = text.chars().collect();
-            for (i, chunk) in chars.chunks(3000).enumerate() {
-                docs.push(Document {
-                    id: format!("{qid}:{field}:{i}"),
-                    text: chunk.iter().collect(),
-                });
-            }
-        }
-    }
-    let (_, mut tx) = staff(&pool, &headers).await?;
     let counts: Vec<(String, i64)> = sqlx::query_as("SELECT coalesce(metadata->>'kind','unknown'), count(*) FROM audit_events WHERE entity_id=$1 AND action='proctor.observed' GROUP BY metadata->>'kind' ORDER BY 1")
         .bind(session).fetch_all(&mut *tx).await?;
     tx.commit().await?;
@@ -162,86 +111,53 @@ async fn chat_answer(
     let integrity_question = ["integrity", "flag", "cheat", "proctor", "breach"]
         .iter()
         .any(|word| question_lower.contains(word));
-    if integrity_question {
-        docs.insert(0, overview);
+    let page = input.page.unwrap_or(0);
+    // Only the query is embedded here. Evidence vectors are built after scoring.
+    let semantic = if integrity_question {
+        None
     } else {
-        docs.push(overview);
-    }
-    for e in events {
-        let text = e.to_string();
-        let chars: Vec<char> = text.chars().collect();
-        for (index, chunk) in chars.chunks(3000).enumerate() {
-            docs.push(Document {
-                id: format!("{}:{index}", e["id"].as_str().unwrap_or("")),
-                text: chunk.iter().collect(),
-            });
-        }
-    }
-    if docs.is_empty() {
-        return Ok(
-            json!({"answer":"No session evidence is available yet.","citations":[],"sources":[],"next_page":null}),
-        );
-    }
-    // Embed bounded pages; the cursor exposes every event without unbounded model inputs.
-    let page = input.page.unwrap_or(0) as usize;
-    let page_docs: Vec<Document> = docs.iter().skip(page * 40).take(40).cloned().collect();
-    if page_docs.is_empty() {
+        crate::rag::search(&pool, owner, session, &provider, &input.question, page)
+            .await
+            .map_err(|_| {
+                ApiError(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Evidence search unavailable",
+                )
+            })?
+    };
+    let retrieval_mode = if integrity_question {
+        "exact_counts_and_keywords"
+    } else if semantic.is_some() {
+        "stored_vectors"
+    } else {
+        "keywords"
+    };
+    let retrieved = match semantic {
+        Some(found) => found,
+        None => crate::rag::fallback(&pool, owner, session, &input.question, page)
+            .await
+            .map_err(|_| {
+                ApiError(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Session evidence unavailable",
+                )
+            })?,
+    };
+    if page > 0 && retrieved.sources.is_empty() {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             "Evidence page is out of range",
         ));
     }
-    let mut texts: Vec<String> = page_docs.iter().map(|d| d.text.clone()).collect();
-    texts.push(input.question.clone());
-    // Integrity counts are structured session data: do not pay for embeddings to count events.
-    let mut sources = if integrity_question {
-        keyword_sources(&input.question, &page_docs)
-    } else {
-        match provider.embeddings(&texts).await {
-            Ok(vectors) if vectors.len() == texts.len() && !vectors.is_empty() => {
-                let query = vector_text(vectors.last().unwrap())
-                    .map_err(|_| ApiError(StatusCode::BAD_GATEWAY, "Invalid embedding"))?;
-                let (_, mut tx) = staff(&pool, &headers).await?;
-                let mut ranked = Vec::new();
-                for (doc, vector) in page_docs.iter().cloned().zip(vectors.iter()) {
-                    let vector = vector_text(vector)
-                        .map_err(|_| ApiError(StatusCode::BAD_GATEWAY, "Invalid embedding"))?;
-                    let distance: f64 = sqlx::query_scalar("SELECT $1::vector <=> $2::vector")
-                        .bind(&vector)
-                        .bind(&query)
-                        .fetch_one(&mut *tx)
-                        .await?;
-                    ranked.push((distance, doc));
-                }
-                tx.commit().await?;
-                ranked.sort_by(|a, b| a.0.total_cmp(&b.0));
-                ranked
-                    .into_iter()
-                    .take(8)
-                    .map(|(_, d)| d)
-                    .collect::<Vec<_>>()
-            }
-            _ => {
-                tracing::warn!(operation = "review.retrieval", %session, "Embedding unavailable; using session-scoped keyword retrieval");
-                keyword_sources(&input.question, &page_docs)
-            }
-        }
-    };
-    // Exact aggregate counts must not disappear because individual events rank higher.
+    let mut sources: Vec<Document> = retrieved
+        .sources
+        .into_iter()
+        .map(|(id, text)| Document { id, text })
+        .collect();
     if integrity_question {
-        let overview = docs
-            .iter()
-            .find(|doc| doc.id.ends_with(":integrity-overview"))
-            .unwrap();
-        sources.retain(|doc| doc.id != overview.id);
-        sources.truncate(7);
-        sources.insert(0, overview.clone());
+        sources.insert(0, overview);
     }
-    // Always include the saved scoring profile, not a reference answer masquerading as performance evidence.
-    if !sources.iter().any(|doc| doc.id == assessment_source.id) {
-        sources.truncate(7);
-        sources.push(assessment_source);
-    }
+    sources.push(assessment_source);
     let model_sources: Vec<Value> = sources
         .iter()
         .enumerate()
@@ -264,32 +180,6 @@ async fn chat_answer(
     .await?;
     tx.commit().await?;
     Ok(
-        json!({"answer":reply.answer,"citations":reply.citations,"sources":sources,"next_page":if docs.len()>(page+1)*40 {Some(page+1)}else{None},"evidence_page":page,"total_sources":docs.len()}),
+        json!({"answer":reply.answer,"citations":reply.citations,"sources":sources,"next_page":if retrieved.total>i64::from(page+1)*6 {Some(page+1)}else{None},"evidence_page":page,"total_sources":retrieved.total,"retrieval_mode":retrieval_mode}),
     )
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn keyword_retrieval_is_bounded_and_uses_only_supplied_session_documents() {
-        let docs: Vec<_> = (0..12)
-            .map(|i| Document {
-                id: i.to_string(),
-                text: if i == 10 {
-                    "multiple faces evidence"
-                } else {
-                    "unrelated answer"
-                }
-                .into(),
-            })
-            .collect();
-        let sources = keyword_sources("multiple faces", &docs);
-        assert_eq!(sources.len(), 8);
-        assert_eq!(sources[0].id, "10");
-        assert!(
-            sources
-                .iter()
-                .all(|source| docs.iter().any(|doc| doc.id == source.id))
-        );
-    }
 }

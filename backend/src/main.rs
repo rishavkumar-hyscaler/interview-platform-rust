@@ -4,6 +4,10 @@ use std::{future::Future, time::Duration};
 async fn main() -> anyhow::Result<()> {
     platform_api::infrastructure::load_environment()?;
     platform_api::infrastructure::init_tracing();
+    if std::env::args().any(|arg| arg == "--upgrade-rag") {
+        platform_api::schema::upgrade_rag().await?;
+        return Ok(());
+    }
     if std::env::args().any(|arg| arg == "--migrate") {
         let pool = platform_api::infrastructure::connect_for_migrations().await?;
         sqlx::migrate!("./migrations").run(&pool).await?;

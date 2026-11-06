@@ -36,6 +36,7 @@ pub fn router_with_ai(pool: PgPool, provider: Option<generation::provider::AiPro
         .merge(crate::proctor_evidence::routes())
         .merge(scoring::routes())
         .merge(review::routes())
+        .merge(crate::rag::routes())
         .merge(adaptive::routes())
         .merge(generation::routes(provider))
         .layer(

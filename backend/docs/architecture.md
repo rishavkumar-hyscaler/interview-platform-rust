@@ -17,6 +17,8 @@ There are no organizations or memberships. Jobs belong directly to an interviewe
 | jobs | Job description and competency blueprint |
 | question_sets | Reusable job sets and generation retry/lease state |
 | interview_sessions | Participants, assigned set, timing and lifecycle |
+| embedding_jobs | Independent post-scoring indexing state, revisions, retry budget and leases |
+| evidence_embeddings | Owned/session-or-question-scoped text chunks and reusable pgvector embeddings |
 | interview_questions | Question snapshots, rubrics, and embedding-backed per-job question bank |
 | interview_answers | Revisioned answers |
 | audit_events | Append-only action/evidence history |

@@ -1,4 +1,4 @@
--- Development baseline: two user roles, reusable job question sets, eight application tables.
+-- Development baseline: two user roles, reusable job question sets, ten application tables.
 -- Interviewers own jobs; interviewees participate in interview sessions.
 
 CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
@@ -235,3 +235,104 @@ END;
 $$;
 CREATE TRIGGER interview_answers_question_membership BEFORE INSERT OR UPDATE ON interview_answers
     FOR EACH ROW EXECUTE FUNCTION check_answer_question_membership();
+
+-- Persistent post-scoring evidence retrieval (development baseline extension).
+CREATE TABLE embedding_jobs (
+    session_id uuid PRIMARY KEY,
+    interviewer_id uuid NOT NULL,
+    status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','completed','failed')),
+    revision bigint NOT NULL DEFAULT 1,
+    indexed_revision bigint NOT NULL DEFAULT 0,
+    attempts integer NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 4),
+    claim_token uuid,
+    lease_until timestamptz,
+    available_at timestamptz NOT NULL DEFAULT now(),
+    embedding_model text,
+    embedding_dimensions integer,
+    last_error text,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    FOREIGN KEY (interviewer_id,session_id) REFERENCES interview_sessions(interviewer_id,id) ON DELETE CASCADE
+);
+CREATE INDEX embedding_jobs_queue ON embedding_jobs(interviewer_id,status,available_at);
+
+CREATE TABLE evidence_embeddings (
+    interviewer_id uuid NOT NULL,
+    session_id uuid,
+    question_id uuid,
+    scope_id uuid GENERATED ALWAYS AS (coalesce(session_id,question_id)) STORED,
+    source_id text NOT NULL,
+    source_type text NOT NULL CHECK (source_type IN ('prompt','rubric','answer','assessment','event')),
+    content text NOT NULL,
+    content_hash text NOT NULL,
+    embedding vector NOT NULL,
+    embedding_model text NOT NULL,
+    embedding_dimensions integer NOT NULL CHECK (embedding_dimensions BETWEEN 1 AND 4096),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK ((session_id IS NULL) <> (question_id IS NULL)),
+    CHECK (vector_dims(embedding)=embedding_dimensions),
+    PRIMARY KEY (interviewer_id,scope_id,source_id,embedding_model,embedding_dimensions),
+    FOREIGN KEY (interviewer_id,session_id) REFERENCES interview_sessions(interviewer_id,id) ON DELETE CASCADE,
+    FOREIGN KEY (interviewer_id,question_id) REFERENCES interview_questions(interviewer_id,id) ON DELETE CASCADE
+);
+CREATE INDEX evidence_session ON evidence_embeddings(interviewer_id,session_id,embedding_model,embedding_dimensions);
+CREATE INDEX evidence_question ON evidence_embeddings(interviewer_id,question_id,embedding_model,embedding_dimensions);
+CREATE INDEX evidence_content_cache ON evidence_embeddings(interviewer_id,content_hash,embedding_model,embedding_dimensions);
+
+ALTER TABLE embedding_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE embedding_jobs FORCE ROW LEVEL SECURITY;
+CREATE POLICY interviewer_scope ON embedding_jobs
+    USING (interviewer_id=nullif(current_setting('app.interviewer_id',true),'')::uuid)
+    WITH CHECK (interviewer_id=nullif(current_setting('app.interviewer_id',true),'')::uuid);
+ALTER TABLE evidence_embeddings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evidence_embeddings FORCE ROW LEVEL SECURITY;
+CREATE POLICY interviewer_scope ON evidence_embeddings
+    USING (interviewer_id=nullif(current_setting('app.interviewer_id',true),'')::uuid)
+    WITH CHECK (interviewer_id=nullif(current_setting('app.interviewer_id',true),'')::uuid);
+GRANT SELECT,INSERT,UPDATE ON embedding_jobs TO platform_app;
+GRANT SELECT,INSERT,UPDATE,DELETE ON evidence_embeddings TO platform_app;
+
+-- Queue in the same transaction as the source event. Scoring remains complete
+-- even if subsequent embedding requests fail. Late evidence dirties only its session.
+CREATE FUNCTION mark_embedding_job(owner_id uuid, interview_id uuid) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM audit_events WHERE entity_id=interview_id
+                   AND interviewer_id=owner_id AND action='assessment.completed') THEN RETURN; END IF;
+    INSERT INTO embedding_jobs(session_id,interviewer_id,available_at)
+        VALUES(interview_id,owner_id,now()+interval '2 seconds')
+    ON CONFLICT (session_id) DO UPDATE SET
+        revision=embedding_jobs.revision+1,
+        status=CASE WHEN embedding_jobs.status='running' THEN 'running' ELSE 'pending' END,
+        attempts=0,
+        available_at=now()+interval '2 seconds',last_error=NULL,updated_at=now();
+END;
+$$;
+CREATE FUNCTION queue_evidence_embeddings() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.action IN ('assessment.completed','proctor.observed','proctor.evidence','integrity.annotated','answer.recorded')
+       AND NEW.entity_id IS NOT NULL THEN
+        PERFORM mark_embedding_job(NEW.interviewer_id,NEW.entity_id);
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER audit_queue_embeddings AFTER INSERT ON audit_events
+    FOR EACH ROW EXECUTE FUNCTION queue_evidence_embeddings();
+CREATE FUNCTION queue_answer_embeddings() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM mark_embedding_job(NEW.interviewer_id,NEW.session_id);
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER answer_queue_embeddings AFTER INSERT OR UPDATE OF content ON interview_answers
+    FOR EACH ROW EXECUTE FUNCTION queue_answer_embeddings();
+CREATE FUNCTION queue_rubric_embeddings() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE interview_id uuid;
+BEGIN
+    FOR interview_id IN SELECT id FROM interview_sessions WHERE interviewer_id=NEW.interviewer_id AND question_set_id=NEW.set_id LOOP
+        PERFORM mark_embedding_job(NEW.interviewer_id,interview_id);
+    END LOOP;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER rubric_queue_embeddings AFTER UPDATE OF prompt,rubric ON interview_questions
+    FOR EACH ROW EXECUTE FUNCTION queue_rubric_embeddings();
