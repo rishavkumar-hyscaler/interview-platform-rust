@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { evidenceQueue, snapshot } from './proctoring/evidence';
 import type { BrowserObservation, Observations } from './proctoring/observations';
-const flags = new Set(['fullscreen_entered','fullscreen_exited','focus_lost','hidden','paste','copy','context_menu','devtools_suspected','multiple_displays','typing_burst','rapid_answer','camera_disabled','microphone_disabled','screen_share_started']);
+const flags = new Set(['fullscreen_entered','fullscreen_exited','focus_lost','hidden','paste','copy','context_menu','devtools_suspected','multiple_displays','typing_burst','rapid_answer','camera_disabled','microphone_disabled','screen_share_started','face_missing','multiple_faces','gaze_away','possible_background_speech','speech_detected']);
 export function useScreenEvidence(token:string, session:string|undefined, active:boolean, observations:Observations) {
   const stream = useRef<MediaStream|null>(null);
   const video = useRef<HTMLVideoElement|null>(null);
@@ -67,8 +67,10 @@ export function useScreenEvidence(token:string, session:string|undefined, active
       }catch{observations.record('evidence_capture_failed');setStatus('Screen snapshot could not be saved. Browser event remains recorded.');}
     }
     const unsubscribe=observations.subscribe(event=>{void capture(event);});
+    const media=(event:Event)=>{void capture((event as CustomEvent<BrowserObservation>).detail);};
+    window.addEventListener('interview-media-observation',media);
     if(active && shared && document.fullscreenElement && !entryRecorded.current)observations.record('fullscreen_entered');
-    return unsubscribe;
+    return ()=>{unsubscribe();window.removeEventListener('interview-media-observation',media);};
   },[active,shared,observations.record,observations.subscribe]);
   return {shared,busy,surface,status,error,request,stop};
 }

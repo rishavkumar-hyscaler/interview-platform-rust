@@ -33,6 +33,10 @@ struct Measurements {
     horizontal_offset: Option<f32>,
     vertical_offset: Option<f32>,
     mouth_motion: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    head_horizontal_offset: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    head_vertical_offset: Option<f32>,
 }
 impl Measurements {
     fn valid(&self) -> bool {
@@ -45,6 +49,8 @@ impl Measurements {
                 self.horizontal_offset,
                 self.vertical_offset,
                 self.mouth_motion,
+                self.head_horizontal_offset,
+                self.head_vertical_offset,
             ]
             .iter()
             .all(|n| n.is_none_or(|n| n.is_finite() && (-2.0..=2.0).contains(&n)))
@@ -53,7 +59,11 @@ impl Measurements {
 pub(crate) fn evidence_kind(kind: &str) -> bool {
     matches!(
         kind,
-        "face_missing" | "multiple_faces" | "gaze_away" | "possible_background_speech"
+        "face_missing"
+            | "multiple_faces"
+            | "gaze_away"
+            | "possible_background_speech"
+            | "speech_detected"
     )
 }
 fn permission_event(kind: &str) -> bool {
@@ -93,7 +103,7 @@ pub(crate) fn screen_evidence_kind(kind: &str) -> bool {
             | "camera_disabled"
             | "microphone_disabled"
             | "screen_share_started"
-    )
+    ) || evidence_kind(kind)
 }
 fn valid(event: &Observation) -> bool {
     (matches!(

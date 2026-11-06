@@ -3,7 +3,7 @@ import { ApiError } from '../../../api';
 import { loggedFetch } from '../../../transport';
 import { startTask } from '../../../observability';
 import type { MediaObservation } from './signals';
-type Asset = { id: string; blob: Blob; source?: 'camera' | 'screen'; surface?: string; captured?: number };
+type Asset = { id: string; blob: Blob; source?: 'camera' | 'screen'; surface?: string; captured?: number; phase?: 'signal_window' | 'post_signal' };
 type Pending = { id: string; session: string; observation: MediaObservation; assets: Asset[]; created: number; accepted: boolean };
 function store<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -43,7 +43,7 @@ export function evidenceQueue(token: string, session: string, status: (message: 
         for (const asset of record.assets) {
           const finish = startTask('proctor.evidence.upload');
           try {
-            const response = await loggedFetch(`/api/v1/candidate/events/${record.observation.id}/evidence/${asset.id}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': asset.blob.type, 'X-Evidence-Source': asset.source ?? 'camera', ...(asset.surface ? {'X-Capture-Surface':asset.surface} : {}), ...(asset.captured ? {'X-Evidence-Captured-At':String(asset.captured)} : {}) }, body: asset.blob, signal: AbortSignal.timeout(30000) });
+            const response = await loggedFetch(`/api/v1/candidate/events/${record.observation.id}/evidence/${asset.id}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': asset.blob.type, 'X-Evidence-Source': asset.source ?? 'camera', ...(asset.phase ? {'X-Evidence-Capture':asset.phase} : {}), ...(asset.surface ? {'X-Capture-Surface':asset.surface} : {}), ...(asset.captured ? {'X-Evidence-Captured-At':String(asset.captured)} : {}) }, body: asset.blob, signal: AbortSignal.timeout(30000) });
             if (!response.ok) throw new ApiError('Evidence upload rejected', response.status);
             finish('succeeded');
           } catch (error) { finish('failed'); throw error; }

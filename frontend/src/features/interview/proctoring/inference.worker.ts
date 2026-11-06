@@ -12,11 +12,11 @@ scope.onmessage = async ({ data }) => {
       else audio = await AudioClassifier.createFromOptions(await VisionFiles.forAudioTasks(`${base}/audio`), { baseOptions: { modelAssetPath: `${base}/yamnet.tflite` }, maxResults: 10, scoreThreshold: 0.1 });
       scope.postMessage({ type: 'ready', kind: data.kind });
     } else if (data.type === 'frame' && face) {
-      try { scope.postMessage({ type: 'face', sample: faceGeometry(face.detect(data.frame).faceLandmarks) }); } finally { data.frame.close(); }
+      try { scope.postMessage({ type: 'face', at: data.at, sample: faceGeometry(face.detect(data.frame).faceLandmarks) }); } finally { data.frame.close(); }
     } else if (data.type === 'audio' && audio) {
       const results = audio.classify(data.samples, data.sampleRate);
       const probability = Math.max(0, ...results.flatMap(result => result.classifications.flatMap(head => head.categories.filter(category => ['Speech', 'Conversation', 'Narration, monologue', 'Speech synthesizer'].includes(category.categoryName)).map(category => category.score))));
-      scope.postMessage({ type: 'speech', probability });
+      scope.postMessage({ type: 'speech', at: data.at, probability });
     }
   } catch { scope.postMessage({ type: 'failure', kind: data.kind ?? (data.type === 'frame' ? 'vision' : 'audio') }); }
 };

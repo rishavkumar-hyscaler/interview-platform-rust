@@ -38,7 +38,35 @@ fn format(headers: &HeaderMap, bytes: &[u8]) -> Result<&'static str> {
             "Invalid or oversized JPEG evidence",
         ));
     }
+    if headers.get("content-type").and_then(|v| v.to_str().ok()) == Some("audio/wav") {
+        return wave_format(bytes);
+    }
     media::mime(headers, bytes)
+}
+// Only the browser's bounded mono PCM16 evidence format is accepted here.
+fn wave_format(bytes: &[u8]) -> Result<&'static str> {
+    if bytes.len() >= 46 {
+        let rate = u32::from_le_bytes(bytes[24..28].try_into().unwrap()) as usize;
+        let size = u32::from_le_bytes(bytes[40..44].try_into().unwrap()) as usize;
+        if &bytes[..4] == b"RIFF"
+            && &bytes[8..16] == b"WAVEfmt "
+            && bytes[16..24] == [16, 0, 0, 0, 1, 0, 1, 0]
+            && bytes[32..40] == [2, 0, 16, 0, b'd', b'a', b't', b'a']
+            && (8000..=96000).contains(&rate)
+            && size > 0
+            && size % 2 == 0
+            && size <= rate * 2 * 3
+            && bytes.len() == 44 + size
+            && u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize == bytes.len() - 8
+            && u32::from_le_bytes(bytes[28..32].try_into().unwrap()) as usize == rate * 2
+        {
+            return Ok("audio/wav");
+        }
+    }
+    Err(ApiError(
+        StatusCode::BAD_REQUEST,
+        "Invalid speech evidence WAV",
+    ))
 }
 async fn upload(
     State(pool): State<PgPool>,
@@ -61,6 +89,18 @@ async fn upload(
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             "Invalid evidence source or screenshot format",
+        ));
+    }
+    let capture = headers
+        .get("x-evidence-capture")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("post_signal");
+    if !matches!(capture, "post_signal" | "signal_window")
+        || (capture == "signal_window" && mime != "audio/wav")
+    {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "Invalid evidence capture mode",
         ));
     }
     let surface = headers
@@ -94,6 +134,7 @@ async fn upload(
         if old["event_id"] != json!(event)
             || old["sha256"] != hash
             || old["mime"] != mime
+            || old["capture"].as_str().unwrap_or("post_signal") != capture
             || old["evidence_source"].as_str().unwrap_or("camera") != source
             || (source == "screen"
                 && (old["capture_surface"] != surface
@@ -126,14 +167,14 @@ async fn upload(
     .bind(source)
     .fetch_one(&mut *tx)
     .await?;
-    let same_kind:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM audit_events WHERE entity_id=$1 AND action='proctor.evidence' AND metadata->>'event_id'=$2 AND (metadata->>'mime' LIKE 'image/%')=$3)").bind(session).bind(event.to_string()).bind(mime.starts_with("image/")).fetch_one(&mut *tx).await?;
+    let same_kind:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM audit_events WHERE entity_id=$1 AND action='proctor.evidence' AND metadata->>'event_id'=$2 AND (metadata->>'mime' LIKE 'image/%')=$3 AND coalesce(metadata->>'evidence_source','camera')=$4)").bind(session).bind(event.to_string()).bind(mime.starts_with("image/")).bind(source).fetch_one(&mut *tx).await?;
     if count >= if source == "screen" { 120 } else { 40 } || same_kind {
         return Err(ApiError(
             StatusCode::CONFLICT,
             "Evidence attachment limit reached",
         ));
     }
-    let mut metadata = json!({"asset_id":asset,"event_id":event,"mime":mime,"bytes":bytes.len(),"sha256":hash,"parent_signature":observed["signature"],"source":"browser","evidence_source":source,"capture_surface":surface,"captured_at_ms":captured.flatten(),"verified":false,"capture":"post_signal","notice":"Browser-submitted media; server signature proves receipt integrity only"});
+    let mut metadata = json!({"asset_id":asset,"event_id":event,"mime":mime,"bytes":bytes.len(),"sha256":hash,"parent_signature":observed["signature"],"source":"browser","evidence_source":source,"capture_surface":surface,"captured_at_ms":captured.flatten(),"verified":false,"capture":capture,"notice":"Browser-submitted media; server signature proves receipt integrity only"});
     metadata["signature"] = json!(proctoring::sign(owner, session, asset, &metadata).map_err(
         |_| ApiError(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -218,5 +259,25 @@ mod tests {
         headers.insert("content-type", "image/jpeg".parse().unwrap());
         assert!(format(&headers, b"arbitrary executable content").is_err());
         assert!(format(&headers, &[0xff, 0xd8, 0xff, 0, 0xff, 0xd9]).is_ok());
+    }
+    #[test]
+    fn accepts_only_bounded_pcm_speech_windows() {
+        let mut bytes = vec![0u8; 44 + 16000 * 2 * 3];
+        bytes[..4].copy_from_slice(b"RIFF");
+        let size = bytes.len();
+        bytes[4..8].copy_from_slice(&((size - 8) as u32).to_le_bytes());
+        bytes[8..16].copy_from_slice(b"WAVEfmt ");
+        bytes[16..24].copy_from_slice(&[16, 0, 0, 0, 1, 0, 1, 0]);
+        bytes[24..28].copy_from_slice(&16000u32.to_le_bytes());
+        bytes[28..32].copy_from_slice(&32000u32.to_le_bytes());
+        bytes[32..40].copy_from_slice(&[2, 0, 16, 0, b'd', b'a', b't', b'a']);
+        bytes[40..44].copy_from_slice(&((size - 44) as u32).to_le_bytes());
+        assert_eq!(wave_format(&bytes).unwrap(), "audio/wav");
+        bytes.push(0);
+        assert!(wave_format(&bytes).is_err());
+        bytes.pop();
+        bytes[24..28].copy_from_slice(&8000u32.to_le_bytes());
+        assert!(wave_format(&bytes).is_err());
+        assert!(wave_format(b"not audio").is_err());
     }
 }
