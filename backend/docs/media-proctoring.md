@@ -14,11 +14,11 @@ MediaPipe packages are pinned to `0.10.32`. Face Landmarker and YAMNet files are
 
 | Observation | Gate | Default risk points |
 | --- | --- | --- |
-| `face_missing` | Zero detected faces for ≥5 seconds | 1 |
-| `multiple_faces` | More than one detected face for ≥3 seconds; model returns at most three | 4 |
-| `gaze_away` | Calibrated iris/head offset sustained ≥8 seconds | 0 |
-| `possible_background_speech` | Speech probability ≥0.65, plus a fresh camera result with no face, multiple faces, or low visible mouth motion, sustained ≥3 seconds | 1 |
-| `speech_detected` | Speech ≥0.65 for ≥3 seconds when fresh camera evidence is unavailable | 0 |
+| `face_missing` | Zero detected faces for ≥2 seconds | 1 |
+| `multiple_faces` | More than one detected face for ≥2 seconds; model returns at most three | 4 |
+| `gaze_away` | Calibrated iris/head offset sustained ≥4 seconds | 0 |
+| `possible_background_speech` | Speech probability ≥0.65, plus a fresh camera result with no face, multiple faces, or low visible mouth motion, sustained ≥2 seconds | 1 |
+| `speech_detected` | Speech ≥0.65 for ≥2 seconds when fresh camera evidence is unavailable | 0 |
 
 These are heuristic observations. Speech classification cannot determine whether a voice belongs to the candidate, another person, TV/audio playback or a synthetic source. Mouth-motion sampling can miss movement and does not establish speaker identity. This implements **possible** background-speech analysis, not diarization or a reliable count of speakers. The reviewer assistant is explicitly instructed against attention/emotion/intent/identity inference from these signals.
 

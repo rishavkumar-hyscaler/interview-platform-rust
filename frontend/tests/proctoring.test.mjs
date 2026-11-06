@@ -169,7 +169,7 @@ test('fractional browser clocks produce integer durations accepted by the API', 
   for (let i = 0; i <= 26; i++) events.push(...policy.face({ faces: 0 }, 100.33 + i * 200.07));
   assert.equal(events.length, 1);
   assert.equal(events[0].kind, 'face_missing');
-  assert.equal(events[0].measurements.duration_ms, 5001);
+  assert.equal(events[0].measurements.duration_ms, 2000);
   assert.equal(Number.isInteger(events[0].measurements.duration_ms), true);
 });
 const clipboardSource = readFileSync(new URL('../src/features/interview/proctoring/clipboard.ts', import.meta.url), 'utf8');
@@ -193,13 +193,31 @@ test('only an observed selection from the same current question makes a paste ne
 test('live diagnostics show sustained face and voice timers and reset after recovery', () => {
   const policy = new SignalPolicy();
   policy.face({faces:0},0); policy.face({faces:0},1200);
-  assert.match(policy.summary,/No face: 1.2\/5s/);
+  assert.match(policy.summary,/No face: 1.2\/2s/);
   policy.face({faces:2},1400); policy.face({faces:2},2400);
-  assert.match(policy.summary,/2 faces: 1.0\/3s/);
+  assert.match(policy.summary,/2 faces: 1.0\/2s/);
   policy.audio(0.9,2400); policy.audio(0.9,3400);
-  assert.match(policy.summary,/possible background speech 1.0\/3s/);
+  assert.match(policy.summary,/possible background speech 1.0\/2s/);
   policy.face(neutral,3500);policy.audio(0.1,3500);
   assert.match(policy.summary,/One face/);
   assert.match(policy.summary,/Speech 10%/);
   assert.doesNotMatch(policy.summary,/possible background speech/);
+});
+test('configured thresholds flag at 2s for faces/voice and 4s for calibrated gaze', () => {
+  for (const [sample,kind] of [[{faces:0},'face_missing'],[{faces:2},'multiple_faces']]) {
+    const policy=new SignalPolicy();
+    for(let now=0;now<2000;now+=200) assert.equal(policy.face(sample,now).length,0);
+    assert.equal(policy.face(sample,2000)[0]?.kind,kind);
+  }
+  const voice=new SignalPolicy();
+  for(let now=0;now<2000;now+=200){voice.face({faces:0},now);assert.equal(voice.audio(0.9,now),null);}
+  voice.face({faces:0},2000);assert.equal(voice.audio(0.9,2000)?.kind,'possible_background_speech');
+  const gaze=new SignalPolicy();
+  for(let now=0;now<=8000;now+=200)gaze.face(neutral,now);
+  for(let now=8200;now<12200;now+=200)assert.equal(gaze.face({...neutral,eyeX:0.8},now).length,0);
+  assert.equal(gaze.face({...neutral,eyeX:0.8},12200)[0]?.kind,'gaze_away');
+  gaze.recalibrate();
+  for(let now=13000;now<=21000;now+=200)gaze.face(neutral,now);
+  for(let now=21200;now<25200;now+=200)assert.equal(gaze.face({...neutral,eyeX:0.8},now).length,0);
+  assert.equal(gaze.face({...neutral,eyeX:0.8},25200)[0]?.kind,'gaze_away');
 });

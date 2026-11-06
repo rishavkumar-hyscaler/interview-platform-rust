@@ -47,11 +47,11 @@ export class SustainedSignal {
   }
 }
 export class SignalPolicy {
-  private absent = new SustainedSignal(5000);
-  private multiple = new SustainedSignal(3000);
-  private gaze = new SustainedSignal(8000);
-  private voice = new SustainedSignal(3000);
-  private speech = new SustainedSignal(3000);
+  private absent = new SustainedSignal(2000);
+  private multiple = new SustainedSignal(2000);
+  private gaze = new SustainedSignal(4000);
+  private voice = new SustainedSignal(2000);
+  private speech = new SustainedSignal(2000);
   private baseline: number[][] = [];
   private calibrationStarted: number | null = null;
   private calibrationLast = -Infinity;
@@ -64,7 +64,7 @@ export class SignalPolicy {
   get calibrated() { return this.calibrationComplete; }
   recalibrate() {
     this.baseline = []; this.calibrationStarted = null; this.calibrationLast = -Infinity;
-    this.calibrationComplete = false; this.gaze = new SustainedSignal(8000);
+    this.calibrationComplete = false; this.gaze = new SustainedSignal(4000);
   }
   private calibrate(sample: FaceSample, valid: boolean, now: number) {
     if (this.calibrated) return;
@@ -101,11 +101,11 @@ export class SignalPolicy {
     const duration = this.gaze.update(this.calibrated && (turned || (valid && (Math.abs(horizontal) > 0.18 || Math.abs(vertical) > 0.09))), now);
     if (duration !== null) result.push({ kind: 'gaze_away', measurements: { duration_ms: duration, face_count: 1, horizontal_offset: horizontal, vertical_offset: vertical, head_horizontal_offset: headHorizontal, head_vertical_offset: headVertical } });
     const seconds = (gate: SustainedSignal, total: number) => `${(gate.progress(now) / 1000).toFixed(1)}/${total}s`;
-    this.faceStatus = sample.faces === 0 ? `No face: ${seconds(this.absent, 5)}`
-      : sample.faces > 1 ? `${sample.faces} faces: ${seconds(this.multiple, 3)}`
+    this.faceStatus = sample.faces === 0 ? `No face: ${seconds(this.absent, 2)}`
+      : sample.faces > 1 ? `${sample.faces} faces: ${seconds(this.multiple, 2)}`
       : !this.calibrated ? 'One face · calibrating (look toward camera for 8 seconds)'
       : turned || (valid && (Math.abs(horizontal) > 0.18 || Math.abs(vertical) > 0.09))
-        ? `Eye/head direction away: ${seconds(this.gaze, 8)}` : 'One face · direction within baseline';
+        ? `Eye/head direction away: ${seconds(this.gaze, 4)}` : 'One face · direction within baseline';
     return result;
   }
   audio(probability: number, now: number): { kind: string; measurements: Measurements } | null {
@@ -116,8 +116,8 @@ export class SignalPolicy {
     const duration = this.voice.update(possibleBackground, now);
     const speechDuration = this.speech.update(probability >= 0.65 && !face, now);
     this.voiceStatus = `Speech ${Math.round(probability * 100)}%` + (possibleBackground
-      ? ` · possible background speech ${(this.voice.progress(now) / 1000).toFixed(1)}/3s`
-      : !face && probability >= 0.65 ? ` · speech ${(this.speech.progress(now) / 1000).toFixed(1)}/3s` : '');
+      ? ` · possible background speech ${(this.voice.progress(now) / 1000).toFixed(1)}/2s`
+      : !face && probability >= 0.65 ? ` · speech ${(this.speech.progress(now) / 1000).toFixed(1)}/2s` : '');
     if (duration !== null) return { kind: 'possible_background_speech', measurements: { duration_ms: duration, speech_probability: probability, face_count: face!.faces, ...(motion === null ? {} : { mouth_motion: motion }) } };
     return speechDuration === null ? null : { kind: 'speech_detected', measurements: { duration_ms: speechDuration, speech_probability: probability } };
   }
