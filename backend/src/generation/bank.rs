@@ -38,19 +38,22 @@ pub(crate) async fn assign(
     };
     let job: Uuid = row.get("job_id");
     let duration: i32 = row.get("duration_minutes");
-    // Same lock order as replenish; no candidate can receive an already reserved set.
+    // Serialize usage balancing so concurrent invitations choose the least-used set.
     sqlx::query("SELECT id FROM jobs WHERE id=$1 FOR UPDATE")
         .bind(job)
         .fetch_one(&mut **tx)
         .await?;
-    let set = sqlx::query("SELECT p.id,p.seed FROM question_sets p WHERE p.job_id=$1 AND p.duration_minutes=$2 AND p.status='completed' AND EXISTS(SELECT 1 FROM interview_questions q WHERE q.set_id=p.id) AND p.id IN (SELECT id FROM question_sets WHERE job_id=p.job_id ORDER BY created_at,id LIMIT (SELECT question_set_count FROM jobs WHERE id=p.job_id)) ORDER BY (SELECT count(*) FROM interview_sessions s WHERE s.generation_id=p.id),p.created_at,p.id FOR UPDATE OF p LIMIT 1")
+    let set = sqlx::query("SELECT p.id FROM question_sets p WHERE p.job_id=$1 AND p.duration_minutes=$2 AND p.status='completed' AND EXISTS(SELECT 1 FROM interview_questions q WHERE q.set_id=p.id) AND p.id IN (SELECT id FROM question_sets WHERE job_id=p.job_id ORDER BY created_at,id LIMIT (SELECT question_set_count FROM jobs WHERE id=p.job_id)) ORDER BY (SELECT count(*) FROM interview_sessions s WHERE s.question_set_id=p.id),p.created_at,p.id FOR UPDATE OF p LIMIT 1")
         .bind(job).bind(duration).fetch_optional(&mut **tx).await?;
     let Some(set) = set else {
         return Ok(false);
     };
     let id: Uuid = set.get("id");
-    sqlx::query("UPDATE interview_sessions SET question_set_id=$2,generation_id=$2,generation_seed=$3,generation_status='completed',generation_error=NULL,generation_claim_token=NULL,generation_lease_until=NULL WHERE id=$1")
-        .bind(session).bind(id).bind(set.get::<Uuid,_>("seed")).execute(&mut **tx).await?;
+    sqlx::query("UPDATE interview_sessions SET question_set_id=$2 WHERE id=$1")
+        .bind(session)
+        .bind(id)
+        .execute(&mut **tx)
+        .await?;
     sqlx::query("INSERT INTO audit_events(id,interviewer_id,entity_id,action,metadata) VALUES($1,$2,$3,'questions.assigned',$4)")
         .bind(Uuid::new_v4()).bind(owner).bind(session).bind(json!({"set_id":id,"source":"job_pool","reused":true})).execute(&mut **tx).await?;
     Ok(true)

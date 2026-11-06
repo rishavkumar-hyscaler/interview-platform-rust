@@ -72,8 +72,8 @@ pub(crate) async fn create_job(
     let (user, mut tx) = staff(&pool, &headers).await?;
     let recruiter = user;
     let id = Uuid::new_v4();
-    let created = sqlx::query("INSERT INTO jobs(id,interviewer_id,request_key,title,created_by,description,job_code,preparation_duration_minutes,question_set_count) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING")
-        .bind(id).bind(recruiter).bind(input.request_key).bind(title).bind(user).bind(description).bind(&job_code).bind(input.preparation_duration_minutes).bind(input.question_set_count).execute(&mut *tx).await?.rows_affected() == 1;
+    let created = sqlx::query("INSERT INTO jobs(id,interviewer_id,request_key,title,description,job_code,preparation_duration_minutes,question_set_count) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING")
+        .bind(id).bind(recruiter).bind(input.request_key).bind(title).bind(description).bind(&job_code).bind(input.preparation_duration_minutes).bind(input.question_set_count).execute(&mut *tx).await?.rows_affected() == 1;
     if created {
         crate::generation::bank::replenish(
             &mut tx,

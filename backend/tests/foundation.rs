@@ -153,7 +153,7 @@ async fn authentication_and_tenant_isolation() {
         .unwrap();
     assert_eq!(count, 0);
     let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
-    let denied = sqlx::query("INSERT INTO jobs(id,interviewer_id,request_key,title,created_by) VALUES($1,$2,$3,'Forbidden',$2)")
+    let denied = sqlx::query("INSERT INTO jobs(id,interviewer_id,request_key,title,description,job_code) VALUES($1,$2,$3,'Forbidden','Forbidden job description text','FORBIDDEN')")
         .bind(Uuid::new_v4()).bind(other).bind(Uuid::new_v4())
         .execute(&mut *tx)
         .await;

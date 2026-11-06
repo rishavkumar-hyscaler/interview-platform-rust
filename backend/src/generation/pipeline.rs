@@ -25,13 +25,9 @@ pub(super) async fn prepare(
     claim: &Claim,
 ) -> anyhow::Result<()> {
     let mut tx = interviewer_transaction(pool, claim.recruiter).await?;
-    let session = if claim.is_pool {
-        sqlx::query("SELECT p.job_id,j.description,p.duration_minutes,p.last_error AS generation_error FROM question_sets p JOIN jobs j ON j.id=p.job_id WHERE p.id=$1")
-            .bind(claim.id).fetch_optional(&mut *tx).await?
-    } else {
-        sqlx::query("SELECT s.job_id,j.description,s.duration_minutes,s.generation_error FROM interview_sessions s JOIN jobs j ON j.id=s.job_id WHERE s.id=$1 AND s.state IN ('invited','ready') AND s.expires_at>now()")
-            .bind(claim.session).fetch_optional(&mut *tx).await?
-    }.ok_or_else(|| anyhow::anyhow!("Question preparation target is no longer eligible"))?;
+    let session = sqlx::query("SELECT p.job_id,j.description,p.duration_minutes,p.last_error AS generation_error FROM question_sets p JOIN jobs j ON j.id=p.job_id WHERE p.id=$1")
+        .bind(claim.id).fetch_optional(&mut *tx).await?
+        .ok_or_else(|| anyhow::anyhow!("Question set no longer exists"))?;
     let jd: Uuid = session.get("job_id");
     let description: String = session.get("description");
     let duration: i32 = session.get("duration_minutes");
@@ -73,8 +69,8 @@ pub(super) async fn prepare(
     }
     tx.commit().await?;
     let mut tx = interviewer_transaction(pool, claim.recruiter).await?;
-    let saved = sqlx::query("SELECT position,coalesce((rubric->>'estimated_minutes')::integer,1) AS minutes FROM interview_questions WHERE session_id=$1 OR set_id=$1 ORDER BY position")
-        .bind(claim.session).fetch_all(&mut *tx).await?;
+    let saved = sqlx::query("SELECT position,coalesce((rubric->>'estimated_minutes')::integer,1) AS minutes FROM interview_questions WHERE set_id=$1 ORDER BY position")
+        .bind(claim.id).fetch_all(&mut *tx).await?;
     tx.commit().await?;
     for (index, row) in saved.iter().enumerate() {
         anyhow::ensure!(
@@ -89,13 +85,13 @@ pub(super) async fn prepare(
         .fetch_one(&mut *tx)
         .await?;
     let stored_plan: Option<Value> = sqlx::query_scalar("SELECT metadata->'plan' FROM audit_events WHERE entity_id=$1 AND action='generation.planned' ORDER BY created_at,id LIMIT 1")
-        .bind(claim.session).fetch_optional(&mut *tx).await?;
+        .bind(claim.id).fetch_optional(&mut *tx).await?;
     let plan: super::plan::Plan = match stored_plan {
         Some(value) => serde_json::from_value(value)?,
         None => {
             let plan = super::plan::Plan::build(&blueprint, duration, &saved_minutes)?;
             sqlx::query("INSERT INTO audit_events(id,interviewer_id,entity_id,action,metadata) VALUES($1,$2,$3,'generation.planned',$4)")
-                .bind(Uuid::new_v4()).bind(claim.recruiter).bind(claim.session)
+                .bind(Uuid::new_v4()).bind(claim.recruiter).bind(claim.id)
                 .bind(serde_json::json!({"version":1,"plan":plan})).execute(&mut *tx).await?;
             plan
         }

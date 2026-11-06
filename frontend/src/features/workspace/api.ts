@@ -14,7 +14,6 @@ export function workspaceApi(token: string) {
     sessions: (cursor?: string) => get<Page<Interview>>(`/sessions${cursor ? `?cursor=${cursor}` : ''}`),
     detail: (id: string) => get<Interview>(`/sessions/${id}`),
     generation: (id: string, signal?: AbortSignal) => request<Generation>(`${base}/sessions/${id}/generation`, { signal }, token),
-    prepare: (id: string) => post<{ status: string }>(`/sessions/${id}/generation`, {}),
     invitation: (id: string) => post<{ invitation_token: string; expires_at: string; replaced_legacy_link: boolean }>(`/sessions/${id}/invitation`, {}),
     audit: (entity?: string, cursor?: string) => get<Page<Audit>>(`/audit?${new URLSearchParams({ ...(entity ? { entity_id: entity } : {}), ...(cursor ? { cursor } : {}) })}`),
     questionSets: (id: string, signal?: AbortSignal) => request<JobPool>(`${base}/jobs/${id}/question-sets`, { signal }, token),

@@ -1,6 +1,6 @@
 # Assignment implementation status
 
-Stack follows the user's explicit correction: Rust, React, PostgreSQL and pgvector. One backend executable, seven application tables, one baseline migration and one additive Job ID migration remain.
+Stack follows the user's explicit correction: Rust, React, PostgreSQL and pgvector. One backend executable, eight application tables and one development baseline migration remain.
 
 | Requirement | Implementation |
 | --- | --- |

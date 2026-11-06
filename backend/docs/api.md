@@ -24,7 +24,7 @@ All routes below are prefixed `/api/v1`. Ownership comes from the authenticated 
 | GET | `/sessions` | List owned interviews |
 | GET | `/sessions/{id}` | Details and invitation availability |
 | POST | `/sessions/{id}/invitation` | Recover the saved link token, or explicitly replace an unaccepted legacy link |
-| GET, POST | `/sessions/{id}/generation` | Inspect question preparation / enqueue or retry |
+| GET | `/sessions/{id}/generation` | Inspect the assigned reusable set and candidate answers |
 | GET | `/audit` | Audit history, optionally filtered by `entity_id` |
 
 Lists use `limit=1..100` and UUID cursors, returning `{items,next_cursor}`. Job/invitation creation is idempotent per interviewer and request key. Identical retries return 200; new records return 201; conflicting reuse returns 409.
@@ -147,11 +147,11 @@ Limits and model/calibration behavior are in the linked guide. Evidence attachme
 
 ### Job question-set pool
 
-`POST /api/v1/jobs` accepts optional `preparation_duration_minutes` (5–180; default 30) and atomically queues three sets. `GET /api/v1/jobs/{job}/question-sets` returns owner-only status and unused questions/reference rubrics; `POST` retries failed unused sets. Invitations assign a matching unused set once, replenish its slot, or queue per-session generation if no set is ready. See [details](job-question-sets.md).
+`POST /api/v1/jobs` accepts `preparation_duration_minutes` (5–180; default 30) and `question_set_count` (1–5; default 1), and atomically queues that many reusable sets. `GET /api/v1/jobs/{job}/question-sets` returns owner-only status and questions/reference rubrics; `POST` retries failed sets. Invitations require a completed matching set and link it without copying questions or generating replacements. See [details](job-question-sets.md).
 
 ### Incremental generation progress
 
-Generation v4 saves fully validated questions individually. Owner generation/status and pool previews may show saved questions while status is running/failed. Partial rows do not imply completion. Candidate session responses include `questions_ready`; starting requires completed generation (or a manually prepared legacy session without generation metadata). `POST` generation retry resumes after saved positions. Pool status includes owner-only `last_failure` summaries/findings, without the raw diagnostic draft.
+Generation v4 saves fully validated questions individually. Owner generation/status and pool previews may show saved questions while status is running/failed. Partial rows do not imply completion. Candidate session responses include `questions_ready`; starting requires a completed assigned set. `POST /jobs/{job}/question-sets` retries failed sets after their saved positions. Pool status includes owner-only `last_failure` summaries/findings, without the raw diagnostic draft.
 
 ### Invitation readiness
 

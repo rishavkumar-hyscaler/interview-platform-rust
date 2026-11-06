@@ -6,16 +6,17 @@ One Rust executable serves the API and runs background tasks. Internal modules s
 
 `users.role` has exactly two values: `interviewer` and `interviewee`. Interviewers sign in with email/password, create jobs and invitations, and review evidence. Reviewing is an interviewer capability, not a separate user role. Interviewees access their assigned session through private invitation links. An invitation creates or reuses an interviewee profile; it does not assign a password. Email is unique within each role.
 
-There are no organizations or memberships. Jobs belong directly to an interviewer. Interview sessions identify both their interviewer and interviewee. Questions belong to a session and job; answers belong to questions. Forced PostgreSQL row-level security uses transaction-local `app.interviewer_id` derived from authenticated identity. Composite foreign keys prevent cross-interviewer references. The runtime database role cannot bypass RLS.
+There are no organizations or memberships. Jobs belong directly to an interviewer. Interview sessions identify both their interviewer and interviewee. Questions belong to reusable job sets; answers belong to a session and question. Forced PostgreSQL row-level security uses transaction-local `app.interviewer_id` derived from authenticated identity. Composite foreign keys prevent cross-interviewer references. The runtime database role cannot bypass RLS.
 
-## Seven application tables
+## Eight application tables
 
 | Table | Responsibility |
 |---|---|
 | users | Interviewer/interviewee identity |
 | auth_sessions | Hashed interviewer login tokens and interviewee invitation capabilities |
 | jobs | Job description and competency blueprint |
-| interview_sessions | Participants, timing, lifecycle, and generation retry/lease state |
+| question_sets | Reusable job sets and generation retry/lease state |
+| interview_sessions | Participants, assigned set, timing and lifecycle |
 | interview_questions | Question snapshots, rubrics, and embedding-backed per-job question bank |
 | interview_answers | Revisioned answers |
 | audit_events | Append-only action/evidence history |
@@ -24,7 +25,7 @@ Authentication and invitation tokens share storage but have distinct authorizati
 
 ## Background processing
 
-No separate queue table or worker build is required. Generation status, attempts, seed, and reclaimable leases live on interview sessions. Expiry reads persisted deadlines directly. Workers traverse interviewer identities and enter the same RLS context as API requests; this is deliberately simple for the assignment. A large installation would need a more efficient work-discovery mechanism.
+No separate queue table or worker build is required. Generation status, attempts, seed, and reclaimable leases live on question sets. Expiry reads persisted deadlines directly. Workers traverse interviewer identities and enter the same RLS context as API requests; this is deliberately simple for the assignment. A large installation would need a more efficient work-discovery mechanism.
 
 Generation and expiry run concurrently. Generation validates model output and checks exact/semantic duplication against existing questions for the job. Questions, rubrics, and generation completion commit atomically. Shutdown can abandon an AI request safely; its lease makes unfinished work reclaimable. Deadline finalization and its audit record commit together. In-progress interviews submit their saved answers when time ends; unstarted invitations expire. Answer saves use optimistic revisions and serialize against submission, preventing late writes and silent multi-tab overwrites.
 

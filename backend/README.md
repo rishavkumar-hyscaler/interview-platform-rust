@@ -25,11 +25,11 @@ An optional Compose database remains available via `docker compose -f compose.ya
 
 ## Schema
 
-One baseline migration plus additive upgrades for human Job IDs and the job question-set pool. Existing migration checksums are preserved.
+One development baseline migration: `migrations/202611040001_initial_schema.sql`.
 
-Seven application tables: `users`, `auth_sessions`, `jobs`, `interview_sessions`, `interview_questions`, `interview_answers`, and `audit_events`. Users are either interviewers or interviewees. Jobs store descriptions/blueprints; interviews store generation state; questions also serve as the embedding-backed question bank. Organizations, memberships, and separate queue/JD/blueprint/bank/access tables are absent.
+Eight application tables: `users`, `auth_sessions`, `jobs`, `question_sets`, `interview_sessions`, `interview_questions`, `interview_answers`, and `audit_events`. Users are interviewers or interviewees. Jobs own reusable question sets; generation attempts, retries and leases live only in `question_sets`. Sessions reference `question_set_id`; questions reference `set_id`. Answers are scoped by both session and question. Per-candidate generation, question copies, organizations and memberships are absent.
 
-The existing local database was preserved and its migration history aligned only after fresh-schema equivalence and record-count checks. Fresh databases use the same normal `cargo run -- --migrate` command. Keep private backups before changing schema history; production upgrades should use explicit migrations rather than rewriting an applied baseline.
+The development database was rebaselined with existing records preserved. Fresh databases use `cargo run -- --migrate`. Older checkouts with the previous five-migration history require a deliberate development rebaseline or a fresh database; rewriting applied migrations is not a production upgrade strategy.
 
 ## Verification
 
@@ -63,7 +63,7 @@ backend/
     infrastructure.rs   # Configuration, database, durable expiry transaction
     worker.rs           # In-process background job loop
   tests/                # Integration tests
-  migrations/           # Versioned schema upgrades; preserve applied checksums
+  migrations/           # Single development baseline
 ```
 
 `cargo build --release` produces `target/release/platform-api`. `cargo run` starts the entire backend. `cargo run -- --migrate` applies migrations and exits.

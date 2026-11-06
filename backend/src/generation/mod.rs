@@ -2,40 +2,7 @@
 pub mod provider;
 mod quality;
 pub mod types;
-use serde_json::json;
-use uuid::Uuid;
 const PROMPT_VERSION: &str = "jd-questions-v6";
-#[derive(Clone, Copy)]
-pub(crate) struct AutomaticPreparation(pub bool);
-
-pub(crate) async fn prepare_automatically(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    owner: Uuid,
-    session: Uuid,
-    enabled: bool,
-) -> std::result::Result<bool, sqlx::Error> {
-    if bank::assign(tx, owner, session).await? {
-        return Ok(true);
-    }
-    if !enabled {
-        return Ok(false);
-    }
-    // Jobs with configured sets never silently create paid, session-specific extras.
-    // Candidate polling can still assign a set once it finishes preparing.
-    let has_sets: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM question_sets p JOIN interview_sessions s ON s.job_id=p.job_id WHERE s.id=$1)")
-        .bind(session).fetch_one(&mut **tx).await?;
-    if has_sets {
-        return Ok(false);
-    }
-
-    let changed = sqlx::query("UPDATE interview_sessions s SET generation_id=coalesce(generation_id,$2),generation_seed=coalesce(generation_seed,$3),generation_status='pending',generation_available_at=now(),generation_error=NULL WHERE s.id=$1 AND s.generation_status='not_started' AND s.state IN ('invited','ready') AND s.expires_at>clock_timestamp() AND NOT EXISTS(SELECT 1 FROM session_question_details() q WHERE q.session_id=s.id)")
-        .bind(session).bind(Uuid::new_v4()).bind(Uuid::new_v4()).execute(&mut **tx).await?.rows_affected();
-    if changed > 0 {
-        sqlx::query("INSERT INTO audit_events(id,interviewer_id,entity_id,action,metadata) VALUES($1,$2,$3,'questions.queued',$4)")
-            .bind(Uuid::new_v4()).bind(owner).bind(session).bind(json!({"actor":"system","source":"automatic_preparation","prompt_version":PROMPT_VERSION})).execute(&mut **tx).await?;
-    }
-    Ok(changed > 0)
-}
 
 pub(crate) mod bank;
 mod bank_http;

@@ -6,7 +6,7 @@ Saved checkpoints and the time plan are reused. The next worker attempt receives
 
 ## Fixed time planning (v6)
 
-Before drafting any question, the backend plans all remaining slots and persists the plan as a `generation.planned` audit event for the set/session. New questions get fixed allocations of 2–3 minutes. A 10-minute fresh interview uses at most five 2-minute questions; a 30-minute interview with six questions uses up to eighteen task minutes, leaving review time. Priority for a third minute combines answer type and difficulty. Code scope is one small function or a focused fix in supplied starter code (normally 3–8 changed lines); scenario/text scope is one decision/concept answered in 2–4 sentences. Full components, services and multi-feature workflows are excluded.
+Before drafting any question, the backend plans all remaining slots and persists the plan as a `generation.planned` audit event for the set. New questions get fixed allocations of 2–3 minutes. A 10-minute fresh interview uses at most five 2-minute questions; a 30-minute interview with six questions uses up to eighteen task minutes, leaving review time. Priority for a third minute combines answer type and difficulty. Code scope is one small function or a focused fix in supplied starter code (normally 3–8 changed lines); scenario/text scope is one decision/concept answered in 2–4 sentences. Full components, services and multi-feature workflows are excluded.
 
 The blueprint request count is capped by duration / 2. Older cached blueprints are adapted locally to fit, keeping higher-priority competencies. Existing saved questions and their times are preserved. A legacy partial set may therefore retain some earlier one-minute questions; only new questions follow the 2–3 minute policy. A set-specific plan is reused across retries, so cached job blueprints and saved questions do not need paid regeneration. The strict output schema fixes estimated_minutes to the planned allocation. Quality review checks scope and correctness independently. A time plan does not guarantee that every person will finish in exactly that time.
 
@@ -14,7 +14,7 @@ The interviewer can expand Question time plan to see the number of questions, ea
 
 ## Current flow: fewer requests (v5)
 
-Job creation accepts `question_set_count` (1–5, default 1). This is the total number of job sets, including assigned/pending/failed work; completed sets are reused across candidates without queuing replacements. interview_sessions.question_set_id links to the source questions directly; no question copies are created. session_question_details() is a SECURITY INVOKER read function preserving table RLS on PostgreSQL 14 and later. Candidate answers, revisions and progress are scoped by session_id and question_id. Session-specific generation beyond these sets requires the interviewer’s explicit Prepare action. Existing jobs keep their previous target of three. The target is returned by job and pool APIs. Changing it on an existing job is not exposed yet.
+Job creation accepts `question_set_count` (1–5, default 1). This is the total number of job sets, including assigned/pending/failed work; completed sets are reused across candidates without queuing replacements. interview_sessions.question_set_id links to the source questions directly; no question copies are created. session_question_details() is a SECURITY INVOKER read function preserving table RLS on PostgreSQL 14 and later. Candidate answers, revisions and progress are scoped by session_id and question_id. Session-specific generation has been removed; preparation and retries operate only on job sets. Existing jobs keep their previous target of three. The target is returned by job and pool APIs. Changing it on an existing job is not exposed yet.
 
 For each unsaved position, generate the complete question, reference answer and rubric in one call. Validate its structure, time allocation and exact fingerprint in Rust before requesting an embedding. Check semantic similarity against the job bank, then use one independent content review for both prompt and reference. Save only the fully validated question before proceeding.
 
@@ -31,7 +31,7 @@ A set is prepared **one question at a time**. The backend completes its checks a
 ## Flow
 
 1. Extract or reuse the job's validated competency blueprint. The blueprint is saved before question work begins.
-2. Load already saved question positions and time allocations for the set/session. Check that positions are contiguous, then start at the first unsaved position.
+2. Load already saved question positions and time allocations for the set. Check that positions are contiguous, then start at the first unsaved position.
 3. Allocate a share of the remaining interview time to the current blueprint slot.
 4. Generate exactly one prompt, without an answer or rubric. Validate its type, competency, difficulty, lengths and time allocation.
 5. Check exact fingerprints against the full job bank before requesting embeddings, then check semantic similarity against existing bank questions, including earlier checkpoints in this set.

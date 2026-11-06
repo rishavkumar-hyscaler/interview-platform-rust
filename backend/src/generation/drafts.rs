@@ -25,7 +25,7 @@ pub(super) async fn prepare(
     let diagnostics = super::diagnostics::Scope {
         pool: context.pool.clone(),
         owner: context.claim.recruiter,
-        entity: context.claim.session,
+        entity: context.claim.id,
         position: Some(context.position),
     };
     let mut feedback = initial_feedback.to_string();
@@ -33,7 +33,7 @@ pub(super) async fn prepare(
     // Automatic worker retries receive the same concrete findings as local repairs.
     let mut tx = interviewer_transaction(context.pool, context.claim.recruiter).await?;
     let prior: Option<serde_json::Value> = sqlx::query_scalar("SELECT metadata FROM audit_events WHERE entity_id=$1 AND action='generation.rejected' AND metadata->>'question_position'=$2 ORDER BY created_at DESC,id DESC LIMIT 1")
-        .bind(context.claim.session).bind(context.position.to_string()).fetch_optional(&mut *tx).await?;
+        .bind(context.claim.id).bind(context.position.to_string()).fetch_optional(&mut *tx).await?;
     tx.commit().await?;
     if let Some(prior) = prior {
         feedback = format!(

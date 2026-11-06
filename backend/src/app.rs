@@ -19,7 +19,6 @@ pub fn router(pool: PgPool) -> Router {
     )
 }
 pub fn router_with_ai(pool: PgPool, provider: Option<generation::provider::AiProvider>) -> Router {
-    let automatic = generation::AutomaticPreparation(provider.is_some());
     Router::new()
         .route(
             "/health/live",
@@ -45,7 +44,6 @@ pub fn router_with_ai(pool: PgPool, provider: Option<generation::provider::AiPro
                 axum::http::HeaderValue::from_static("no-store"),
             ),
         )
-        .layer(axum::Extension(automatic))
         .layer(DefaultBodyLimit::max(512 * 1024))
         .layer(axum::middleware::map_response(normalize_errors))
         .layer(axum::middleware::from_fn(crate::observability::request_log))
