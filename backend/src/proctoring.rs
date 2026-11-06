@@ -66,6 +66,12 @@ pub(crate) fn evidence_kind(kind: &str) -> bool {
             | "speech_detected"
     )
 }
+pub(crate) fn permitted_question_action(kind: &str) -> bool {
+    matches!(
+        kind,
+        "copy_from_question" | "paste_from_question" | "question_context_menu"
+    )
+}
 fn permission_event(kind: &str) -> bool {
     matches!(
         kind,
@@ -141,7 +147,8 @@ fn valid(event: &Observation) -> bool {
             | "multiple_displays"
             | "devtools_suspected"
             | "monitoring_capability"
-    ) || permission_event(&event.kind))
+    ) || permission_event(&event.kind)
+        || permitted_question_action(&event.kind))
         && event.measurements.as_ref().is_none_or(Measurements::valid)
         && (0..=4_102_444_800_000).contains(&event.client_time)
         && event
@@ -213,7 +220,7 @@ async fn record(
         let received: String = sqlx::query_scalar("SELECT clock_timestamp()::text")
             .fetch_one(&mut *tx)
             .await?;
-        let mut metadata = json!({"source":"browser","kind":event.kind,"client_time_ms":event.client_time,"character_count":if matches!(event.kind.as_str(),"paste"|"typing_burst"){event.count}else{None},"measurement":event.count,"unit":match event.kind.as_str(){"paste"|"typing_burst"=>"characters","devtools_suspected"=>"outer_inner_pixels","rapid_answer"=>"seconds","multiple_displays"=>"minimum_displays",_=>"capability_boolean"},"classification":"observation","stage":if preflight {"preflight"}else{"interview"},"verified":false,"sequence":sequence,"previous_signature":previous_signature,"received_at":received});
+        let mut metadata = json!({"source":"browser","kind":event.kind,"client_time_ms":event.client_time,"character_count":if matches!(event.kind.as_str(),"paste"|"typing_burst"|"copy_from_question"|"paste_from_question"){event.count}else{None},"measurement":event.count,"unit":match event.kind.as_str(){"paste"|"typing_burst"|"copy_from_question"|"paste_from_question"=>"characters","devtools_suspected"=>"outer_inner_pixels","rapid_answer"=>"seconds","multiple_displays"=>"minimum_displays",_=>"capability_boolean"},"classification":if permitted_question_action(&event.kind){"permitted_activity"}else{"observation"},"stage":if preflight {"preflight"}else{"interview"},"verified":false,"sequence":sequence,"previous_signature":previous_signature,"received_at":received});
         if let Some(measurements) = &event.measurements {
             metadata["measurements"] = json!(measurements);
         }

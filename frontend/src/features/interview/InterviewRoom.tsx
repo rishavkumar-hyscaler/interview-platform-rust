@@ -199,7 +199,7 @@ export function InterviewRoom({ token, initial, onSession, devices, screen, obse
       <section className="room-left">
         <div className="room-question">
           <div className="room-question-top"><span>Question {question?.position ?? '–'} / {session.question_count}</span><div className={`room-timer ${remaining <= 60000 ? 'urgent' : ''}`} role="timer" aria-label="Time remaining"><small>Time remaining</small><strong>{time(remaining)}</strong></div></div>
-          {loading ? <p role="status">Loading question…</p> : question ? <QuestionContent content={question.prompt} /> : <button className="button" onClick={() => void load()}>Retry loading</button>}
+          {loading ? <p role="status">Loading question…</p> : question ? <QuestionContent content={question.prompt} questionId={question.id} /> : <button className="button" onClick={() => void load()}>Retry loading</button>}
           <div className="room-navigation" aria-label="Questions">{Array.from({ length: session.question_count }, (_, index) => <button key={index} className={question?.position === index + 1 ? 'current' : ''} aria-label={`Question ${index + 1}`} aria-current={question?.position === index + 1 ? 'step' : undefined} disabled={loading || finishing || conflict || mediaPending || posting || selectingNext} onClick={() => void navigate(index + 1)}>{index + 1}</button>)}<small>{session.answer_count} of {session.question_count} answered</small></div>
         </div>
         <InterviewMedia token={token} sessionId={session.id} devices={devices} />

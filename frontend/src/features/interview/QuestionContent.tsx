@@ -7,7 +7,7 @@ function inline(text: string): ReactNode[] {
       : part.startsWith('**') && part.endsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong>
         : part);
 }
-export function QuestionContent({ content }: { content: string }) {
+export function QuestionContent({ content, questionId }: { content: string; questionId?: string }) {
   const lines = content.replace(/\r\n/g, '\n').split('\n');
   const blocks: ReactNode[] = [];
   for (let index = 0; index < lines.length;) {
@@ -32,5 +32,5 @@ export function QuestionContent({ content }: { content: string }) {
     const heading = line.match(/^#{1,6}\s+(.*)$/);
     blocks.push(heading ? <h3 key={blocks.length}>{inline(heading[1])}</h3> : <p key={blocks.length}>{inline(line)}</p>); index++;
   }
-  return <div className="question-content">{blocks}</div>;
+  return <div className="question-content" data-question-id={questionId}>{blocks}</div>;
 }

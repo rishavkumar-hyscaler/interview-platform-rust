@@ -54,13 +54,16 @@ pub(super) async fn annotate(
     Ok(Json(json!({"saved":true})))
 }
 pub(super) fn weights() -> Value {
-    let defaults = json!({"focus_lost":2,"hidden":2,"fullscreen_exited":3,"paste":2,"context_menu":1,"camera_denied":0,"microphone_denied":0,"typing_burst":3,"rapid_answer":2,"multiple_displays":2,"devtools_suspected":1,"face_missing":1,"multiple_faces":4,"gaze_away":0,"possible_background_speech":1,"speech_detected":0});
+    let defaults = json!({"focus_lost":2,"hidden":2,"fullscreen_exited":3,"paste":2,"context_menu":1,"camera_denied":0,"microphone_denied":0,"typing_burst":3,"rapid_answer":2,"multiple_displays":2,"devtools_suspected":1,"face_missing":1,"multiple_faces":4,"gaze_away":0,"possible_background_speech":1,"speech_detected":0,"copy_from_question":0,"paste_from_question":0,"question_context_menu":0});
     let mut result = defaults;
     if let Ok(raw) = std::env::var("INTEGRITY_WEIGHTS")
         && let Ok(Value::Object(custom)) = serde_json::from_str::<Value>(&raw)
     {
         for (k, v) in custom {
-            if result.get(&k).is_some() && v.as_u64().is_some_and(|n| n <= 20) {
+            if !crate::proctoring::permitted_question_action(&k)
+                && result.get(&k).is_some()
+                && v.as_u64().is_some_and(|n| n <= 20)
+            {
                 result[k] = v;
             }
         }
@@ -116,4 +119,21 @@ pub(super) async fn integrity(
     Ok(Json(
         json!({"risk_score":score.min(100),"weights":weights,"events":events,"summary":format!("{} browser observations; {} weighted risk points. Review the evidence and context before drawing conclusions.",events.len(),score.min(100)),"notice":"Risk points are review priorities, not a probability or verdict of cheating. Confirmed activity means a reviewer confirmed that activity occurred, not cheating."}),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn question_clipboard_actions_have_no_integrity_weight() {
+        let weights = super::weights();
+        for kind in [
+            "copy_from_question",
+            "paste_from_question",
+            "question_context_menu",
+        ] {
+            assert!(crate::proctoring::permitted_question_action(kind));
+            assert_eq!(weights[kind], 0);
+        }
+        assert!(weights["paste"].as_u64().unwrap() > 0);
+    }
 }

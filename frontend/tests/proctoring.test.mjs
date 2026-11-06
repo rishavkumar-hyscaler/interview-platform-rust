@@ -159,3 +159,21 @@ test('fractional browser clocks produce integer durations accepted by the API', 
   assert.equal(events[0].measurements.duration_ms, 5001);
   assert.equal(Number.isInteger(events[0].measurements.duration_ms), true);
 });
+const clipboardSource = readFileSync(new URL('../src/features/interview/proctoring/clipboard.ts', import.meta.url), 'utf8');
+const clipboardCompiled = ts.transpileModule(clipboardSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
+const { QuestionClipboard } = await import(`data:text/javascript;base64,${Buffer.from(clipboardCompiled).toString('base64')}`);
+test('only an observed selection from the same current question makes a paste neutral', () => {
+  const clipboard = new QuestionClipboard(); const text = 'Explain Rust ownership.\nGive one example.';
+  assert.equal(clipboard.matches('q1','Rust ownership.',text),false);
+  assert.equal(clipboard.copy('q1','Rust ownership.',text),true);
+  assert.equal(clipboard.matches('q1','Rust ownership.',text),true);
+  assert.equal(clipboard.matches('q2','Rust ownership.',text),false);
+  assert.equal(clipboard.matches('q1','Rust ownership. External solution',text),false);
+  assert.equal(clipboard.copy('q1','Explain Rust ownership.\nGive',text),true);
+  assert.equal(clipboard.matches('q1','Explain Rust ownership. Give',text),true);
+  assert.equal(clipboard.copy('q1','External solution',text),false);
+  assert.equal(clipboard.matches('q1','Rust ownership.',text),false);
+  assert.equal(clipboard.copy('q1',' ',text),false);
+  clipboard.copy('q1','Rust ownership.',text);clipboard.clear();
+  assert.equal(clipboard.matches('q1','Rust ownership.',text),false);
+});

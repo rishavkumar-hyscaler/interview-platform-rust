@@ -10,13 +10,26 @@ export function InterviewMedia({token,sessionId,devices}:{token:string;sessionId
   const [detection,setDetection]=useState('');
   const [error,setError]=useState('');const [level,setLevel]=useState(0);
   const camera=devices.camera==='enabled';const mic=devices.microphone==='enabled';
+  const cameraTrack=devices.stream.current?.getVideoTracks().find(track=>track.readyState==='live');
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   useEffect(()=>{
     const preview=video.current;if(!preview)return;
-    preview.srcObject=camera && devices.stream.current?new MediaStream(devices.stream.current.getVideoTracks()):null;
-    if(camera)void preview.play().catch(()=>{if(alive.current)setError('Camera playback was blocked. Click Retry camera preview.');});
-    return()=>{preview.srcObject=null;};
-  },[camera,devices.revision,devices.stream]);
+    let cancelled=false;
+    setError('');
+    const playing=()=>{if(!cancelled)setError('');};
+    preview.addEventListener('playing',playing);
+    preview.srcObject=camera && cameraTrack?new MediaStream([cameraTrack]):null;
+    if(camera && cameraTrack)void preview.play().then(playing).catch(failure=>{
+      // Replacing a stream or StrictMode cleanup can reject an older play().
+      // Neither is a permission denial, and neither may overwrite the new preview.
+      if(cancelled || !alive.current || (failure instanceof DOMException && failure.name==='AbortError'))return;
+      setError(failure instanceof DOMException && failure.name==='NotAllowedError'
+        ? 'Camera playback was blocked. Click Retry camera preview.'
+        : 'Camera preview could not start. Click Retry camera preview.');
+    });
+    return()=>{cancelled=true;preview.removeEventListener('playing',playing);preview.srcObject=null;};
+    // Microphone revisions must not detach an unchanged camera stream.
+  },[camera,cameraTrack]);
   useEffect(()=>{
     if(!mic || !devices.stream.current?.getAudioTracks().length){setLevel(0);return;}
     const context=new AudioContext();const analyser=context.createAnalyser();analyser.fftSize=256;
@@ -32,5 +45,5 @@ export function InterviewMedia({token,sessionId,devices}:{token:string;sessionId
     const next=startMediaMonitor(video.current,devices.stream.current,setMonitorStatus,evidence.current,setDetection);monitor.current=next;
     return()=>{next.stop();monitor.current=null;};
   },[camera,mic,devices.revision,devices.stream,token,sessionId]);
-  return <section className="room-media"><div className="camera-preview"><video ref={video} autoPlay muted playsInline hidden={!camera}/>{!camera&&<div><span aria-hidden="true">◎</span><p>Camera {devices.camera}</p></div>}<small>{camera||mic?'Camera/mic enabled':'Browser monitoring continues'}</small></div><div className="media-controls"><button className="button secondary" aria-pressed={camera} disabled={devices.busy} onClick={()=>void devices.toggle('video')}>{camera?'Turn camera off':'Enable camera'}</button><button className="button secondary" aria-pressed={mic} disabled={devices.busy} onClick={()=>void devices.toggle('audio')}>{mic?'Turn mic off':'Enable microphone'}</button>{mic&&<meter min="0" max="100" value={level} aria-label="Microphone input level"/>}</div><small className="muted">Face, eye/head direction and speech checks run locally when devices are enabled. Flagged screen/camera snapshots and 3-second clips are saved for interviewer review. Only flagged evidence is uploaded; speech clips include up to 3 preceding seconds held in memory. No identity or emotion analysis.</small><small role="status">{monitorStatus}</small>{detection&&<small role="status">{detection}</small>}{camera&&<button className="text-button" onClick={()=>monitor.current?.recalibrate()}>Recalibrate eye/head direction</button>}{evidenceStatus&&<small role="status">{evidenceStatus}</small>}{devices.error&&<p className="configuration-note" role="status">{devices.error}</p>}{error&&<p className="error" role="alert">{error}<button className="text-button" onClick={()=>{void video.current?.play().then(()=>setError('')).catch(()=>setError('Turn the camera off and enable it again.'));}}>Retry camera preview</button></p>}</section>;
+  return <section className="room-media"><div className="camera-preview"><video ref={video} autoPlay muted playsInline hidden={!camera}/>{!camera&&<div><span aria-hidden="true">◎</span><p>Camera {devices.camera}</p></div>}<small>{camera||mic?'Camera/mic enabled':'Browser monitoring continues'}</small></div><div className="media-controls"><button className="button secondary" aria-pressed={camera} disabled={devices.busy} onClick={()=>void devices.toggle('video')}>{camera?'Turn camera off':'Enable camera'}</button><button className="button secondary" aria-pressed={mic} disabled={devices.busy} onClick={()=>void devices.toggle('audio')}>{mic?'Turn mic off':'Enable microphone'}</button>{mic&&<meter min="0" max="100" value={level} aria-label="Microphone input level"/>}</div><small className="muted">Face, eye/head direction and speech checks run locally when devices are enabled. Flagged screen/camera snapshots and 3-second clips are saved for interviewer review. Only flagged evidence is uploaded; speech clips include up to 3 preceding seconds held in memory. No identity or emotion analysis.</small><small role="status">{monitorStatus}</small>{detection&&<small role="status">{detection}</small>}{camera&&<button className="text-button" onClick={()=>monitor.current?.recalibrate()}>Recalibrate eye/head direction</button>}{evidenceStatus&&<small role="status">{evidenceStatus}</small>}{devices.error&&<p className="configuration-note" role="status">{devices.error}</p>}{error&&<p className="error" role="alert">{error}{' '}<button className="text-button" onClick={()=>{void video.current?.play().then(()=>setError('')).catch(()=>setError('Turn the camera off and enable it again.'));}}>Retry camera preview</button></p>}</section>;
 }
