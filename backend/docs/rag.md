@@ -16,7 +16,7 @@ RLS enforces interviewer ownership. Retrieval additionally accepts only this ses
 
 ## Development schema
 
-There remains one migration: `202611040001_initial_schema.sql`. For the immediately preceding development baseline, run `cargo run -- --upgrade-rag` from `backend/`. It verifies the old checksum, adds the RAG schema in one transaction and updates that baseline checksum. It refuses unexpected migration histories. Fresh databases use `cargo run -- --migrate`. No existing application rows are deleted. This development rebaseline is not a production migration strategy.
+There is one migration: `202611040001_initial_schema.sql`, including the RAG tables, indexes and queue triggers. Initialize a fresh database with `cargo run -- --migrate` from `backend/`.
 
 ## Focused verification
 

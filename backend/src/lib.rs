@@ -22,7 +22,6 @@ pub(crate) use services::proctoring_service as proctoring;
 pub use services::rag;
 mod repositories;
 pub(crate) use services::review;
-pub mod schema;
 pub use services::scoring;
 mod services;
 pub mod workers;
