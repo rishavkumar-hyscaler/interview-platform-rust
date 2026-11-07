@@ -1,6 +1,11 @@
 //! One application, organized by feature; app.rs composes HTTP routes.
+#[cfg(all(feature = "tokio-console", not(tokio_unstable)))]
+compile_error!(
+    "Tokio Console requires RUSTFLAGS=\"--cfg tokio_unstable\"; use the documented console startup command."
+);
 mod access;
 mod adaptive;
+mod ai;
 mod app;
 mod audit;
 mod auth;

@@ -32,7 +32,7 @@ async fn embeddings(
         )
             .into_response();
     }
-    Json(json!({"data":(0..count).map(|index|json!({"index":index,"embedding":[1.0,0.5,0.25]})).collect::<Vec<_>>()})).into_response()
+    Json(json!({"object":"list","model":"text-embedding-3-small","usage":{"prompt_tokens":1,"total_tokens":1},"data":(0..count).map(|index|json!({"object":"embedding","index":index,"embedding":[1.0,0.5,0.25]})).collect::<Vec<_>>()})).into_response()
 }
 async fn owner(pool: &PgPool) -> Uuid {
     let id = Uuid::new_v4();

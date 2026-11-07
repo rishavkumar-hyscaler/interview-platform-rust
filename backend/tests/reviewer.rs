@@ -78,14 +78,22 @@ async fn mock_embeddings(Json(body): Json<Value>) -> Json<Value> {
         .map(|(index, _)| {
             let mut embedding = vec![0.0f32; 1536];
             embedding[0] = 1.0;
-            json!({"index":index,"embedding":embedding})
+            json!({"object":"embedding","index":index,"embedding":embedding})
         })
         .collect();
-    Json(json!({"data":data}))
+    Json(
+        json!({"object":"list","model":"text-embedding-3-small","usage":{"prompt_tokens":1,"total_tokens":1},"data":data}),
+    )
 }
 async fn mock_response(Json(body): Json<Value>) -> axum::response::Response {
     use axum::response::IntoResponse;
-    let input: Value = serde_json::from_str(body["input"][0]["content"].as_str().unwrap()).unwrap();
+    let input: Value = serde_json::from_str(
+        body["input"][0]["content"]
+            .as_str()
+            .or_else(|| body["input"][0]["content"][0]["text"].as_str())
+            .unwrap(),
+    )
+    .unwrap();
     if body["stream"] == true {
         let source = &input["sources"][0];
         let quote: String = source["text"].as_str().unwrap().chars().take(30).collect();
@@ -94,16 +102,16 @@ async fn mock_response(Json(body): Json<Value>) -> axum::response::Response {
         for character in reply.chars() {
             data.push_str(&format!(
                 "event: response.output_text.delta\ndata: {}\n\n",
-                json!({"type":"response.output_text.delta","delta":character.to_string()})
+                json!({"type":"response.output_text.delta","item_id":"msg_mock","output_index":0,"content_index":0,"sequence_number":0,"delta":character.to_string()})
             ));
         }
         data.push_str(&format!(
             "data: {}\n\n",
-            json!({"type":"response.completed","response":{"status":"completed"}})
+            json!({"type":"response.completed","sequence_number":1,"response":{"id":"resp_mock","object":"response","created_at":0,"model":"gpt-5-mini","status":"completed","output":[]}})
         ));
         ([("content-type", "text/event-stream")], data).into_response()
     } else {
-        Json(json!({"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":json!({"criteria":[{"criterion_id":"correctness","points":9,"evidence":"reliable","reasoning":"The answer explicitly describes a reliable approach."}]}).to_string()}]}]})).into_response()
+        Json(json!({"id":"resp_mock","object":"response","created_at":0,"model":"gpt-5-mini","status":"completed","output":[{"type":"message","id":"msg_mock","role":"assistant","status":"completed","content":[{"type":"output_text","text":json!({"criteria":[{"criterion_id":"correctness","points":9,"evidence":"reliable","reasoning":"The answer explicitly describes a reliable approach."}]}).to_string()}]}]})).into_response()
     }
 }
 #[tokio::test]

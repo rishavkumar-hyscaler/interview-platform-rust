@@ -23,6 +23,44 @@ The API defaults to `127.0.0.1:8080`. Set `FRONTEND_ORIGIN` to the frontend's ex
 
 An optional Compose database remains available via `docker compose -f compose.yaml up -d db` on port 55432. Its database is named `interview`; update connection URLs explicitly if choosing it instead of your existing PostgreSQL.
 
+## Tokio Console (development)
+
+The `tokio-console` CLI is installed separately from the backend. If setting up
+another machine, run `cargo install tokio-console --version 0.1.14 --locked`.
+
+Stop your existing backend, then start one instrumented instance from `backend/`:
+
+```bash
+RUSTFLAGS="--cfg tokio_unstable" cargo run --features tokio-console
+```
+
+In another terminal:
+
+```bash
+tokio-console http://127.0.0.1:6669
+```
+
+If your terminal defines an empty `COLORTERM` and the CLI reports a color-option
+error, use `COLORTERM=truecolor tokio-console http://127.0.0.1:6669`.
+
+This opens a terminal UI, not a browser page. Inspect task busy/idle time, polls,
+wakeups and instrumented async resources while using the frontend. Long idle
+periods can simply mean waiting for network/database responses. Tokio Console
+is not a system CPU/memory monitor or a per-endpoint latency dashboard; use the
+existing request/task duration logs and metrics alongside it.
+
+Telemetry binds only to localhost on port 6669. JSON logging still respects
+`RUST_LOG`; its filter is separate from Console's runtime tracing, so normal
+`RUST_LOG=info` does not disable console collection. The feature adds runtime
+instrumentation overhead and requires a rebuild with `tokio_unstable`. Normal
+`cargo run` keeps Console disabled. Do not run a second backend on port 8080.
+
+The four job loops currently run inside `tokio::join!` and will not appear as
+four independently spawned tasks. Rig request futures suppress their internal
+payload tracing; application logs still report AI operation duration.
+
+Setup follows the [official Tokio Console instructions](https://github.com/tokio-rs/console).
+
 ## Schema
 
 One development baseline migration: `migrations/202611040001_initial_schema.sql`.

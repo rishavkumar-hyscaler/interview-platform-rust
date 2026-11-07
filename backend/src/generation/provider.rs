@@ -2,7 +2,6 @@ use anyhow::{Result, ensure};
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use std::time::Duration;
 
 #[derive(Debug)]
 pub struct ProviderFailure {
@@ -20,7 +19,7 @@ impl std::fmt::Display for ProviderFailure {
     }
 }
 impl std::error::Error for ProviderFailure {}
-fn provider_failure(status: u16, body: &Value) -> ProviderFailure {
+pub(crate) fn provider_failure(status: u16, body: &Value) -> ProviderFailure {
     // Whitelist operational error codes; never echo arbitrary remote text or API keys.
     let code = match body["error"]["code"]
         .as_str()
@@ -44,7 +43,7 @@ fn provider_failure(status: u16, body: &Value) -> ProviderFailure {
     }
 }
 #[derive(Debug)]
-pub struct TransportFailure(&'static str);
+pub struct TransportFailure(pub(crate) &'static str);
 impl std::fmt::Display for TransportFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0)
@@ -120,6 +119,12 @@ fn generation_schema_bounds(schema: &mut Value, name: &str, input: &Value) {
 }
 // Serialize request schemas in authoring order without changing serde_json's
 // canonical map order used by persisted audit signatures elsewhere in the app.
+pub(crate) fn ordered_payload(value: &Value) -> Result<Vec<u8>> {
+    Ok(serde_json::to_vec(&OrderedPayload {
+        value,
+        properties: false,
+    })?)
+}
 struct OrderedPayload<'a> {
     value: &'a Value,
     properties: bool,
@@ -198,7 +203,6 @@ impl serde::Serialize for OrderedPayload<'_> {
 }
 #[derive(Clone)]
 pub struct AiProvider {
-    client: reqwest::Client,
     base: String,
     llm_key: String,
     embedding_key: String,
@@ -209,6 +213,16 @@ pub struct AiProvider {
     pub similarity: f64,
 }
 impl AiProvider {
+    /// Extract a typed blueprint through the shared Rig adapter.
+    pub(crate) async fn blueprint(
+        &self,
+        instructions: &str,
+        input: Value,
+    ) -> Result<super::types::Blueprint> {
+        self.structured("interview_blueprint", instructions, input)
+            .await
+    }
+
     pub fn from_environment() -> Result<Self> {
         ensure!(
             std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "openai".into()) == "openai",
@@ -243,11 +257,6 @@ impl AiProvider {
             "AI base URL is invalid"
         );
         Ok(Self {
-            client: reqwest::Client::builder()
-                .timeout(Duration::from_secs(90))
-                .connect_timeout(Duration::from_secs(10))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()?,
             base: base.trim_end_matches('/').into(),
             llm_key,
             embedding_key,
@@ -257,78 +266,6 @@ impl AiProvider {
             count: 6,
             similarity: 0.92,
         })
-    }
-    async fn post(&self, path: &str, key: &str, body: Value) -> Result<Value> {
-        let operation = if path == "/embeddings" {
-            "ai.embeddings"
-        } else {
-            "ai.generate"
-        };
-        let started = std::time::Instant::now();
-        tracing::info!(event = "provider.started", operation);
-        let result = self.post_inner(path, key, body).await;
-        tracing::info!(
-            event = "provider.completed",
-            operation,
-            success = result.is_ok(),
-            duration_ms = started.elapsed().as_millis() as u64
-        );
-        result
-    }
-    async fn post_inner(&self, path: &str, key: &str, body: Value) -> Result<Value> {
-        let encoded = serde_json::to_vec(&OrderedPayload {
-            value: &body,
-            properties: false,
-        })?;
-        let mut request = self
-            .client
-            .post(format!("{}{path}", self.base))
-            .bearer_auth(key)
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(encoded);
-        if matches!(
-            body["text"]["format"]["name"].as_str(),
-            Some(
-                "interview_blueprint"
-                    | "interview_questions"
-                    | "interview_question_prompts"
-                    | "interview_prompt_review"
-                    | "interview_reference_answer"
-                    | "interview_quality_review"
-                    | "interview_reference_review"
-            )
-        ) {
-            let seconds = std::env::var("GENERATION_REQUEST_TIMEOUT_SECONDS")
-                .ok()
-                .and_then(|value| value.parse::<u64>().ok())
-                .unwrap_or(180)
-                .clamp(30, 300);
-            request = request.timeout(Duration::from_secs(seconds));
-        }
-        let mut response = request
-            .send()
-            .await
-            .map_err(|_| TransportFailure("AI service connection failed or timed out"))?;
-        let status = response.status();
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| TransportFailure("AI service response could not be read"))?
-        {
-            ensure!(
-                bytes.len() + chunk.len() <= 1024 * 1024,
-                "AI service response exceeded size limit"
-            );
-            bytes.extend_from_slice(&chunk);
-        }
-        let parsed = serde_json::from_slice::<Value>(&bytes);
-        if !status.is_success() {
-            return Err(
-                provider_failure(status.as_u16(), parsed.as_ref().unwrap_or(&Value::Null)).into(),
-            );
-        }
-        parsed.map_err(|_| anyhow::anyhow!("AI service returned invalid JSON"))
     }
     pub async fn structured<T: JsonSchema + DeserializeOwned>(
         &self,
@@ -365,45 +302,14 @@ impl AiProvider {
                 body["reasoning"] = json!({"effort":"medium"});
             }
         }
-        let response = self.post("/responses", &self.llm_key, body).await?;
-        ensure!(
-            response["status"] == "completed",
-            "AI response was incomplete or refused"
-        );
-        let mut text = String::new();
-        for item in response["output"]
-            .as_array()
-            .ok_or_else(|| anyhow::anyhow!("AI response has no output"))?
-        {
-            if item["type"] != "message" {
-                continue;
-            }
-            for content in item["content"]
-                .as_array()
-                .ok_or_else(|| anyhow::anyhow!("AI message has no content"))?
-            {
-                ensure!(
-                    content["type"] != "refusal",
-                    "AI refused to generate questions"
-                );
-                if content["type"] == "output_text" {
-                    text.push_str(
-                        content["text"]
-                            .as_str()
-                            .ok_or_else(|| anyhow::anyhow!("AI output text is invalid"))?,
-                    );
-                }
-            }
-        }
-        serde_json::from_str(&text)
-            .map_err(|_| anyhow::anyhow!("AI output did not match the required schema"))
+        crate::ai::structured::generate(&self.base, &self.llm_key, body).await
     }
     pub async fn structured_stream<T: JsonSchema + DeserializeOwned, F, Fut>(
         &self,
         name: &str,
         instructions: &str,
         input: Value,
-        mut on_delta: F,
+        on_delta: F,
     ) -> Result<T>
     where
         F: FnMut(String) -> Fut,
@@ -411,104 +317,23 @@ impl AiProvider {
     {
         let mut schema = serde_json::to_value(schemars::schema_for!(T))?;
         clean_schema(&mut schema);
-        let mut response=self.client.post(format!("{}/responses",self.base)).bearer_auth(&self.llm_key).json(&json!({"model":self.model,"store":false,"stream":true,"max_output_tokens":12000,"instructions":instructions,"input":[{"role":"user","content":input.to_string()}],"text":{"format":{"type":"json_schema","name":name,"strict":true,"schema":schema}}})).send().await.map_err(|_|anyhow::anyhow!("AI streaming connection failed"))?;
-        ensure!(
-            response.status().is_success(),
-            "AI streaming request failed"
-        );
-        let mut buffer = Vec::new();
-        let mut text = String::new();
-        let mut completed = false;
-        let mut bytes = 0;
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| anyhow::anyhow!("AI stream interrupted"))?
-        {
-            bytes += chunk.len();
-            ensure!(bytes <= 2 * 1024 * 1024, "AI stream exceeded size limit");
-            buffer.extend_from_slice(&chunk);
-            loop {
-                let boundary = buffer
-                    .windows(2)
-                    .position(|v| v == b"\n\n")
-                    .map(|i| (i, 2))
-                    .or_else(|| {
-                        buffer
-                            .windows(4)
-                            .position(|v| v == b"\r\n\r\n")
-                            .map(|i| (i, 4))
-                    });
-                let Some((end, delimiter)) = boundary else {
-                    break;
-                };
-                let frame = String::from_utf8(buffer.drain(..end + delimiter).collect())?;
-                let data = frame
-                    .lines()
-                    .filter_map(|l| l.strip_prefix("data:"))
-                    .map(str::trim_start)
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if data.is_empty() || data == "[DONE]" {
-                    continue;
-                }
-                let event: Value = serde_json::from_str(&data)?;
-                match event["type"].as_str().unwrap_or("") {
-                    "response.output_text.delta" => {
-                        let delta = event["delta"]
-                            .as_str()
-                            .ok_or_else(|| anyhow::anyhow!("Invalid delta"))?;
-                        ensure!(text.len() + delta.len() <= 1024 * 1024, "AI text too large");
-                        text.push_str(delta);
-                        on_delta(delta.to_string()).await?;
-                    }
-                    "response.completed" => {
-                        ensure!(
-                            event["response"]["status"] == "completed",
-                            "AI response incomplete"
-                        );
-                        completed = true;
-                    }
-                    "response.failed"
-                    | "response.incomplete"
-                    | "error"
-                    | "response.refusal.delta" => anyhow::bail!("AI stream failed or refused"),
-                    _ => {}
-                }
-            }
-        }
-        ensure!(completed, "AI stream ended without completion");
-        serde_json::from_str(&text).map_err(|_| anyhow::anyhow!("AI stream did not match schema"))
+        crate::ai::streaming::generate(
+            &self.base, &self.llm_key,
+            json!({"model":self.model,"store":false,"max_output_tokens":12000,
+                "instructions":instructions,"input":[{"role":"user","content":input.to_string()}],
+                "text":{"format":{"type":"json_schema","name":name,"strict":true,"schema":schema}}}),
+            on_delta,
+        ).await
     }
     pub async fn embeddings(&self, inputs: &[String]) -> Result<Vec<Vec<f32>>> {
-        let response=self.post("/embeddings",&self.embedding_key,json!({"model":self.embedding_model,"dimensions":self.dimensions,"encoding_format":"float","input":inputs})).await?;
-        let data = response["data"]
-            .as_array()
-            .ok_or_else(|| anyhow::anyhow!("Embedding response is invalid"))?;
-        ensure!(data.len() == inputs.len(), "Embedding count is invalid");
-        let mut vectors = vec![None; inputs.len()];
-        for item in data {
-            let index = item["index"]
-                .as_u64()
-                .ok_or_else(|| anyhow::anyhow!("Embedding index is invalid"))?
-                as usize;
-            ensure!(
-                index < vectors.len() && vectors[index].is_none(),
-                "Embedding indices are invalid"
-            );
-            let values: Vec<f32> = serde_json::from_value(item["embedding"].clone())
-                .map_err(|_| anyhow::anyhow!("Embedding values are invalid"))?;
-            ensure!(
-                values.len() == self.dimensions,
-                "Embedding dimensions are invalid"
-            );
-            super::types::vector_text(&values)?;
-            vectors[index] = Some(values);
-        }
-        vectors
-            .into_iter()
-            .map(|v| v.ok_or_else(|| anyhow::anyhow!("Embedding is missing")))
-            .collect()
+        crate::ai::embeddings::generate(
+            &self.base,
+            &self.embedding_key,
+            &self.embedding_model,
+            self.dimensions,
+            inputs,
+        )
+        .await
     }
 }
 

@@ -3,6 +3,12 @@ name = "platform-api"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+tokio-console = ["dep:console-subscriber", "tokio/tracing"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
+
 [dependencies]
 anyhow = "1"
 dotenvy = "0.15"
@@ -15,11 +21,16 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid"
 uuid = { version = "1", features = ["v4", "serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+console-subscriber = { version = "=0.5.0", optional = true }
 argon2 = { version = "0.5", features = ["std"] }
 rand = "0.8"
 ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 schemars = "1"
+rig-core = { version = "=0.24.0", default-features = false, features = ["reqwest-rustls"] }
+bytes = "1"
+futures-util = "0.3"
+async-stream = "0.3"
 sha2 = "0.10"
 hex = "0.4"
 tower-http = { version = "0.6", features = ["trace", "limit", "timeout", "set-header", "cors"] }

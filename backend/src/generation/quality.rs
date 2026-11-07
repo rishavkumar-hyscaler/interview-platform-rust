@@ -116,7 +116,7 @@ pub async fn blueprint(
     let mut feedback = initial_feedback.to_string();
     let mut previous = None;
     for attempt in 1..=2 {
-        let response=provider.structured::<Blueprint>("interview_blueprint",BLUEPRINT_INSTRUCTIONS,json!({"job_description":jd,"question_count":count,"duration_minutes":duration,"blueprint_attempt":attempt,"repair_feedback":feedback,"previous_blueprint":previous})).await;
+        let response=provider.blueprint(BLUEPRINT_INSTRUCTIONS,json!({"job_description":jd,"question_count":count,"duration_minutes":duration,"blueprint_attempt":attempt,"repair_feedback":feedback,"previous_blueprint":previous})).await;
         let checked = (|| {
             let mut blueprint = response?;
             previous = Some(serde_json::to_value(&blueprint)?);

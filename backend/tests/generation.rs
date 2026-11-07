@@ -87,8 +87,13 @@ async fn responses(
     assert_eq!(input["store"], false);
     assert_eq!(input["text"]["format"]["strict"], true);
     let name = input["text"]["format"]["name"].as_str().unwrap();
-    let request: Value =
-        serde_json::from_str(input["input"][0]["content"].as_str().unwrap()).unwrap();
+    let request: Value = serde_json::from_str(
+        input["input"][0]["content"]
+            .as_str()
+            .or_else(|| input["input"][0]["content"][0]["text"].as_str())
+            .unwrap(),
+    )
+    .unwrap();
     let count = if name == "interview_blueprint" {
         request["question_count"].as_u64().unwrap() as usize
     } else {
@@ -260,7 +265,7 @@ async fn responses(
     (
         StatusCode::OK,
         Json(
-            json!({"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":data.to_string()}]}]}),
+            json!({"id":"resp_mock","object":"response","created_at":0,"model":"gpt-5-mini","status":"completed","output":[{"type":"message","id":"msg_mock","role":"assistant","status":"completed","content":[{"type":"output_text","text":data.to_string()}]}]}),
         ),
     )
 }
@@ -283,11 +288,13 @@ async fn embeddings(State(mock): State<Mock>, Json(input): Json<Value>) -> Json<
         } else {
             embedding[variant * 6 + task_index(prompt)] = 1.0;
         }
-        data.push(json!({"index":index,"embedding":embedding}));
+        data.push(json!({"object":"embedding","index":index,"embedding":embedding}));
     }
     // Deliberately reverse response order: the client must respect index.
     data.reverse();
-    Json(json!({"data":data}))
+    Json(
+        json!({"object":"list","model":"text-embedding-3-small","usage":{"prompt_tokens":1,"total_tokens":1},"data":data}),
+    )
 }
 async fn call(
     app: &Router,

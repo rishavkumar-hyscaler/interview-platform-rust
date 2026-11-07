@@ -10,12 +10,23 @@ pub fn load_environment() -> anyhow::Result<()> {
 }
 
 pub fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .json()
-        .init();
+    use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
+    let filter =
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
+    let logs = tracing_subscriber::fmt::layer().json().with_filter(filter);
+    let subscriber = tracing_subscriber::registry();
+    #[cfg(feature = "tokio-console")]
+    let subscriber = subscriber.with(
+        console_subscriber::ConsoleLayer::builder()
+            .server_addr(([127, 0, 0, 1], 6669))
+            .spawn(),
+    );
+    subscriber.with(logs).init();
+    #[cfg(feature = "tokio-console")]
+    tracing::info!(
+        address = "127.0.0.1:6669",
+        "Tokio Console telemetry enabled"
+    );
 }
 
 pub async fn connect() -> anyhow::Result<PgPool> {
