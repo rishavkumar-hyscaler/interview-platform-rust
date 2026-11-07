@@ -34,7 +34,10 @@ fn validate(grade: &Grade, rubric: &Value, answer: &str) -> anyhow::Result<u32> 
             .ok_or_else(|| anyhow::anyhow!("Unknown criterion"))?;
         anyhow::ensure!(
             seen.insert(&score.criterion_id)
-                && u64::from(score.points) <= criterion["max_points"].as_u64().unwrap_or(0),
+                && u64::from(score.points)
+                    <= criterion["max_points"]
+                        .as_u64()
+                        .unwrap_or(0),
             "Invalid points"
         );
         anyhow::ensure!(
@@ -53,8 +56,15 @@ fn validate(grade: &Grade, rubric: &Value, answer: &str) -> anyhow::Result<u32> 
     Ok(total)
 }
 pub(crate) async fn evaluate(provider: &AiProvider, question: &Value) -> anyhow::Result<Value> {
-    let answer = question["answer"].as_str().unwrap_or("");
-    if answer.trim().is_empty() && question["recordings"].as_i64().unwrap_or(0) > 0 {
+    let answer = question["answer"]
+        .as_str()
+        .unwrap_or("");
+    if answer.trim().is_empty()
+        && question["recordings"]
+            .as_i64()
+            .unwrap_or(0)
+            > 0
+    {
         return Ok(
             json!({"question_id":question["id"],"position":question["position"],"competency_id":question["competency_id"],"score":null,"max_score":question["rubric"]["max_score"],"criteria":[],"status":"media_requires_human_review"}),
         );
@@ -91,10 +101,15 @@ pub(super) fn valid_checkpoint(score: &Value, question: &Value) -> bool {
     {
         return false;
     }
-    let answer = question["answer"].as_str().unwrap_or("");
+    let answer = question["answer"]
+        .as_str()
+        .unwrap_or("");
     if score["status"] == "media_requires_human_review" {
         return answer.trim().is_empty()
-            && question["recordings"].as_i64().unwrap_or(0) > 0
+            && question["recordings"]
+                .as_i64()
+                .unwrap_or(0)
+                > 0
             && score["score"].is_null();
     }
     let Ok(grade) = serde_json::from_value::<Grade>(json!({"criteria":score["criteria"]})) else {
@@ -113,14 +128,26 @@ pub(super) fn competency_profile(scores: &[Value], blueprint: Option<&Value>) ->
                 .iter()
                 .filter(|s| s["competency_id"] == competency["id"])
                 .collect();
-            let points: u64 = matched.iter().filter_map(|s| s["score"].as_u64()).sum();
-            let max: u64 = matched.iter().filter_map(|s| s["max_score"].as_u64()).sum();
-            let percent = if max > 0 && matched.iter().all(|score| score["score"].is_number()) {
+            let points: u64 = matched
+                .iter()
+                .filter_map(|s| s["score"].as_u64())
+                .sum();
+            let max: u64 = matched
+                .iter()
+                .filter_map(|s| s["max_score"].as_u64())
+                .sum();
+            let percent = if max > 0
+                && matched
+                    .iter()
+                    .all(|score| score["score"].is_number())
+            {
                 Some(points as f64 / max as f64 * 100.0)
             } else {
                 None
             };
-            let weight = competency["weight"].as_f64().unwrap_or(0.0);
+            let weight = competency["weight"]
+                .as_f64()
+                .unwrap_or(0.0);
             if let Some(percent) = percent {
                 weighted += percent * weight;
                 total_weight += weight;

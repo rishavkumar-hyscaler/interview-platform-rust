@@ -21,8 +21,6 @@ The same process starts the expiry job loop automatically; no second backend com
 
 The API defaults to `127.0.0.1:8080`. Set `FRONTEND_ORIGIN` to the frontend's exact origin. For a preview on an occupied machine, `FRONTEND_ORIGIN=http://localhost:5174 cargo run` overrides `.env` without editing it.
 
-An optional Compose database remains available via `docker compose -f compose.yaml up -d db` on port 55432. Its database is named `interview`; update connection URLs explicitly if choosing it instead of your existing PostgreSQL.
-
 ## Tokio Console (development)
 
 The `tokio-console` CLI is installed separately from the backend. If setting up
@@ -86,31 +84,25 @@ One `Cargo.toml`, one `Cargo.lock`, and one executable (`platform-api`):
 
 ```text
 backend/
-  Cargo.toml
   src/
-    main.rs             # Startup, HTTP server, shared shutdown
-    lib.rs              # Module inventory and public entry points
-    app.rs              # Router composition and HTTP policies
-    auth.rs, access.rs  # Authentication and scoped database access
-    jobs.rs             # Job creation and listing
-    interviews/         # Invitations, staff views, candidate lifecycle
-    generation/         # Scheduling, worker, validated question pipeline
-    scoring/            # HTTP endpoints, worker, rubric rules
-    review/             # Live streams, assistant, integrity and reports
-    rag/                # Evidence chunks, durable vector indexing, retrieval
-    schema.rs           # Explicit additive development baseline upgrade
-    observability.rs    # Request IDs and task lifecycle logs
-    infrastructure.rs   # Configuration, database, durable expiry transaction
-    worker.rs           # In-process background job loop
-  tests/                # Integration tests
-  migrations/           # Single development baseline
+    controllers/     # HTTP routes and DTO mapping
+    services/        # Business rules and background workflows
+    repositories/    # SQL and database projections
+    models/          # Internal types
+    dto/             # API request/response contracts
+    ai/              # Rig adapters and bounded transport
+    workers/         # Four polling loops and shutdown
+    app.rs           # Central router
+    infrastructure.rs # Configuration, tracing and database pool
+  tests/             # Integration tests
+  migrations/        # Single development baseline
 ```
 
 `cargo build --release` produces `target/release/platform-api`. `cargo run` starts the entire backend. `cargo run -- --migrate` applies migrations and exits.
 
-See the [code guide and logging reference](docs/code-guide.md) for module responsibilities, request/task flow and log settings.
+See the [backend layers and logging reference](docs/backend-structure.md) for module responsibilities, request/task flow and log settings.
 
-See [API contract](docs/api.md) for endpoints and limitations and [architecture](docs/architecture.md) for security and release boundaries.
+See [API contract](docs/api.md) for endpoints and limitations and [backend structure](docs/backend-structure.md) for security and release boundaries.
 
 Interviewers sign in with email and password directly. The interviewer account manages interviews and reviews evidence. Candidates use invitation links. There is no owner account, workspace-ID entry, or organization-creation form. Ownership is derived directly from the authenticated interviewer.
 
@@ -126,7 +118,7 @@ Candidates can attach short audio/video recordings. `MEDIA_STORAGE_DIR` defaults
 
 ## Interviewer-entered Job IDs
 
-Job creation requires `job_code`, shown as Job ID in the UI (for example `BE-2026-001`). Codes are trimmed, normalized to uppercase and unique within the interviewer account. Use 1–64 ASCII letters/digits/hyphens/underscores, starting with a letter or digit. The internal UUID remains the foreign key used by invitation and question-bank routes. The additive migration assigns existing records `LEGACY-<UUID without hyphens>` without deleting data. Apply using `cargo run -- --migrate`, then restart the backend.
+Job creation requires `job_code`, shown as Job ID in the UI (for example `BE-2026-001`). Codes are trimmed, normalized to uppercase and unique within the interviewer account. Use 1–64 ASCII letters/digits/hyphens/underscores, starting with a letter or digit. The internal UUID remains the foreign key used by invitation and question-bank routes. Fresh databases use the single development baseline via `cargo run -- --migrate`.
 
 ## Camera/audio proctoring
 
@@ -134,9 +126,9 @@ See [media proctoring setup, flow and limits](docs/media-proctoring.md) for loca
 
 ## Questions prepared when a job is created
 
-Job creation queues three unique question sets with reference answers, before invitations. Choose the preparation duration in the job form; inspect **Question sets** on the job card. Invitations reserve an unused matching set and queue its replacement. See [job question-set flow](docs/job-question-sets.md) for fallback generation, retries, migration and API details.
+Job creation queues the selected 1–5 reusable question sets (default 1) with reference answers, before invitations. Choose the preparation duration in the job form; inspect **Question sets** on the job card. Invitations reuse a completed matching set; assignment does not generate replacements. See [AI workflows](docs/ai.md) for generation, retries and assignment.
 
-Question preparation completes one question at a time: validate/deduplicate the prompt, generate/review its reference, then save a durable checkpoint before proceeding. Retries resume from the first unsaved question. Candidates can start only after the set is complete; interviewers can inspect saved progress and rejection findings. Each question has a five-minute default preparation budget. See [sequential generation and recovery](docs/generation-timing.md). Existing schema and completed interviews are preserved.
+Question preparation completes one question at a time: generate a complete prompt/reference/rubric, validate and deduplicate it, independently review it, then save a durable checkpoint before proceeding. Retries resume from the first unsaved question. Candidates can start only after the set is complete; interviewers can inspect saved progress and rejection findings. Each question has a five-minute default preparation budget. See [sequential generation and recovery](docs/ai.md). Existing schema and completed interviews are preserved.
 
 ## Persistent post-scoring RAG
 
@@ -145,3 +137,12 @@ After `assessment.completed`, a separate durable embedding job indexes final ans
 For an existing database using the immediately preceding single baseline, run `cargo run -- --upgrade-rag` once from `backend/`, then restart `cargo run`. This adds only the two RAG tables, indexes and queue triggers and updates the verified development baseline checksum; it preserves existing rows. Fresh databases use `cargo run -- --migrate`. There is still only one migration file.
 
 Backend code organization: [controller/service/repository structure](docs/backend-structure.md).
+
+## Documentation
+
+- [Backend layers, ownership and logging](docs/backend-structure.md)
+- [API contract](docs/api.md)
+- [AI generation, scoring and Rig](docs/ai.md)
+- [Evidence indexing and RAG](docs/rag.md)
+- [Media proctoring](docs/media-proctoring.md)
+- [Requirement coverage and remaining work](docs/requirement-status.md)

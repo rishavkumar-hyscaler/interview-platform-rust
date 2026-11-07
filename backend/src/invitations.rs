@@ -74,14 +74,38 @@ mod tests {
         let recruiter = Uuid::new_v4();
         let session = Uuid::new_v4();
         let token = "12".repeat(32);
-        let sealed = cipher.seal(&token, recruiter, session).unwrap();
+        let sealed = cipher
+            .seal(&token, recruiter, session)
+            .unwrap();
         assert!(!sealed.contains(&token));
-        assert_eq!(cipher.open(&sealed, recruiter, session).unwrap(), token);
-        assert_ne!(sealed, cipher.seal(&token, recruiter, session).unwrap());
-        assert!(cipher.open(&sealed, Uuid::new_v4(), session).is_err());
-        assert!(cipher.open(&sealed, recruiter, Uuid::new_v4()).is_err());
+        assert_eq!(
+            cipher
+                .open(&sealed, recruiter, session)
+                .unwrap(),
+            token
+        );
+        assert_ne!(
+            sealed,
+            cipher
+                .seal(&token, recruiter, session)
+                .unwrap()
+        );
+        assert!(
+            cipher
+                .open(&sealed, Uuid::new_v4(), session)
+                .is_err()
+        );
+        assert!(
+            cipher
+                .open(&sealed, recruiter, Uuid::new_v4())
+                .is_err()
+        );
         let wrong_key = InvitationCipher::from_hex(&"cd".repeat(32)).unwrap();
-        assert!(wrong_key.open(&sealed, recruiter, session).is_err());
+        assert!(
+            wrong_key
+                .open(&sealed, recruiter, session)
+                .is_err()
+        );
         let mut tampered = sealed.into_bytes();
         let last = tampered.last_mut().unwrap();
         *last = if *last == b'0' { b'1' } else { b'0' };

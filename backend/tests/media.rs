@@ -29,7 +29,9 @@ async fn call(
         .await
         .unwrap();
     let status = response.status();
-    let bytes = to_bytes(response.into_body(), 262144).await.unwrap();
+    let bytes = to_bytes(response.into_body(), 262144)
+        .await
+        .unwrap();
     (
         status,
         serde_json::from_slice(&bytes).unwrap_or(Value::Null),
@@ -42,12 +44,22 @@ async fn account(app: &Router) -> Value {
 }
 async fn setup(pool: &PgPool, app: &Router, owner: &Value) -> (Value, Vec<Uuid>) {
     let token = owner["token"].as_str().unwrap();
-    let user: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let user: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let(s,job)=call(app,"POST","/api/v1/jobs",json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Interview room test","description":"Build reliable applications in Rust and PostgreSQL.","request_key":Uuid::new_v4()}),token).await;
     assert_eq!(s, StatusCode::CREATED);
-    let job: Uuid = job["id"].as_str().unwrap().parse().unwrap();
+    let job: Uuid = job["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let ids = vec![Uuid::new_v4(), Uuid::new_v4()];
-    let mut tx = interviewer_transaction(pool, user).await.unwrap();
+    let mut tx = interviewer_transaction(pool, user)
+        .await
+        .unwrap();
     let id: Uuid = sqlx::query_scalar(
         "SELECT id FROM question_sets WHERE job_id=$1 ORDER BY created_at,id LIMIT 1",
     )
@@ -130,10 +142,22 @@ async fn recordings_are_private_bounded_retry_safe_and_not_falsely_zero_scored()
     let owner = account(&app).await;
     let (invite, questions) = setup(&pool, &app, &owner).await;
     let (other, other_questions) = setup(&pool, &app, &owner).await;
-    let session: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
-    let owner_id: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
-    let candidate = invite["invitation_token"].as_str().unwrap();
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let session: Uuid = invite["session"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let owner_id: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let candidate = invite["invitation_token"]
+        .as_str()
+        .unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     sqlx::query("UPDATE interview_sessions SET state='in_progress',started_at=now(),deadline_at=now()+interval '30 minutes' WHERE id=$1").bind(session).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     let id = Uuid::new_v4();
@@ -151,7 +175,9 @@ async fn recordings_are_private_bounded_retry_safe_and_not_falsely_zero_scored()
     tokio::fs::create_dir_all(orphan.parent().unwrap())
         .await
         .unwrap();
-    tokio::fs::write(&orphan, b"partial upload").await.unwrap();
+    tokio::fs::write(&orphan, b"partial upload")
+        .await
+        .unwrap();
     assert_eq!(
         binary(&app, "POST", &path, "audio/webm", bytes.clone(), candidate)
             .await
@@ -207,7 +233,9 @@ async fn recordings_are_private_bounded_retry_safe_and_not_falsely_zero_scored()
             &format!("/api/v1/candidate/recordings/{id}"),
             "",
             vec![],
-            other["invitation_token"].as_str().unwrap()
+            other["invitation_token"]
+                .as_str()
+                .unwrap()
         )
         .await
         .0,
@@ -245,7 +273,9 @@ async fn recordings_are_private_bounded_retry_safe_and_not_falsely_zero_scored()
         .join(owner_id.to_string())
         .join(session.to_string())
         .join(id.to_string());
-    tokio::fs::write(&file, b"modified").await.unwrap();
+    tokio::fs::write(&file, b"modified")
+        .await
+        .unwrap();
     assert_eq!(
         binary(
             &app,
@@ -259,7 +289,9 @@ async fn recordings_are_private_bounded_retry_safe_and_not_falsely_zero_scored()
         .0,
         StatusCode::INTERNAL_SERVER_ERROR
     );
-    tokio::fs::write(&file, &bytes).await.unwrap();
+    tokio::fs::write(&file, &bytes)
+        .await
+        .unwrap();
     let (_, view) = call(
         &app,
         "GET",
@@ -288,7 +320,9 @@ async fn recordings_are_private_bounded_retry_safe_and_not_falsely_zero_scored()
         .0,
         StatusCode::PAYLOAD_TOO_LARGE
     );
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     sqlx::query("UPDATE interview_sessions SET deadline_at=now()-interval '1 second' WHERE id=$1")
         .bind(session)
         .execute(&mut *tx)
@@ -367,10 +401,22 @@ async fn proctor_evidence_is_linked_private_idempotent_and_excluded_from_answers
     let stranger = account(&app).await;
     let (invite, _) = setup(&pool, &app, &owner).await;
     let (other, _) = setup(&pool, &app, &owner).await;
-    let candidate = invite["invitation_token"].as_str().unwrap();
-    let session: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
-    let owner_id = owner["user_id"].as_str().unwrap().parse().unwrap();
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let candidate = invite["invitation_token"]
+        .as_str()
+        .unwrap();
+    let session: Uuid = invite["session"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let owner_id = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     sqlx::query("UPDATE interview_sessions SET state='in_progress',started_at=now(),deadline_at=now()+interval '30 minutes' WHERE id=$1").bind(session).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     let event = Uuid::new_v4();
@@ -468,7 +514,9 @@ async fn proctor_evidence_is_linked_private_idempotent_and_excluded_from_answers
             &upload,
             "image/jpeg",
             jpeg.clone(),
-            other["invitation_token"].as_str().unwrap()
+            other["invitation_token"]
+                .as_str()
+                .unwrap()
         )
         .await
         .0,
@@ -500,7 +548,9 @@ async fn proctor_evidence_is_linked_private_idempotent_and_excluded_from_answers
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        binary(&app, "GET", &read, "", vec![], candidate).await.0,
+        binary(&app, "GET", &read, "", vec![], candidate)
+            .await
+            .0,
         StatusCode::UNAUTHORIZED
     );
     let (status, report) = call(
@@ -618,7 +668,9 @@ async fn proctor_evidence_is_linked_private_idempotent_and_excluded_from_answers
         .join(owner_id.to_string())
         .join(session.to_string())
         .join(format!("{asset}.evidence"));
-    tokio::fs::write(file, b"tampered bytes").await.unwrap();
+    tokio::fs::write(file, b"tampered bytes")
+        .await
+        .unwrap();
     assert_eq!(
         binary(
             &app,
@@ -652,9 +704,19 @@ async fn permission_denials_are_logged_before_start_and_screen_evidence_is_priva
     let owner = account(&app).await;
     let stranger = account(&app).await;
     let (invite, _) = setup(&pool, &app, &owner).await;
-    let token = invite["invitation_token"].as_str().unwrap();
-    let session: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
-    let owner_id: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let token = invite["invitation_token"]
+        .as_str()
+        .unwrap();
+    let session: Uuid = invite["session"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let owner_id: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let denied = Uuid::new_v4();
     let sharing = Uuid::new_v4();
     assert_eq!(
@@ -685,7 +747,9 @@ async fn permission_denials_are_logged_before_start_and_screen_evidence_is_priva
         .0,
         StatusCode::CONFLICT
     );
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     let stage: String =
         sqlx::query_scalar("SELECT metadata->>'stage' FROM audit_events WHERE id=$1")
             .bind(denied)
@@ -820,7 +884,9 @@ async fn permission_denials_are_logged_before_start_and_screen_evidence_is_priva
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        binary(&app, "GET", &read, "", vec![], token).await.0,
+        binary(&app, "GET", &read, "", vec![], token)
+            .await
+            .0,
         StatusCode::UNAUTHORIZED
     );
     let (_, answers) = call(
@@ -840,12 +906,18 @@ async fn permission_denials_are_logged_before_start_and_screen_evidence_is_priva
         owner["token"].as_str().unwrap(),
     )
     .await;
-    assert!(report["events"].as_array().unwrap().iter().any(|e| {
-        e["attachments"]
+    assert!(
+        report["events"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|a| a["asset_id"] == asset.to_string() && a["evidence_source"] == "screen")
-    }));
+            .any(|e| {
+                e["attachments"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|a| a["asset_id"] == asset.to_string() && a["evidence_source"] == "screen")
+            })
+    );
     pool.close().await;
 }

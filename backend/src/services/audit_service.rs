@@ -28,5 +28,8 @@ pub(crate) async fn list(
     } else {
         None
     };
-    Ok(AuditPage { items, next_cursor })
+    Ok(AuditPage {
+        items,
+        next_cursor,
+    })
 }

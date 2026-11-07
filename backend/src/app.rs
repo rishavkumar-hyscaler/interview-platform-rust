@@ -56,13 +56,18 @@ async fn normalize_errors(response: Response) -> Response {
         && !response
             .headers()
             .get("content-type")
-            .is_some_and(|v| v.as_bytes().starts_with(b"application/json"))
+            .is_some_and(|v| {
+                v.as_bytes()
+                    .starts_with(b"application/json")
+            })
     {
         return (response.status(), Json(json!({"error":"Invalid request, route, or request body", "code":"invalid_request"}))).into_response();
     }
     response
 }
 async fn ready(State(pool): State<PgPool>) -> Result<Json<Value>> {
-    sqlx::query("SELECT 1").execute(&pool).await?;
+    sqlx::query("SELECT 1")
+        .execute(&pool)
+        .await?;
     Ok(Json(json!({"status": "ready"})))
 }

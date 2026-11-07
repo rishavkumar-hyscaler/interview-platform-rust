@@ -56,5 +56,7 @@ async fn retry(
 ) -> Result<Json<RetryResponse>> {
     let (owner, _) = authenticate(&pool, &headers).await?;
     rag_service::retry(&pool, owner, session).await?;
-    Ok(Json(RetryResponse { status: "pending" }))
+    Ok(Json(RetryResponse {
+        status: "pending",
+    }))
 }

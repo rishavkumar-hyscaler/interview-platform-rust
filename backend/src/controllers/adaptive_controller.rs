@@ -18,5 +18,7 @@ async fn next(
     let session_hash = crate::digest(super::auth_controller::bearer_token(&headers)?);
     let position =
         adaptive_service::next(&pool, owner, session, tx, input.question_id, &session_hash).await?;
-    Ok(Json(RecommendationResponse { position }))
+    Ok(Json(RecommendationResponse {
+        position,
+    }))
 }

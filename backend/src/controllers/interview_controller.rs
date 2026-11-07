@@ -22,7 +22,11 @@ pub(crate) async fn list_sessions(
     let (owner, _) = authenticate(&pool, &headers).await?;
     let result = interview_service::list(&pool, owner, page.cursor, limit).await?;
     Ok(Json(SessionListResponse {
-        items: result.items.into_iter().map(list_item).collect(),
+        items: result
+            .items
+            .into_iter()
+            .map(list_item)
+            .collect(),
         next_cursor: result.next_cursor,
     }))
 }

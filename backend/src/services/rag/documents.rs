@@ -128,10 +128,22 @@ mod tests {
         add(&mut first, "a", "answer", &text, Some(Uuid::nil()), None);
         add(&mut second, "a", "answer", &text, Some(Uuid::nil()), None);
         assert_eq!(first[0].hash, second[0].hash);
-        assert!(first.iter().all(|chunk| chunk.text.chars().count() <= 1800));
+        assert!(
+            first
+                .iter()
+                .all(|chunk| chunk.text.chars().count() <= 1800)
+        );
         assert_eq!(
-            first[0].text.chars().skip(1600).collect::<String>(),
-            first[1].text.chars().take(200).collect::<String>()
+            first[0]
+                .text
+                .chars()
+                .skip(1600)
+                .collect::<String>(),
+            first[1]
+                .text
+                .chars()
+                .take(200)
+                .collect::<String>()
         );
         assert_eq!(
             readable(&serde_json::json!({"answer":"a\nb"})),

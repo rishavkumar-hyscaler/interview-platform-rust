@@ -24,9 +24,15 @@ impl std::fmt::Display for PreparationRejected {
 }
 impl std::error::Error for PreparationRejected {}
 pub(super) fn bounded_failure(error: anyhow::Error) -> anyhow::Error {
-    if error.downcast_ref::<provider::ProviderFailure>().is_some()
-        || error.downcast_ref::<sqlx::Error>().is_some()
-        || error.downcast_ref::<provider::TransportFailure>().is_some()
+    if error
+        .downcast_ref::<provider::ProviderFailure>()
+        .is_some()
+        || error
+            .downcast_ref::<sqlx::Error>()
+            .is_some()
+        || error
+            .downcast_ref::<provider::TransportFailure>()
+            .is_some()
     {
         error
     } else {

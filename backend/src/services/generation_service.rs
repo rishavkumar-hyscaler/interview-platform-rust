@@ -21,11 +21,16 @@ pub(crate) async fn session_status(
         .ok_or(ApiError(StatusCode::NOT_FOUND, "Session not found"))?;
     let questions = repo::session_questions(&mut tx, session).await?;
     tx.commit().await?;
-    Ok(SessionStatus { row, questions })
+    Ok(SessionStatus {
+        row,
+        questions,
+    })
 }
 pub(crate) async fn set_status(pool: &PgPool, owner: Uuid, job: Uuid) -> Result<SetStatus> {
     let mut tx = interviewer_transaction(pool, owner).await?;
-    let row = repo::job(&mut tx, job, false).await?.ok_or_else(missing)?;
+    let row = repo::job(&mut tx, job, false)
+        .await?
+        .ok_or_else(missing)?;
     let sets = repo::sets(&mut tx, job).await?;
     let questions = repo::questions(&mut tx, job).await?;
     tx.commit().await?;
@@ -37,7 +42,9 @@ pub(crate) async fn set_status(pool: &PgPool, owner: Uuid, job: Uuid) -> Result<
 }
 pub(crate) async fn retry(pool: &PgPool, owner: Uuid, job: Uuid, configured: bool) -> Result<()> {
     let mut tx = interviewer_transaction(pool, owner).await?;
-    let row = repo::job(&mut tx, job, true).await?.ok_or_else(missing)?;
+    let row = repo::job(&mut tx, job, true)
+        .await?
+        .ok_or_else(missing)?;
     if !configured {
         return Err(ApiError(
             StatusCode::SERVICE_UNAVAILABLE,

@@ -55,7 +55,11 @@ pub(crate) async fn room(
     }
     let question = repo::question(&mut tx, id, position).await?;
     let question = question.ok_or(ApiError(StatusCode::NOT_FOUND, "Question not found"))?;
-    if previous.as_ref().and_then(|p| p["position"].as_i64()) != Some(i64::from(position)) {
+    if previous
+        .as_ref()
+        .and_then(|p| p["position"].as_i64())
+        != Some(i64::from(position))
+    {
         audit(
             &mut tx,
             owner,

@@ -186,7 +186,11 @@ pub(super) fn repair_feedback(error: &anyhow::Error) -> String {
 
 pub(super) fn prompt_defect(error: &anyhow::Error) -> bool {
     review_findings(error)
-        .and_then(|findings| findings["questions"].as_array().cloned())
+        .and_then(|findings| {
+            findings["questions"]
+                .as_array()
+                .cloned()
+        })
         .is_some_and(|questions| {
             questions.iter().any(|question| {
                 ["jd_grounded", "feasible", "unambiguous", "no_answer_leak"]
@@ -282,7 +286,9 @@ mod tests {
         assert!(review.validate_from(1, 3).is_ok());
         review.questions[0].reference_correct = false;
         assert!(review.validate_from(1, 3).is_err());
-        let error = checked_review(review, 1, 3).err().unwrap();
+        let error = checked_review(review, 1, 3)
+            .err()
+            .unwrap();
         assert!(
             !prompt_defect(&error),
             "a bad answer needs reference repair"
@@ -305,8 +311,16 @@ mod tests {
     #[test]
     fn single_reference_verdict_has_no_model_authored_question_position() {
         let schema = serde_json::to_value(schemars::schema_for!(ReferenceVerdict)).unwrap();
-        assert!(schema["properties"].get("position").is_none());
-        assert!(schema["properties"].get("questions").is_none());
+        assert!(
+            schema["properties"]
+                .get("position")
+                .is_none()
+        );
+        assert!(
+            schema["properties"]
+                .get("questions")
+                .is_none()
+        );
         let verdict:ReferenceVerdict=serde_json::from_value(json!({"jd_grounded":true,"reference_correct":true,"rubric_aligned":true,"feasible":true,"unambiguous":true,"no_answer_leak":true,"concerns":[]})).unwrap();
         let review = verdict.at_position(4);
         assert_eq!(review.position, 4);
@@ -327,9 +341,19 @@ mod tests {
                 advisories: vec![],
             }],
         };
-        let error = checked_review(review, 1, 1).err().unwrap();
-        assert!(error.to_string().contains("reference correctness"));
-        assert!(!error.to_string().contains("partial write"));
+        let error = checked_review(review, 1, 1)
+            .err()
+            .unwrap();
+        assert!(
+            error
+                .to_string()
+                .contains("reference correctness")
+        );
+        assert!(
+            !error
+                .to_string()
+                .contains("partial write")
+        );
         assert!(repair_feedback(&error).contains("rollback after a partial write"));
     }
     #[test]

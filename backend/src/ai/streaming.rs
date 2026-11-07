@@ -143,10 +143,14 @@ mod tests {
                 (axum::http::StatusCode::OK, [("content-type", "text/event-stream")], wire)
             }
         }));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .unwrap();
         let base = format!("http://{}/v1", listener.local_addr().unwrap());
         let task = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
+            axum::serve(listener, app)
+                .await
+                .unwrap();
         });
         (
             AiProvider::new(
@@ -221,7 +225,11 @@ mod tests {
                 )
                 .await
                 .unwrap_err();
-            assert!(!error.to_string().contains("private remote text"));
+            assert!(
+                !error
+                    .to_string()
+                    .contains("private remote text")
+            );
             assert_eq!(calls.load(Ordering::SeqCst), 1, "{mode}");
             server.abort();
         }

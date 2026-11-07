@@ -88,8 +88,14 @@ async fn index(pool: &PgPool, provider: &AiProvider, claim: &Claim) -> anyhow::R
     }
     let mut tx = interviewer_transaction(pool, claim.owner).await?;
     check_claim(&mut tx, claim).await?;
-    let ids: Vec<_> = chunks.iter().map(|c| c.source_id.clone()).collect();
-    let questions: Vec<_> = chunks.iter().filter_map(|c| c.question).collect();
+    let ids: Vec<_> = chunks
+        .iter()
+        .map(|c| c.source_id.clone())
+        .collect();
+    let questions: Vec<_> = chunks
+        .iter()
+        .filter_map(|c| c.question)
+        .collect();
     repo::delete_stale_chunks(
         &mut tx,
         claim.session,
@@ -111,7 +117,10 @@ async fn checkpoint(
     claim: &Claim,
     chunks: &[Chunk],
 ) -> anyhow::Result<()> {
-    let hashes: Vec<_> = chunks.iter().map(|c| c.hash.clone()).collect();
+    let hashes: Vec<_> = chunks
+        .iter()
+        .map(|c| c.hash.clone())
+        .collect();
     let mut tx = interviewer_transaction(pool, claim.owner).await?;
     check_claim(&mut tx, claim).await?;
     let rows: Vec<(String, String)> = repo::cached_vectors(
@@ -126,13 +135,18 @@ async fn checkpoint(
     let mut missing = Vec::new();
     for chunk in chunks {
         if !vectors.contains_key(&chunk.hash)
-            && !missing.iter().any(|c: &&Chunk| c.hash == chunk.hash)
+            && !missing
+                .iter()
+                .any(|c: &&Chunk| c.hash == chunk.hash)
         {
             missing.push(chunk);
         }
     }
     if !missing.is_empty() {
-        let texts: Vec<_> = missing.iter().map(|c| c.text.clone()).collect();
+        let texts: Vec<_> = missing
+            .iter()
+            .map(|c| c.text.clone())
+            .collect();
         let generated = provider.embeddings(&texts).await?;
         anyhow::ensure!(
             generated.len() == missing.len(),

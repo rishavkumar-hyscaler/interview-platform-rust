@@ -155,10 +155,14 @@ mod tests {
                 }
             }),
         );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .unwrap();
         let base = format!("http://{}/v1", listener.local_addr().unwrap());
         let server = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
+            axum::serve(listener, app)
+                .await
+                .unwrap();
         });
         let mut provider = AiProvider::new(
             base,
@@ -183,7 +187,10 @@ mod tests {
             let inputs: Vec<String> = (0..count)
                 .map(|index| format!("Synthetic document {index}"))
                 .collect();
-            let vectors = provider.embeddings(&inputs).await.unwrap();
+            let vectors = provider
+                .embeddings(&inputs)
+                .await
+                .unwrap();
             server.abort();
             for (index, vector) in vectors.iter().enumerate() {
                 assert_eq!(vector, &vec![index as f32 + 1.0, 0.5, 0.25]);
@@ -240,10 +247,17 @@ mod tests {
                 .unwrap_err();
             server.abort();
             assert_eq!(
-                error.downcast_ref::<ProviderFailure>().unwrap().retryable,
+                error
+                    .downcast_ref::<ProviderFailure>()
+                    .unwrap()
+                    .retryable,
                 retryable
             );
-            assert!(!error.to_string().contains("private provider detail"));
+            assert!(
+                !error
+                    .to_string()
+                    .contains("private provider detail")
+            );
             assert_eq!(requests.lock().unwrap().len(), 1);
         }
     }
@@ -251,9 +265,20 @@ mod tests {
     #[tokio::test]
     async fn rig_embeddings_empty_or_invalid_requests_make_no_calls() {
         let (mut provider, requests, server) = mock(StatusCode::OK, reply(json!([]))).await;
-        assert!(provider.embeddings(&[]).await.unwrap().is_empty());
+        assert!(
+            provider
+                .embeddings(&[])
+                .await
+                .unwrap()
+                .is_empty()
+        );
         provider.dimensions = 0;
-        assert!(provider.embeddings(&["Synthetic".into()]).await.is_err());
+        assert!(
+            provider
+                .embeddings(&["Synthetic".into()])
+                .await
+                .is_err()
+        );
         provider.dimensions = 3;
         assert!(
             provider

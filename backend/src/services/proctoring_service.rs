@@ -120,7 +120,10 @@ fn valid(event: &Observation) -> bool {
             | "monitoring_capability"
     ) || permission_event(&event.kind)
         || permitted_question_action(&event.kind))
-        && event.measurements.as_ref().is_none_or(Measurements::valid)
+        && event
+            .measurements
+            .as_ref()
+            .is_none_or(Measurements::valid)
         && (0..=4_102_444_800_000).contains(&event.client_time)
         && event
             .count
@@ -141,7 +144,10 @@ pub(crate) async fn record(
     let (state, active) = repo::lock_session(&mut tx, session).await?;
     let preflight = matches!(state.as_str(), "invited" | "ready") && active;
     if state != "in_progress"
-        && !(preflight && events.iter().all(|event| permission_event(&event.kind)))
+        && !(preflight
+            && events
+                .iter()
+                .all(|event| permission_event(&event.kind)))
     {
         return Err(ApiError(
             StatusCode::CONFLICT,
@@ -159,10 +165,16 @@ pub(crate) async fn record(
     for event in events {
         let duplicate = repo::duplicate(&mut tx, event.id, session).await?;
         if let Some(old) = duplicate {
-            if old.get("measurements").unwrap_or(&Value::Null) != &json!(event.measurements)
+            if old
+                .get("measurements")
+                .unwrap_or(&Value::Null)
+                != &json!(event.measurements)
                 || old["kind"] != event.kind
                 || old["client_time_ms"] != event.client_time
-                || old.get("measurement").unwrap_or(&old["character_count"]) != &json!(event.count)
+                || old
+                    .get("measurement")
+                    .unwrap_or(&old["character_count"])
+                    != &json!(event.count)
             {
                 return Err(ApiError(
                     StatusCode::CONFLICT,

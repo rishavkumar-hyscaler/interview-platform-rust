@@ -41,11 +41,19 @@ impl Mock {
             calls: Arc::new(AtomicUsize::new(0)),
             review_failures: Arc::new(AtomicUsize::new(0)),
             prompt_calls: Arc::new(AtomicUsize::new(0)),
-            prompt_reviews: Arc::new((0..6).map(|_| AtomicUsize::new(0)).collect()),
+            prompt_reviews: Arc::new(
+                (0..6)
+                    .map(|_| AtomicUsize::new(0))
+                    .collect(),
+            ),
             prompt_sizes: Arc::new(std::sync::Mutex::new(Vec::new())),
             prompt_failures: Arc::new(AtomicUsize::new(0)),
             embedding_calls: Arc::new(AtomicUsize::new(0)),
-            reference_calls: Arc::new((0..6).map(|_| AtomicUsize::new(0)).collect()),
+            reference_calls: Arc::new(
+                (0..6)
+                    .map(|_| AtomicUsize::new(0))
+                    .collect(),
+            ),
             peak_references: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -65,7 +73,8 @@ async fn responses(
     State(mock): State<Mock>,
     Json(input): Json<Value>,
 ) -> (StatusCode, Json<Value>) {
-    mock.calls.fetch_add(1, Ordering::SeqCst);
+    mock.calls
+        .fetch_add(1, Ordering::SeqCst);
     let malformed = mock.malformed.load(Ordering::SeqCst);
     if malformed == 7 {
         return (
@@ -86,7 +95,9 @@ async fn responses(
     assert_eq!(input["model"], "gpt-5-mini");
     assert_eq!(input["store"], false);
     assert_eq!(input["text"]["format"]["strict"], true);
-    let name = input["text"]["format"]["name"].as_str().unwrap();
+    let name = input["text"]["format"]["name"]
+        .as_str()
+        .unwrap();
     let request: Value = serde_json::from_str(
         input["input"][0]["content"]
             .as_str()
@@ -95,7 +106,9 @@ async fn responses(
     )
     .unwrap();
     let count = if name == "interview_blueprint" {
-        request["question_count"].as_u64().unwrap() as usize
+        request["question_count"]
+            .as_u64()
+            .unwrap() as usize
     } else {
         request["blueprint"]["slots"]
             .as_array()
@@ -149,8 +162,12 @@ async fn responses(
             json!({"competencies":[{"id":id,"name":"Reliable backend services","jd_evidence":if bad {"Invented evidence which is absent"}else{JD},"weight":100}],"slots":slots})
         }
         "interview_questions" => {
-            mock.prompt_calls.fetch_add(1, Ordering::SeqCst);
-            mock.prompt_sizes.lock().unwrap().push(count);
+            mock.prompt_calls
+                .fetch_add(1, Ordering::SeqCst);
+            mock.prompt_sizes
+                .lock()
+                .unwrap()
+                .push(count);
             assert_eq!(count, 1);
             assert_eq!(
                 input["text"]["format"]["schema"]["$defs"]["Question"]["properties"]["estimated_minutes"]
@@ -158,11 +175,17 @@ async fn responses(
                 request["duration_minutes"]
             );
             let slot = &request["blueprint"]["slots"][0];
-            let index = request["positions"][0].as_u64().unwrap() as usize - 1;
+            let index = request["positions"][0]
+                .as_u64()
+                .unwrap() as usize
+                - 1;
             mock.reference_calls[index].fetch_add(1, Ordering::SeqCst);
-            mock.peak_references.fetch_max(1, Ordering::SeqCst);
+            mock.peak_references
+                .fetch_max(1, Ordering::SeqCst);
             let variant = mock.variant.load(Ordering::SeqCst);
-            let attempt = request["draft_attempt"].as_u64().unwrap();
+            let attempt = request["draft_attempt"]
+                .as_u64()
+                .unwrap();
             let suffix = if attempt == 2 && matches!(malformed, 13 | 18 | 20 | 22) {
                 " Clarify the transaction boundary and retry behavior; focus on a single state value."
             } else {
@@ -270,7 +293,8 @@ async fn responses(
     )
 }
 async fn embeddings(State(mock): State<Mock>, Json(input): Json<Value>) -> Json<Value> {
-    mock.embedding_calls.fetch_add(1, Ordering::SeqCst);
+    mock.embedding_calls
+        .fetch_add(1, Ordering::SeqCst);
     assert_eq!(input["model"], "text-embedding-3-small");
     assert_eq!(input["dimensions"], 12);
     let inputs = input["input"].as_array().unwrap();
@@ -317,7 +341,9 @@ async fn call(
         .await
         .unwrap();
     let status = response.status();
-    let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let bytes = to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
     (
         status,
         serde_json::from_slice(&bytes).unwrap_or(Value::Null),
@@ -365,13 +391,19 @@ async fn generation_is_unique_recoverable_validated_and_private() {
     .unwrap();
     assert!(!bypass);
     let mock = Mock::new();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap();
     let address = listener.local_addr().unwrap();
     let service = Router::new()
         .route("/v1/responses", post(responses))
         .route("/v1/embeddings", post(embeddings))
         .with_state(mock.clone());
-    let task = tokio::spawn(async move { axum::serve(listener, service).await.unwrap() });
+    let task = tokio::spawn(async move {
+        axum::serve(listener, service)
+            .await
+            .unwrap()
+    });
     let mut provider = AiProvider::new(
         format!("http://{address}/v1"),
         "mock-llm-key".into(),
@@ -385,12 +417,22 @@ async fn generation_is_unique_recoverable_validated_and_private() {
     let owner = account(&app).await;
     let outsider = account(&app).await;
     let token = owner["token"].as_str().unwrap();
-    let user: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let user: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     for mode in 0..=24 {
-        mock.malformed.store(mode, Ordering::SeqCst);
-        mock.variant.store(mode + 1, Ordering::SeqCst);
+        mock.malformed
+            .store(mode, Ordering::SeqCst);
+        mock.variant
+            .store(mode + 1, Ordering::SeqCst);
         let (_, job) = call(&app,"POST","/api/v1/jobs",json!({"job_code":format!("QUALITY-{}",Uuid::new_v4()),"title":"Reference quality","description":JD,"question_set_count":1,"request_key":Uuid::new_v4()}),token).await;
-        let job_id: Uuid = job["id"].as_str().unwrap().parse().unwrap();
+        let job_id: Uuid = job["id"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
         let route = format!("/api/v1/jobs/{job_id}/question-sets");
         assert_eq!(
             call(
@@ -404,11 +446,17 @@ async fn generation_is_unique_recoverable_validated_and_private() {
             .0,
             StatusCode::NOT_FOUND
         );
-        let mut tx = interviewer_transaction(&pool, user).await.unwrap();
+        let mut tx = interviewer_transaction(&pool, user)
+            .await
+            .unwrap();
         sqlx::query("UPDATE question_sets SET status='running',attempts=3,lease_until=now()-interval '1 second',claim_token=$2 WHERE job_id=$1")
             .bind(job_id).bind(Uuid::new_v4()).execute(&mut *tx).await.unwrap();
         tx.commit().await.unwrap();
-        assert!(process_next(&pool, &provider).await.unwrap());
+        assert!(
+            process_next(&pool, &provider)
+                .await
+                .unwrap()
+        );
         let (_, result) = call(&app, "GET", &route, Value::Null, token).await;
         assert_eq!(result["sets"][0]["attempts"], 4);
         let completed = matches!(mode, 0 | 6 | 8 | 9 | 11 | 14 | 18 | 20 | 21 | 22 | 23);
@@ -418,7 +466,13 @@ async fn generation_is_unique_recoverable_validated_and_private() {
             "mode {mode}: {result}"
         );
         if completed {
-            assert_eq!(result["questions"].as_array().unwrap().len(), 6);
+            assert_eq!(
+                result["questions"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                6
+            );
             for q in result["questions"].as_array().unwrap() {
                 assert_eq!(q["rubric"]["quality_review"]["position"], q["position"]);
                 assert_eq!(q["rubric"]["quality_review"]["reference_correct"], true);
@@ -432,7 +486,9 @@ async fn generation_is_unique_recoverable_validated_and_private() {
                 token,
             )
             .await;
-            let candidate_token = candidate["invitation_token"].as_str().unwrap();
+            let candidate_token = candidate["invitation_token"]
+                .as_str()
+                .unwrap();
             let (_, view) = call(
                 &app,
                 "GET",
@@ -442,7 +498,11 @@ async fn generation_is_unique_recoverable_validated_and_private() {
             )
             .await;
             assert_eq!(view["questions_ready"], true);
-            assert!(!view.to_string().contains("expected_answer"));
+            assert!(
+                !view
+                    .to_string()
+                    .contains("expected_answer")
+            );
             assert_eq!(
                 call(&app, "GET", &route, Value::Null, candidate_token)
                     .await
@@ -462,13 +522,23 @@ async fn generation_is_unique_recoverable_validated_and_private() {
             );
             assert_eq!(call(&app,"POST",&format!("/api/v1/jobs/{job_id}/invitations"),json!({"candidate_name":"Blocked candidate","candidate_email":"blocked@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await.0,StatusCode::CONFLICT);
             if matches!(mode, 12 | 19) {
-                let ids: Vec<Value> = saved.iter().map(|q| q["id"].clone()).collect();
-                mock.malformed.store(0, Ordering::SeqCst);
+                let ids: Vec<Value> = saved
+                    .iter()
+                    .map(|q| q["id"].clone())
+                    .collect();
+                mock.malformed
+                    .store(0, Ordering::SeqCst);
                 assert_eq!(
-                    call(&app, "POST", &route, json!({}), token).await.0,
+                    call(&app, "POST", &route, json!({}), token)
+                        .await
+                        .0,
                     StatusCode::ACCEPTED
                 );
-                assert!(process_next(&pool, &provider).await.unwrap());
+                assert!(
+                    process_next(&pool, &provider)
+                        .await
+                        .unwrap()
+                );
                 let (_, resumed) = call(&app, "GET", &route, Value::Null, token).await;
                 assert_eq!(resumed["sets"][0]["status"], "completed");
                 for id in ids {
@@ -503,7 +573,9 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         .await
         .unwrap();
     for owner in owners {
-        let mut tx = interviewer_transaction(&pool, owner).await.unwrap();
+        let mut tx = interviewer_transaction(&pool, owner)
+            .await
+            .unwrap();
         sqlx::query(
             "UPDATE question_sets SET available_at=now()+interval '1 day' WHERE status='pending'",
         )
@@ -513,14 +585,18 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         tx.commit().await.unwrap();
     }
     let mock = Mock::new();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap();
     let address = listener.local_addr().unwrap();
     let service = Router::new()
         .route("/v1/responses", post(responses))
         .route("/v1/embeddings", post(embeddings))
         .with_state(mock.clone());
     let task = tokio::spawn(async move {
-        axum::serve(listener, service).await.unwrap();
+        axum::serve(listener, service)
+            .await
+            .unwrap();
     });
     let mut provider = AiProvider::new(
         format!("http://{address}/v1"),
@@ -535,7 +611,11 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     let owner = account(&app).await;
     let other = account(&app).await;
     let token = owner["token"].as_str().unwrap();
-    let recruiter: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let recruiter: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let (_, older_job) = call(&app,"POST","/api/v1/jobs",json!({"job_code":format!("OLDER-{}",Uuid::new_v4()),"title":"Older queued role","description":JD,"request_key":Uuid::new_v4()}),token).await;
     assert_eq!(older_job["question_set_count"], 1);
     let (_, default_pool) = call(
@@ -550,7 +630,13 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     )
     .await;
     assert_eq!(default_pool["target"], 1);
-    assert_eq!(default_pool["sets"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        default_pool["sets"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     for invalid_count in [0, 6] {
         let (status, _) = call(&app, "POST", "/api/v1/jobs", json!({"job_code":format!("INVALID-{}",Uuid::new_v4()),"title":"Invalid pool","description":JD,"question_set_count":invalid_count,"request_key":Uuid::new_v4()}), token).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -559,7 +645,9 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     let (status, job) = call(&app, "POST", "/api/v1/jobs", input.clone(), token).await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(
-        call(&app, "POST", "/api/v1/jobs", input, token).await.0,
+        call(&app, "POST", "/api/v1/jobs", input, token)
+            .await
+            .0,
         StatusCode::OK
     );
     let id = job["id"].as_str().unwrap();
@@ -567,12 +655,22 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     let route = format!("/api/v1/jobs/{id}/question-sets");
     let (_, initial) = call(&app, "GET", &route, Value::Null, token).await;
     assert_eq!(
-        initial["sets"].as_array().unwrap().len(),
+        initial["sets"]
+            .as_array()
+            .unwrap()
+            .len(),
         3,
         "idempotent job creation queues exactly three sets"
     );
-    assert!(initial["questions"].as_array().unwrap().is_empty());
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    assert!(
+        initial["questions"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     let sessions: i64 =
         sqlx::query_scalar("SELECT count(*) FROM interview_sessions WHERE job_id=$1")
             .bind(id.parse::<Uuid>().unwrap())
@@ -583,12 +681,21 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         sessions, 0,
         "preparation must not fabricate candidate sessions"
     );
-    let first: Uuid = initial["sets"][0]["id"].as_str().unwrap().parse().unwrap();
+    let first: Uuid = initial["sets"][0]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     sqlx::query("UPDATE question_sets SET status='running',attempts=1,claim_token=$2,lease_until=now()-interval '1 second' WHERE id=$1").bind(first).bind(Uuid::new_v4()).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     for variant in [1, 2] {
-        mock.variant.store(variant, Ordering::SeqCst);
-        assert!(process_next(&pool, &provider).await.unwrap());
+        mock.variant
+            .store(variant, Ordering::SeqCst);
+        assert!(
+            process_next(&pool, &provider)
+                .await
+                .unwrap()
+        );
     }
     let (_, older_status) = call(
         &app,
@@ -610,17 +717,35 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         "new job's fresh work should precede the older backlog"
     );
     // Once fresh stock is served, expired leases remain recoverable on retry.
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     sqlx::query("UPDATE question_sets SET available_at=now()+interval '1 day' WHERE job_id=$1")
-        .bind(older_job["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+        .bind(
+            older_job["id"]
+                .as_str()
+                .unwrap()
+                .parse::<Uuid>()
+                .unwrap(),
+        )
         .execute(&mut *tx)
         .await
         .unwrap();
     tx.commit().await.unwrap();
     mock.variant.store(4, Ordering::SeqCst);
-    assert!(process_next(&pool, &provider).await.unwrap());
+    assert!(
+        process_next(&pool, &provider)
+            .await
+            .unwrap()
+    );
     let (_, ready) = call(&app, "GET", &route, Value::Null, token).await;
-    assert_eq!(ready["questions"].as_array().unwrap().len(), 18);
+    assert_eq!(
+        ready["questions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        18
+    );
     assert!(
         ready["sets"]
             .as_array()
@@ -688,9 +813,15 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     )
     .await;
     assert_eq!(view["question_count"], 6);
-    assert!(!view.to_string().contains("expected_answer"));
+    assert!(
+        !view
+            .to_string()
+            .contains("expected_answer")
+    );
     assert_eq!(
-        call(&app, "GET", &route, Value::Null, candidate).await.0,
+        call(&app, "GET", &route, Value::Null, candidate)
+            .await
+            .0,
         StatusCode::UNAUTHORIZED
     );
     let (_, remaining) = call(&app, "GET", &route, Value::Null, token).await;
@@ -704,7 +835,10 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         3
     );
     assert_eq!(
-        remaining["questions"].as_array().unwrap().len(),
+        remaining["questions"]
+            .as_array()
+            .unwrap()
+            .len(),
         18,
         "reusable source questions remain available in pool preview"
     );
@@ -723,7 +857,10 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     );
     let (_, exhausted) = call(&app, "GET", &route, Value::Null, token).await;
     assert_eq!(
-        exhausted["sets"].as_array().unwrap().len(),
+        exhausted["sets"]
+            .as_array()
+            .unwrap()
+            .len(),
         3,
         "assignment never replenishes sets"
     );
@@ -731,7 +868,9 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     let id = diagnostic_job["id"].as_str().unwrap();
     let route = format!("/api/v1/jobs/{id}/question-sets");
     // Failed jobs remain bounded until an authorized explicit retry.
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     sqlx::query("UPDATE jobs SET blueprint=$2 WHERE id=$1")
         .bind(id.parse::<Uuid>().unwrap())
         .bind(&ready["blueprint"])
@@ -739,15 +878,24 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     sqlx::query("UPDATE question_sets SET status='failed',attempts=3,last_error='Synthetic quality failure' WHERE job_id=$1").bind(id.parse::<Uuid>().unwrap()).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     sqlx::query("UPDATE question_sets SET status='pending',attempts=3,available_at=now() WHERE id=(SELECT id FROM question_sets WHERE job_id=$1 ORDER BY id LIMIT 1)")
         .bind(id.parse::<Uuid>().unwrap()).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
-    mock.malformed.store(7, Ordering::SeqCst);
-    assert!(process_next(&pool, &provider).await.unwrap());
+    mock.malformed
+        .store(7, Ordering::SeqCst);
+    assert!(
+        process_next(&pool, &provider)
+            .await
+            .unwrap()
+    );
     let (_, failure) = call(&app, "GET", &route, Value::Null, token).await;
     let diagnostic = failure["sets"]
         .as_array()
@@ -771,7 +919,9 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         StatusCode::SERVICE_UNAVAILABLE
     );
     assert_eq!(
-        call(&app, "POST", &route, json!({}), token).await.0,
+        call(&app, "POST", &route, json!({}), token)
+            .await
+            .0,
         StatusCode::ACCEPTED
     );
     let (_, retried) = call(&app, "GET", &route, Value::Null, token).await;
@@ -784,12 +934,15 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
             .all(|s| s["status"] == "pending" && s["attempts"] == 0)
     );
     // A pool set also preserves completed questions and cannot be assigned early.
-    mock.malformed.store(19, Ordering::SeqCst);
+    mock.malformed
+        .store(19, Ordering::SeqCst);
     mock.variant.store(1, Ordering::SeqCst);
     let (_,checkpoint_job)=call(&app,"POST","/api/v1/jobs",json!({"job_code":format!("CHECKPOINT-{}",Uuid::new_v4()),"title":"Checkpoint pool role","description":JD,"request_key":Uuid::new_v4()}),token).await;
     let checkpoint_id = checkpoint_job["id"].as_str().unwrap();
     let checkpoint_route = format!("/api/v1/jobs/{checkpoint_id}/question-sets");
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     sqlx::query("UPDATE question_sets SET available_at=now()+interval '1 day' WHERE job_id<>$1 AND status='pending'").bind(checkpoint_id.parse::<Uuid>().unwrap()).execute(&mut *tx).await.unwrap();
     sqlx::query("UPDATE question_sets SET attempts=3 WHERE job_id=$1")
         .bind(checkpoint_id.parse::<Uuid>().unwrap())
@@ -797,7 +950,11 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    assert!(process_next(&pool, &provider).await.unwrap());
+    assert!(
+        process_next(&pool, &provider)
+            .await
+            .unwrap()
+    );
     let (_, partial) = call(&app, "GET", &checkpoint_route, json!({}), token).await;
     let partial_set = partial["sets"]
         .as_array()
@@ -808,7 +965,10 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     let partial_id = partial_set["id"].as_str().unwrap();
     assert_eq!(partial_set["question_count"], 2);
     assert_eq!(
-        partial["questions"].as_array().unwrap().len(),
+        partial["questions"]
+            .as_array()
+            .unwrap()
+            .len(),
         2,
         "interviewer should see saved progress for an incomplete set"
     );
@@ -824,14 +984,19 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         .iter()
         .map(|count| count.load(Ordering::SeqCst))
         .collect();
-    mock.malformed.store(0, Ordering::SeqCst);
+    mock.malformed
+        .store(0, Ordering::SeqCst);
     assert_eq!(
         call(&app, "POST", &checkpoint_route, json!({}), token)
             .await
             .0,
         StatusCode::ACCEPTED
     );
-    assert!(process_next(&pool, &provider).await.unwrap());
+    assert!(
+        process_next(&pool, &provider)
+            .await
+            .unwrap()
+    );
     let (_, resumed) = call(&app, "GET", &checkpoint_route, json!({}), token).await;
     let completed = resumed["sets"]
         .as_array()
@@ -850,7 +1015,12 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
                 .any(|question| question["id"] == saved)
         );
     }
-    for (index, (counter, before)) in mock.reference_calls.iter().zip(before).enumerate() {
+    for (index, (counter, before)) in mock
+        .reference_calls
+        .iter()
+        .zip(before)
+        .enumerate()
+    {
         assert_eq!(
             counter.load(Ordering::SeqCst) - before,
             if index < 2 { 0 } else { 1 },
@@ -877,7 +1047,9 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         .unwrap()
         .parse()
         .unwrap();
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     let shared: i64 = sqlx::query_scalar("SELECT count(*) FROM session_question_details() a JOIN session_question_details() b ON a.id=b.id WHERE a.session_id=$1 AND b.session_id=$2 AND a.prompt=b.prompt AND a.rubric=b.rubric")
         .bind(first_session).bind(second_session).fetch_one(&mut *tx).await.unwrap();
     assert_eq!(shared, 6);
@@ -895,8 +1067,12 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         .unwrap();
     assert_eq!(sets, 1);
     tx.commit().await.unwrap();
-    let first_token = first_candidate["invitation_token"].as_str().unwrap();
-    let second_token = second_candidate["invitation_token"].as_str().unwrap();
+    let first_token = first_candidate["invitation_token"]
+        .as_str()
+        .unwrap();
+    let second_token = second_candidate["invitation_token"]
+        .as_str()
+        .unwrap();
     for candidate_token in [first_token, second_token] {
         assert_eq!(
             call(
@@ -931,7 +1107,9 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         first_token,
     )
     .await;
-    let shared_question = first_room["question"]["id"].as_str().unwrap();
+    let shared_question = first_room["question"]["id"]
+        .as_str()
+        .unwrap();
     let answer_route = format!("/api/v1/candidate/answers/{shared_question}");
     assert_eq!(
         call(
@@ -982,11 +1160,14 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     );
     assert_eq!(first_again["question"]["revision"], 1);
     // Plan a short interview before drafting and keep exactly that plan on retry.
-    mock.malformed.store(19, Ordering::SeqCst);
+    mock.malformed
+        .store(19, Ordering::SeqCst);
     let (_,short_job)=call(&app,"POST","/api/v1/jobs",json!({"job_code":format!("SHORT-{}",Uuid::new_v4()),"title":"Short focused role","description":JD,"preparation_duration_minutes":10,"question_set_count":1,"request_key":Uuid::new_v4()}),token).await;
     let short_id = short_job["id"].as_str().unwrap();
     let short_route = format!("/api/v1/jobs/{short_id}/question-sets");
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     sqlx::query("UPDATE question_sets SET available_at=now()+interval '1 day' WHERE job_id<>$1 AND status='pending'").bind(short_id.parse::<Uuid>().unwrap()).execute(&mut *tx).await.unwrap();
     sqlx::query("UPDATE question_sets SET attempts=3 WHERE job_id=$1")
         .bind(short_id.parse::<Uuid>().unwrap())
@@ -994,11 +1175,21 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    assert!(process_next(&pool, &provider).await.unwrap());
+    assert!(
+        process_next(&pool, &provider)
+            .await
+            .unwrap()
+    );
     let (_, short_partial) = call(&app, "GET", &short_route, Value::Null, token).await;
     let time_plan = short_partial["sets"][0]["plan"].clone();
     assert_eq!(short_partial["sets"][0]["question_count"], 2);
-    assert_eq!(time_plan["allocations"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        time_plan["allocations"]
+            .as_array()
+            .unwrap()
+            .len(),
+        5
+    );
     assert!(
         time_plan["allocations"]
             .as_array()
@@ -1006,16 +1197,29 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
             .iter()
             .all(|a| a["minutes"] == 2)
     );
-    mock.malformed.store(0, Ordering::SeqCst);
+    mock.malformed
+        .store(0, Ordering::SeqCst);
     assert_eq!(
-        call(&app, "POST", &short_route, json!({}), token).await.0,
+        call(&app, "POST", &short_route, json!({}), token)
+            .await
+            .0,
         StatusCode::ACCEPTED
     );
-    assert!(process_next(&pool, &provider).await.unwrap());
+    assert!(
+        process_next(&pool, &provider)
+            .await
+            .unwrap()
+    );
     let (_, short_complete) = call(&app, "GET", &short_route, Value::Null, token).await;
     assert_eq!(short_complete["sets"][0]["status"], "completed");
     assert_eq!(short_complete["sets"][0]["plan"], time_plan);
-    assert_eq!(short_complete["questions"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        short_complete["questions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        5
+    );
     assert!(
         short_complete["questions"]
             .as_array()
@@ -1047,7 +1251,9 @@ async fn every_generation_failure_gets_three_worker_retries() {
         .await
         .unwrap();
     for owner in owners {
-        let mut tx = interviewer_transaction(&pool, owner).await.unwrap();
+        let mut tx = interviewer_transaction(&pool, owner)
+            .await
+            .unwrap();
         sqlx::query(
             "UPDATE question_sets SET available_at=now()+interval '1 day' WHERE status='pending'",
         )
@@ -1057,14 +1263,18 @@ async fn every_generation_failure_gets_three_worker_retries() {
         tx.commit().await.unwrap();
     }
     let mock = Mock::new();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap();
     let address = listener.local_addr().unwrap();
     let service = Router::new()
         .route("/v1/responses", post(responses))
         .route("/v1/embeddings", post(embeddings))
         .with_state(mock.clone());
     let server = tokio::spawn(async move {
-        axum::serve(listener, service).await.unwrap();
+        axum::serve(listener, service)
+            .await
+            .unwrap();
     });
     let mut provider = AiProvider::new(
         format!("http://{address}/v1"),
@@ -1078,23 +1288,38 @@ async fn every_generation_failure_gets_three_worker_retries() {
     let app = platform_api::router_with_ai(pool.clone(), Some(provider.clone()));
     let owner = account(&app).await;
     let token = owner["token"].as_str().unwrap();
-    let user: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let user: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     // Invalid credentials, unexpected payload, quality rejection and structural failure.
     for mode in [7, 24, 4, 19] {
-        mock.malformed.store(mode, Ordering::SeqCst);
+        mock.malformed
+            .store(mode, Ordering::SeqCst);
         let (_,job)=call(&app,"POST","/api/v1/jobs",json!({"job_code":format!("RETRY-{}",Uuid::new_v4()),"title":"Retry policy","description":JD,"request_key":Uuid::new_v4()}),token).await;
-        let job_id: Uuid = job["id"].as_str().unwrap().parse().unwrap();
+        let job_id: Uuid = job["id"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
         let route = format!("/api/v1/jobs/{job_id}/question-sets");
         let mut saved_ids = None;
         for attempt in 1..=4 {
-            let mut tx = interviewer_transaction(&pool, user).await.unwrap();
+            let mut tx = interviewer_transaction(&pool, user)
+                .await
+                .unwrap();
             sqlx::query("UPDATE question_sets SET available_at=now() WHERE job_id=$1")
                 .bind(job_id)
                 .execute(&mut *tx)
                 .await
                 .unwrap();
             tx.commit().await.unwrap();
-            assert!(process_next(&pool, &provider).await.unwrap());
+            assert!(
+                process_next(&pool, &provider)
+                    .await
+                    .unwrap()
+            );
             let (_, status) = call(&app, "GET", &route, Value::Null, token).await;
             assert_eq!(status["max_attempts"], 4);
             assert_eq!(status["sets"][0]["attempts"], attempt);
@@ -1117,7 +1342,11 @@ async fn every_generation_failure_gets_three_worker_retries() {
                 }
             }
             // There is no fifth attempt, and pending retries respect their delay.
-            assert!(!process_next(&pool, &provider).await.unwrap());
+            assert!(
+                !process_next(&pool, &provider)
+                    .await
+                    .unwrap()
+            );
         }
     }
     server.abort();

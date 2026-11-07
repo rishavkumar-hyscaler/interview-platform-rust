@@ -10,7 +10,9 @@ async fn main() -> anyhow::Result<()> {
     }
     if std::env::args().any(|arg| arg == "--migrate") {
         let pool = platform_api::infrastructure::connect_for_migrations().await?;
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await?;
         return Ok(());
     }
     platform_api::invitations::InvitationCipher::from_environment().map_err(|_| {
@@ -18,7 +20,12 @@ async fn main() -> anyhow::Result<()> {
     })?;
     let pool = platform_api::infrastructure::connect().await?;
     let unsafe_role: bool = sqlx::query_scalar(
-        "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname=current_user",
+        r#"
+        SELECT rolsuper
+        OR rolbypassrls
+        FROM pg_roles
+        WHERE rolname = current_user
+        "#,
     )
     .fetch_one(&pool)
     .await?;
@@ -26,12 +33,17 @@ async fn main() -> anyhow::Result<()> {
         !unsafe_role,
         "API must use a non-superuser role without BYPASSRLS"
     );
-    let address = std::env::var("BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8080".into());
+    let address = match std::env::var("BIND_ADDRESS") {
+        Ok(value) => value,
+        Err(_) => "127.0.0.1:8080".to_string(),
+    };
     let listener = tokio::net::TcpListener::bind(&address).await?;
     tracing::info!(%address, "API listening");
-    let origin: axum::http::HeaderValue = std::env::var("FRONTEND_ORIGIN")
-        .unwrap_or_else(|_| "http://localhost:5173".into())
-        .parse()?;
+    let origin: axum::http::HeaderValue = match std::env::var("FRONTEND_ORIGIN") {
+        Ok(value) => value,
+        Err(_) => "http://localhost:5173".to_string(),
+    }
+    .parse()?;
     let cors = tower_http::cors::CorsLayer::new()
         .allow_origin(origin)
         .allow_methods([axum::http::Method::GET, axum::http::Method::POST])

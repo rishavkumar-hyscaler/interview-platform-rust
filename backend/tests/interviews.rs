@@ -29,7 +29,9 @@ async fn call(
         .await
         .unwrap();
     let status = response.status();
-    let bytes = to_bytes(response.into_body(), 262144).await.unwrap();
+    let bytes = to_bytes(response.into_body(), 262144)
+        .await
+        .unwrap();
     (
         status,
         serde_json::from_slice(&bytes).unwrap_or(Value::Null),
@@ -62,7 +64,9 @@ async fn database() -> PgPool {
     pool
 }
 async fn ready_set(pool: &PgPool, owner: Uuid, job: Uuid, duration: i32) {
-    let mut tx = interviewer_transaction(pool, owner).await.unwrap();
+    let mut tx = interviewer_transaction(pool, owner)
+        .await
+        .unwrap();
     let set: Uuid = sqlx::query_scalar(
         "SELECT id FROM question_sets WHERE job_id=$1 ORDER BY created_at,id LIMIT 1",
     )
@@ -93,7 +97,9 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
         .unwrap()
         .parse()
         .unwrap();
-    let token = recruiter_account["token"].as_str().unwrap();
+    let token = recruiter_account["token"]
+        .as_str()
+        .unwrap();
     let other = outsider["token"].as_str().unwrap();
     assert_eq!(recruiter_account["role"], "interviewer");
     let base = "/api/v1".to_string();
@@ -149,7 +155,10 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
         StatusCode::BAD_REQUEST
     );
     let mut missing = job_input.clone();
-    missing.as_object_mut().unwrap().remove("job_code");
+    missing
+        .as_object_mut()
+        .unwrap()
+        .remove("job_code");
     assert_eq!(
         call(&app, "POST", &format!("{base}/jobs"), missing, token)
             .await
@@ -205,7 +214,11 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
     ready_set(
         &pool,
         recruiter,
-        job["id"].as_str().unwrap().parse().unwrap(),
+        job["id"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap(),
         30,
     )
     .await;
@@ -213,8 +226,12 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
     let path = format!("{base}/jobs/{}/invitations", job["id"].as_str().unwrap());
     let (status, invite) = call(&app, "POST", &path, invitation.clone(), token).await;
     assert_eq!(status, StatusCode::CREATED);
-    let id = invite["session"]["id"].as_str().unwrap();
-    let candidate = invite["invitation_token"].as_str().unwrap();
+    let id = invite["session"]["id"]
+        .as_str()
+        .unwrap();
+    let candidate = invite["invitation_token"]
+        .as_str()
+        .unwrap();
     let (status, repeated) = call(&app, "POST", &path, invitation, token).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(repeated["session"]["id"], id);
@@ -341,7 +358,10 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
     )
     .await;
     assert_eq!(
-        events["items"].as_array().unwrap().len(),
+        events["items"]
+            .as_array()
+            .unwrap()
+            .len(),
         4,
         "set assignment, invitation, link retrieval, and acceptance are audited"
     );
@@ -423,7 +443,9 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
         .await
         .unwrap();
     assert_eq!(visible, 0);
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     assert!(
         sqlx::query("UPDATE audit_events SET action='forged' WHERE entity_id=$1")
             .bind(session)
@@ -447,21 +469,39 @@ async fn concurrent_workers_expire_once_and_tenant_foreign_keys_hold() {
         .unwrap()
         .parse()
         .unwrap();
-    let other_org: Uuid = other["user_id"].as_str().unwrap().parse().unwrap();
-    let token = recruiter_account["token"].as_str().unwrap();
+    let other_org: Uuid = other["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let token = recruiter_account["token"]
+        .as_str()
+        .unwrap();
     let base = "/api/v1".to_string();
     let (_,job)=call(&app,"POST",&format!("{base}/jobs"),json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Expiry test","description":"A role for testing durable expiry and tenant boundaries.","request_key":Uuid::new_v4()}),token).await;
     ready_set(
         &pool,
         recruiter,
-        job["id"].as_str().unwrap().parse().unwrap(),
+        job["id"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap(),
         5,
     )
     .await;
     let (_,invite)=call(&app,"POST",&format!("{base}/jobs/{}/invitations",job["id"].as_str().unwrap()),json!({"candidate_name":"Expiry candidate","candidate_email":"expiry@example.test","duration_minutes":5,"request_key":Uuid::new_v4()}),token).await;
-    let id: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
-    let candidate = invite["invitation_token"].as_str().unwrap();
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let id: Uuid = invite["session"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let candidate = invite["invitation_token"]
+        .as_str()
+        .unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     sqlx::query("UPDATE interview_sessions SET expires_at=now()-interval '1 second' WHERE id=$1")
         .bind(id)
         .execute(&mut *tx)
@@ -485,7 +525,9 @@ async fn concurrent_workers_expire_once_and_tenant_foreign_keys_hold() {
     let b = tokio::spawn(platform_api::worker::run(pool.clone(), receiver));
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
-            let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+            let mut tx = interviewer_transaction(&pool, recruiter)
+                .await
+                .unwrap();
             let state: String =
                 sqlx::query_scalar("SELECT state FROM interview_sessions WHERE id=$1")
                     .bind(id)
@@ -517,7 +559,9 @@ async fn concurrent_workers_expire_once_and_tenant_foreign_keys_hold() {
     )
     .await;
     assert_eq!(detail["state"], "expired");
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM audit_events WHERE entity_id=$1 AND action='session.expired'",
     )
@@ -527,8 +571,14 @@ async fn concurrent_workers_expire_once_and_tenant_foreign_keys_hold() {
     .unwrap();
     assert_eq!(count, 1);
     tx.commit().await.unwrap();
-    let mut tx = interviewer_transaction(&pool, other_org).await.unwrap();
-    let foreign_job: Uuid = job["id"].as_str().unwrap().parse().unwrap();
+    let mut tx = interviewer_transaction(&pool, other_org)
+        .await
+        .unwrap();
+    let foreign_job: Uuid = job["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let result=sqlx::query("INSERT INTO interview_sessions(id,interviewer_id,interviewee_id,job_id,request_key,candidate_name,candidate_email,duration_minutes) VALUES($1,$2,$3,$4,$5,'Forbidden','forbidden@example.test',30)")
         .bind(Uuid::new_v4()).bind(other_org).bind(recruiter).bind(foreign_job).bind(Uuid::new_v4()).execute(&mut *tx).await;
     assert!(result.is_err());
@@ -587,19 +637,31 @@ async fn legacy_invitation_replacement_is_explicit_scoped_and_preserves_expiry()
         .unwrap()
         .parse()
         .unwrap();
-    let token = recruiter_account["token"].as_str().unwrap();
+    let token = recruiter_account["token"]
+        .as_str()
+        .unwrap();
     let base = "/api/v1".to_string();
     let (_,job)=call(&app,"POST",&format!("{base}/jobs"),json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Legacy link test","description":"A job description used for testing safe invitation recovery.","request_key":Uuid::new_v4()}),token).await;
     ready_set(
         &pool,
         recruiter,
-        job["id"].as_str().unwrap().parse().unwrap(),
+        job["id"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap(),
         30,
     )
     .await;
     let (_,invite)=call(&app,"POST",&format!("{base}/jobs/{}/invitations",job["id"].as_str().unwrap()),json!({"candidate_name":"Legacy candidate","candidate_email":"legacy@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
-    let id: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
-    let original = invite["invitation_token"].as_str().unwrap();
+    let id: Uuid = invite["session"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let original = invite["invitation_token"]
+        .as_str()
+        .unwrap();
     // Simulate a pre-upgrade invitation, for which the original secret was not retained.
     sqlx::query("UPDATE auth_sessions SET sealed_token=NULL WHERE interview_session_id=$1")
         .bind(id)
@@ -626,7 +688,9 @@ async fn legacy_invitation_replacement_is_explicit_scoped_and_preserves_expiry()
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(reissued["replaced_legacy_link"], true);
-    let replacement = reissued["invitation_token"].as_str().unwrap();
+    let replacement = reissued["invitation_token"]
+        .as_str()
+        .unwrap();
     assert_ne!(original, replacement);
     assert_eq!(
         call(
@@ -726,7 +790,9 @@ async fn legacy_invitation_replacement_is_explicit_scoped_and_preserves_expiry()
         .0,
         StatusCode::OK
     );
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     sqlx::query("UPDATE interview_sessions SET expires_at=now()-interval '1 second' WHERE id=$1")
         .bind(id)
         .execute(&mut *tx)
@@ -776,14 +842,24 @@ async fn invitations_require_a_completed_matching_set_and_rejections_leave_no_ro
     let app = platform_api::router_with_ai(pool.clone(), None);
     let owner = account(&app).await;
     let token = owner["token"].as_str().unwrap();
-    let user: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let user: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let (_,job)=call(&app,"POST","/api/v1/jobs",json!({"job_code":format!("INVITE-GATE-{}",Uuid::new_v4()),"title":"Prepared invitations only","description":"Build reliable applications with Rust and PostgreSQL.","request_key":Uuid::new_v4()}),token).await;
-    let job_id: Uuid = job["id"].as_str().unwrap().parse().unwrap();
+    let job_id: Uuid = job["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let route = format!("/api/v1/jobs/{job_id}/invitations");
     let email = format!("{}@example.test", Uuid::new_v4());
     let input = json!({"candidate_name":"Prepared candidate","candidate_email":email,"duration_minutes":30,"request_key":Uuid::new_v4()});
     for state in ["pending", "running", "failed", "completed"] {
-        let mut tx = interviewer_transaction(&pool, user).await.unwrap();
+        let mut tx = interviewer_transaction(&pool, user)
+            .await
+            .unwrap();
         sqlx::query("UPDATE question_sets SET status=$2 WHERE job_id=$1")
             .bind(job_id)
             .bind(state)
@@ -804,7 +880,9 @@ async fn invitations_require_a_completed_matching_set_and_rejections_leave_no_ro
                 .contains("No completed question set")
         );
     }
-    let mut tx = interviewer_transaction(&pool, user).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, user)
+        .await
+        .unwrap();
     let sessions: i64 =
         sqlx::query_scalar("SELECT count(*) FROM interview_sessions WHERE job_id=$1")
             .bind(job_id)
@@ -823,7 +901,9 @@ async fn invitations_require_a_completed_matching_set_and_rejections_leave_no_ro
     let mut wrong_duration = input.clone();
     wrong_duration["duration_minutes"] = json!(10);
     assert_eq!(
-        call(&app, "POST", &route, wrong_duration, token).await.0,
+        call(&app, "POST", &route, wrong_duration, token)
+            .await
+            .0,
         StatusCode::CONFLICT
     );
     let (status, invited) = call(&app, "POST", &route, input.clone(), token).await;
@@ -831,7 +911,9 @@ async fn invitations_require_a_completed_matching_set_and_rejections_leave_no_ro
     assert!(!invited["session"]["question_set_id"].is_null());
     assert_eq!(invited["session"]["question_set_id"].is_string(), true);
     // Replaying a successful request recovers its existing link even if availability changes.
-    let mut tx = interviewer_transaction(&pool, user).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, user)
+        .await
+        .unwrap();
     sqlx::query("UPDATE question_sets SET status='failed' WHERE job_id=$1")
         .bind(job_id)
         .execute(&mut *tx)
@@ -844,7 +926,9 @@ async fn invitations_require_a_completed_matching_set_and_rejections_leave_no_ro
     let mut another = input;
     another["request_key"] = json!(Uuid::new_v4());
     assert_eq!(
-        call(&app, "POST", &route, another, token).await.0,
+        call(&app, "POST", &route, another, token)
+            .await
+            .0,
         StatusCode::CONFLICT
     );
     pool.close().await;

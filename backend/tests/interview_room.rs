@@ -29,7 +29,9 @@ async fn call(
         .await
         .unwrap();
     let status = response.status();
-    let bytes = to_bytes(response.into_body(), 262144).await.unwrap();
+    let bytes = to_bytes(response.into_body(), 262144)
+        .await
+        .unwrap();
     (
         status,
         serde_json::from_slice(&bytes).unwrap_or(Value::Null),
@@ -42,12 +44,22 @@ async fn account(app: &Router) -> Value {
 }
 async fn setup(pool: &PgPool, app: &Router, owner: &Value) -> (Value, Vec<Uuid>) {
     let token = owner["token"].as_str().unwrap();
-    let user: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let user: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let(s,job)=call(app,"POST","/api/v1/jobs",json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Interview room test","description":"Build reliable applications in Rust and PostgreSQL.","request_key":Uuid::new_v4()}),token).await;
     assert_eq!(s, StatusCode::CREATED);
-    let job: Uuid = job["id"].as_str().unwrap().parse().unwrap();
+    let job: Uuid = job["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let ids = vec![Uuid::new_v4(), Uuid::new_v4()];
-    let mut tx = interviewer_transaction(pool, user).await.unwrap();
+    let mut tx = interviewer_transaction(pool, user)
+        .await
+        .unwrap();
     let id: Uuid = sqlx::query_scalar(
         "SELECT id FROM question_sets WHERE job_id=$1 ORDER BY created_at,id LIMIT 1",
     )
@@ -84,13 +96,25 @@ async fn timed_room_saves_resume_conflicts_and_deadlines_are_enforced() {
     let app = platform_api::router_with_ai(pool.clone(), None);
     let owner = account(&app).await;
     let other = account(&app).await;
-    let owner_id: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let owner_id: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let token = owner["token"].as_str().unwrap();
     let (invite, questions) = setup(&pool, &app, &owner).await;
     let (other_invite, other_questions) = setup(&pool, &app, &other).await;
-    let candidate = invite["invitation_token"].as_str().unwrap();
-    let other_candidate = other_invite["invitation_token"].as_str().unwrap();
-    let session: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
+    let candidate = invite["invitation_token"]
+        .as_str()
+        .unwrap();
+    let other_candidate = other_invite["invitation_token"]
+        .as_str()
+        .unwrap();
+    let session: Uuid = invite["session"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     assert_eq!(
         call(
             &app,
@@ -139,7 +163,11 @@ async fn timed_room_saves_resume_conflicts_and_deadlines_are_enforced() {
     .await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(room["question"]["position"], 1);
-    assert!(!room.to_string().contains("must never leak"));
+    assert!(
+        !room
+            .to_string()
+            .contains("must never leak")
+    );
     assert!(!room.to_string().contains("rubric"));
     let answer = format!("/api/v1/candidate/answers/{}", questions[0]);
     let input = json!({"content":"Use transactions and clear retry boundaries.","revision":0});
@@ -281,7 +309,9 @@ async fn timed_room_saves_resume_conflicts_and_deadlines_are_enforced() {
         review["questions"][0]["answer"]["content"],
         "Use transactions and clear retry boundaries."
     );
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     let saves: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM audit_events WHERE entity_id=$1 AND action='answer.saved'",
     )
@@ -337,7 +367,9 @@ async fn timed_room_saves_resume_conflicts_and_deadlines_are_enforced() {
             "submitted"
         );
     }
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     let events: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM audit_events WHERE entity_id=$1 AND action='session.timed_out'",
     )

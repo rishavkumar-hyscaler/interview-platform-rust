@@ -9,7 +9,9 @@ pub(crate) fn assessment_source(session: Uuid, assessment: Option<&(Uuid, Value)
             let mut lines = vec!["Latest completed competency assessment:".to_string()];
             if let Some(competencies) = result["competency_profile"]["competencies"].as_array() {
                 for competency in competencies {
-                    let name = competency["name"].as_str().unwrap_or("Unnamed competency");
+                    let name = competency["name"]
+                        .as_str()
+                        .unwrap_or("Unnamed competency");
                     match competency["percent"]
                         .as_f64()
                         .filter(|p| p.is_finite() && (0.0..=100.0).contains(p))
@@ -61,7 +63,12 @@ pub(crate) fn comparison(
             if !score.is_finite() || !(0.0..=100.0).contains(&score) {
                 return None;
             }
-            Some((c["name"].as_str().unwrap_or("Unnamed competency"), score))
+            Some((
+                c["name"]
+                    .as_str()
+                    .unwrap_or("Unnamed competency"),
+                score,
+            ))
         })
         .collect();
     let target = scores
@@ -105,7 +112,10 @@ mod tests {
             &source,
         )
         .unwrap();
-        assert!(best.answer.contains("React: 80.00%; Rust: 80.00%"));
+        assert!(
+            best.answer
+                .contains("React: 80.00%; Rust: 80.00%")
+        );
         assert_eq!(best.citations.len(), 2);
         super::super::citations::ground_reply(&mut best, &[source.clone()]).unwrap();
         let worst = comparison("which skill was weakest?", Some(&assessment), &source).unwrap();

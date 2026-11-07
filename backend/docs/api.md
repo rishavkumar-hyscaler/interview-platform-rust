@@ -150,7 +150,7 @@ Limits and model/calibration behavior are in the linked guide. Evidence attachme
 
 ### Job question-set pool
 
-`POST /api/v1/jobs` accepts `preparation_duration_minutes` (5–180; default 30) and `question_set_count` (1–5; default 1), and atomically queues that many reusable sets. `GET /api/v1/jobs/{job}/question-sets` returns owner-only status and questions/reference rubrics; `POST` retries failed sets. Invitations require a completed matching set and link it without copying questions or generating replacements. See [details](job-question-sets.md).
+`POST /api/v1/jobs` accepts `preparation_duration_minutes` (5–180; default 30) and `question_set_count` (1–5; default 1), and atomically queues that many reusable sets. `GET /api/v1/jobs/{job}/question-sets` returns owner-only status and questions/reference rubrics; `POST` retries failed sets. Invitations require a completed matching set and link it without copying questions or generating replacements. See [details](ai.md).
 
 ### Incremental generation progress
 

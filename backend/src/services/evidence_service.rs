@@ -110,8 +110,14 @@ pub(crate) async fn upload(
         if old["event_id"] != json!(event)
             || old["sha256"] != hash
             || old["mime"] != mime
-            || old["capture"].as_str().unwrap_or("post_signal") != capture
-            || old["evidence_source"].as_str().unwrap_or("camera") != source
+            || old["capture"]
+                .as_str()
+                .unwrap_or("post_signal")
+                != capture
+            || old["evidence_source"]
+                .as_str()
+                .unwrap_or("camera")
+                != source
             || (source == "screen"
                 && (old["capture_surface"] != surface
                     || old["captured_at_ms"] != json!(captured.flatten())))
@@ -167,14 +173,19 @@ pub(crate) async fn upload(
         })?;
     if file.exists() {
         // No committed audit reference under this locked session: recover an orphan.
-        tokio::fs::remove_file(&file).await.map_err(|_| {
-            ApiError(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Evidence recovery unavailable",
-            )
-        })?;
+        tokio::fs::remove_file(&file)
+            .await
+            .map_err(|_| {
+                ApiError(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Evidence recovery unavailable",
+                )
+            })?;
     }
-    if media::write_file(&file, &bytes).await.is_err() {
+    if media::write_file(&file, &bytes)
+        .await
+        .is_err()
+    {
         let _ = tokio::fs::remove_file(&file).await;
         return Err(ApiError(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -201,11 +212,15 @@ pub(crate) async fn read(
         .ok_or(ApiError(StatusCode::NOT_FOUND, "Evidence not found"))?;
     tx.commit().await?;
     let mut unsigned = metadata.clone();
-    let signature = unsigned.as_object_mut().and_then(|o| o.remove("signature"));
+    let signature = unsigned
+        .as_object_mut()
+        .and_then(|o| o.remove("signature"));
     if proctoring::sign(owner, session, asset, &unsigned)
         .ok()
         .as_deref()
-        != signature.as_ref().and_then(Value::as_str)
+        != signature
+            .as_ref()
+            .and_then(Value::as_str)
     {
         return Err(ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,

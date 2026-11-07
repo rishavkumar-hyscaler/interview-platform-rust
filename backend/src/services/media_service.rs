@@ -32,7 +32,11 @@ pub(crate) fn screen_snapshot_path(owner: Uuid, session: Uuid, asset: Uuid) -> P
         .join(format!("{asset}.jpg"))
 }
 pub(crate) fn mime(content_type: &str, bytes: &[u8]) -> Result<&'static str> {
-    let input = content_type.split(';').next().unwrap_or("").trim();
+    let input = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim();
     let ebml = bytes.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]);
     let ogg = bytes.starts_with(b"OggS");
     let mp4 = bytes.len() > 12 && &bytes[4..8] == b"ftyp";
@@ -97,12 +101,14 @@ pub(crate) async fn upload(
     }
     let file = path(owner, session, recording);
     let parent = file.parent().unwrap();
-    tokio::fs::create_dir_all(parent).await.map_err(|_| {
-        ApiError(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Recording storage is unavailable",
-        )
-    })?;
+    tokio::fs::create_dir_all(parent)
+        .await
+        .map_err(|_| {
+            ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Recording storage is unavailable",
+            )
+        })?;
     let created = match write_file(&file, &bytes).await {
         Ok(()) => true,
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -127,18 +133,22 @@ pub(crate) async fn upload(
             } else {
                 // No audit reference exists under this locked session. Recover a partial
                 // orphan left by a cancelled upload, never overwrite a committed clip.
-                tokio::fs::remove_file(&file).await.map_err(|_| {
-                    ApiError(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "Unable to recover interrupted upload",
-                    )
-                })?;
-                write_file(&file, &bytes).await.map_err(|_| {
-                    ApiError(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "Recording could not be saved; retry",
-                    )
-                })?;
+                tokio::fs::remove_file(&file)
+                    .await
+                    .map_err(|_| {
+                        ApiError(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Unable to recover interrupted upload",
+                        )
+                    })?;
+                write_file(&file, &bytes)
+                    .await
+                    .map_err(|_| {
+                        ApiError(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Recording could not be saved; retry",
+                        )
+                    })?;
                 true
             }
         }
@@ -223,7 +233,11 @@ pub(crate) async fn read_asset(file: PathBuf, metadata: Value, recording: Uuid) 
     let bytes = tokio::fs::read(file)
         .await
         .map_err(|_| ApiError(StatusCode::NOT_FOUND, "Recording file unavailable"))?;
-    if hex::encode(Sha256::digest(&bytes)) != metadata["sha256"].as_str().unwrap_or("") {
+    if hex::encode(Sha256::digest(&bytes))
+        != metadata["sha256"]
+            .as_str()
+            .unwrap_or("")
+    {
         return Err(ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Recording integrity check failed",
@@ -234,7 +248,11 @@ pub(crate) async fn read_asset(file: PathBuf, metadata: Value, recording: Uuid) 
         .unwrap_or("application/octet-stream")
         .to_string();
     let etag = format!("\"{}\"", digest(&recording.to_string()));
-    Ok(Asset { bytes, mime, etag })
+    Ok(Asset {
+        bytes,
+        mime,
+        etag,
+    })
 }
 #[cfg(test)]
 mod tests {

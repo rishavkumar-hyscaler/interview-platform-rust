@@ -111,7 +111,10 @@ pub(crate) async fn create(
         ));
     }
     tx.commit().await?;
-    Ok(CreatedJob { job, created })
+    Ok(CreatedJob {
+        job,
+        created,
+    })
 }
 
 pub(crate) async fn list(
@@ -133,7 +136,10 @@ pub(crate) async fn list(
     } else {
         None
     };
-    Ok(JobPage { items, next_cursor })
+    Ok(JobPage {
+        items,
+        next_cursor,
+    })
 }
 #[cfg(test)]
 mod tests {

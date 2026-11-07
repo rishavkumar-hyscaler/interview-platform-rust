@@ -92,11 +92,15 @@ fn generation_schema_bounds(schema: &mut Value, name: &str, input: &Value) {
     let (property, count) = match name {
         "interview_blueprint" => (
             "slots",
-            input["question_count"].as_u64().map(|n| n as usize),
+            input["question_count"]
+                .as_u64()
+                .map(|n| n as usize),
         ),
         "interview_questions" | "interview_question_prompts" => (
             "questions",
-            input["blueprint"]["slots"].as_array().map(Vec::len),
+            input["blueprint"]["slots"]
+                .as_array()
+                .map(Vec::len),
         ),
         "interview_prompt_review" => (
             "questions",
@@ -106,7 +110,9 @@ fn generation_schema_bounds(schema: &mut Value, name: &str, input: &Value) {
         ),
         "interview_quality_review" => (
             "questions",
-            input["proposed_set"]["questions"].as_array().map(Vec::len),
+            input["proposed_set"]["questions"]
+                .as_array()
+                .map(Vec::len),
         ),
         _ => return,
     };
@@ -225,15 +231,27 @@ impl AiProvider {
 
     pub fn from_environment() -> Result<Self> {
         ensure!(
-            std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "openai".into()) == "openai",
+            match std::env::var("LLM_PROVIDER") {
+                Ok(value) => value,
+                Err(_) => "openai".to_string(),
+            } == "openai",
             "LLM_PROVIDER must be openai"
         );
         Self::new(
-            std::env::var("LLM_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".into()),
+            match std::env::var("LLM_BASE_URL") {
+                Ok(value) => value,
+                Err(_) => "https://api.openai.com/v1".to_string(),
+            },
             std::env::var("LLM_API_KEY")?,
             std::env::var("EMBEDDING_API_KEY")?,
-            std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-5-mini".into()),
-            std::env::var("EMBEDDING_MODEL").unwrap_or_else(|_| "text-embedding-3-small".into()),
+            match std::env::var("LLM_MODEL") {
+                Ok(value) => value,
+                Err(_) => "gpt-5-mini".to_string(),
+            },
+            match std::env::var("EMBEDDING_MODEL") {
+                Ok(value) => value,
+                Err(_) => "text-embedding-3-small".to_string(),
+            },
         )
     }
     pub fn new(
@@ -347,7 +365,10 @@ fn clean_schema(value: &mut Value) {
             map.remove("default");
             // Strict output schemas require every property, including nullable
             // Option<T> fields that Schemars otherwise considers omittable.
-            if let Some(properties) = map.get("properties").and_then(Value::as_object) {
+            if let Some(properties) = map
+                .get("properties")
+                .and_then(Value::as_object)
+            {
                 let required = properties
                     .keys()
                     .map(|key| Value::String(key.clone()))
@@ -481,9 +502,17 @@ mod tests {
             properties: false,
         })
         .unwrap();
-        assert!(encoded.find("\"prompt\"").unwrap() < encoded.find("\"expected_answer\"").unwrap());
         assert!(
-            encoded.find("\"expected_answer\"").unwrap() < encoded.find("\"criteria\"").unwrap()
+            encoded.find("\"prompt\"").unwrap()
+                < encoded
+                    .find("\"expected_answer\"")
+                    .unwrap()
+        );
+        assert!(
+            encoded
+                .find("\"expected_answer\"")
+                .unwrap()
+                < encoded.find("\"criteria\"").unwrap()
         );
         assert_eq!(serde_json::from_str::<Value>(&encoded).unwrap(), value);
     }

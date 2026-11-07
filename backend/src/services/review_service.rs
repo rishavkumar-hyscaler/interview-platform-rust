@@ -80,7 +80,9 @@ pub(crate) async fn integrity(pool: &PgPool, owner: Uuid, session: Uuid) -> Resu
     for event in &mut events {
         expected_sequence += 1;
         let mut metadata = event["evidence"].clone();
-        let signature = metadata.as_object_mut().and_then(|v| v.remove("signature"));
+        let signature = metadata
+            .as_object_mut()
+            .and_then(|v| v.remove("signature"));
         let id = event["id"]
             .as_str()
             .and_then(|v| v.parse::<Uuid>().ok())
@@ -107,9 +109,11 @@ pub(crate) async fn integrity(pool: &PgPool, owner: Uuid, session: Uuid) -> Resu
     let mut score = 0u64;
     for e in &events {
         if e["annotation"]["decision"] != "dismissed" {
-            score += weights[e["evidence"]["kind"].as_str().unwrap_or("")]
-                .as_u64()
-                .unwrap_or(0);
+            score += weights[e["evidence"]["kind"]
+                .as_str()
+                .unwrap_or("")]
+            .as_u64()
+            .unwrap_or(0);
         }
     }
     Ok(

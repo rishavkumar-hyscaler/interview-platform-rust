@@ -68,6 +68,8 @@ async fn retry(
     generation_service::retry(&pool, owner, job, provider.0.is_some()).await?;
     Ok((
         StatusCode::ACCEPTED,
-        Json(PendingResponse { status: "pending" }),
+        Json(PendingResponse {
+            status: "pending",
+        }),
     ))
 }

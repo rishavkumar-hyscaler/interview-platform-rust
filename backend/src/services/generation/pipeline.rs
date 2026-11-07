@@ -35,7 +35,9 @@ pub(super) async fn prepare(
     let stored: Option<Value> = repo::blueprint(&mut tx, jd).await?;
     let recent: Vec<String> = repo::recent_prompts(&mut tx, jd).await?;
     tx.commit().await?;
-    let initial_feedback = session.generation_error.unwrap_or_default();
+    let initial_feedback = session
+        .generation_error
+        .unwrap_or_default();
     tracing::info!(event = "task.phase", phase = "blueprint");
     let mut blueprint: Blueprint = if let Some(value) = stored {
         serde_json::from_value(value).map_err(|_| anyhow::anyhow!("Stored blueprint is invalid"))?
@@ -70,7 +72,10 @@ pub(super) async fn prepare(
             "Saved question positions are not contiguous"
         );
     }
-    let saved_minutes: Vec<i32> = saved.iter().map(|row| row.minutes).collect();
+    let saved_minutes: Vec<i32> = saved
+        .iter()
+        .map(|row| row.minutes)
+        .collect();
     let mut tx = interviewer_transaction(pool, claim.recruiter).await?;
     repo::lock_job(&mut tx, jd).await?;
     let stored_plan: Option<Value> = repo::plan(&mut tx, claim.id).await?;
@@ -120,7 +125,10 @@ pub(super) async fn prepare(
             job_blueprint: &blueprint,
         };
         let seconds = match std::env::var("GENERATION_TASK_TIMEOUT_SECONDS") {
-            Ok(value) => value.parse::<u64>().unwrap_or(300).clamp(30, 900),
+            Ok(value) => value
+                .parse::<u64>()
+                .unwrap_or(300)
+                .clamp(30, 900),
             Err(_) => 300,
         };
         tracing::info!(

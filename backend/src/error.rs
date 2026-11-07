@@ -23,7 +23,10 @@ impl IntoResponse for ApiError {
 impl From<sqlx::Error> for ApiError {
     fn from(error: sqlx::Error) -> Self {
         tracing::error!(
-            database_code = error.as_database_error().and_then(|e| e.code()).as_deref(),
+            database_code = error
+                .as_database_error()
+                .and_then(|e| e.code())
+                .as_deref(),
             "database operation failed"
         );
         Self(

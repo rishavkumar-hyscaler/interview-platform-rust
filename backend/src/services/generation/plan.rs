@@ -46,12 +46,22 @@ impl Plan {
         indices.extend(0..saved.len());
         indices.sort_unstable();
         let mut blueprint = base.clone();
-        blueprint.slots = indices.iter().map(|i| base.slots[*i].clone()).collect();
-        blueprint
-            .competencies
-            .retain(|c| blueprint.slots.iter().any(|s| s.competency_id == c.id));
+        blueprint.slots = indices
+            .iter()
+            .map(|i| base.slots[*i].clone())
+            .collect();
+        blueprint.competencies.retain(|c| {
+            blueprint
+                .slots
+                .iter()
+                .any(|s| s.competency_id == c.id)
+        });
         // Renormalize retained competency weights; keep the same evidence and identifiers.
-        let total_weight: u32 = blueprint.competencies.iter().map(|c| c.weight).sum();
+        let total_weight: u32 = blueprint
+            .competencies
+            .iter()
+            .map(|c| c.weight)
+            .sum();
         ensure!(total_weight > 0, "Plan has no competency weights");
         let mut assigned_weight = 0;
         for c in &mut blueprint.competencies {
@@ -84,7 +94,11 @@ impl Plan {
                 Kind::Code => "one small function or a single bug fix in supplied starter code; no complete component, service or workflow",
             }.into(),
         }).collect();
-        let mut extra = duration - allocations.iter().map(|a| a.minutes).sum::<i32>();
+        let mut extra = duration
+            - allocations
+                .iter()
+                .map(|a| a.minutes)
+                .sum::<i32>();
         let mut priority: Vec<usize> = (saved.len()..count).collect();
         priority.sort_by_key(|i| {
             let slot = &blueprint.slots[*i];
@@ -137,7 +151,11 @@ impl Plan {
             }
         }
         ensure!(
-            self.allocations.iter().map(|a| a.minutes).sum::<i32>() <= self.duration_minutes,
+            self.allocations
+                .iter()
+                .map(|a| a.minutes)
+                .sum::<i32>()
+                <= self.duration_minutes,
             "Planned workload exceeds interview duration"
         );
         Ok(())
@@ -182,7 +200,13 @@ mod tests {
                     .iter()
                     .all(|a| (2..=3).contains(&a.minutes))
             );
-            assert!(plan.allocations.iter().map(|a| a.minutes).sum::<i32>() <= duration);
+            assert!(
+                plan.allocations
+                    .iter()
+                    .map(|a| a.minutes)
+                    .sum::<i32>()
+                    <= duration
+            );
             plan.blueprint
                 .validate("Job skill evidence", plan.allocations.len())
                 .unwrap();
@@ -194,7 +218,12 @@ mod tests {
         assert_eq!(plan.allocations[5].minutes, 3);
         assert_eq!(plan.allocations[0].minutes, 2);
         let longer = Plan::build(&blueprint(), 30, &[]).unwrap();
-        assert!(longer.allocations.iter().all(|a| a.minutes == 3));
+        assert!(
+            longer
+                .allocations
+                .iter()
+                .all(|a| a.minutes == 3)
+        );
     }
     #[test]
     fn old_checkpoints_are_preserved_and_remaining_work_is_bounded() {
@@ -209,6 +238,8 @@ mod tests {
         );
         assert!(Plan::build(&blueprint(), 5, &[4]).is_err());
         let restored: Plan = serde_json::from_value(serde_json::to_value(&plan).unwrap()).unwrap();
-        restored.validate(&[1, 1, 2, 2]).unwrap();
+        restored
+            .validate(&[1, 1, 2, 2])
+            .unwrap();
     }
 }

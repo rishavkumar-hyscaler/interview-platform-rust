@@ -1,0 +1,5 @@
+# Prefer readable blocks and shorter method chains over dense expressions.
+max_width = 100
+chain_width = 40
+fn_call_width = 60
+struct_lit_width = 0

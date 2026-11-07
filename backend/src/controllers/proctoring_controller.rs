@@ -24,18 +24,22 @@ async fn record(
             kind: event.kind,
             client_time: event.client_time,
             count: event.count,
-            measurements: event.measurements.map(|m| Measurements {
-                duration_ms: m.duration_ms,
-                face_count: m.face_count,
-                speech_probability: m.speech_probability,
-                horizontal_offset: m.horizontal_offset,
-                vertical_offset: m.vertical_offset,
-                mouth_motion: m.mouth_motion,
-                head_horizontal_offset: m.head_horizontal_offset,
-                head_vertical_offset: m.head_vertical_offset,
-            }),
+            measurements: event
+                .measurements
+                .map(|m| Measurements {
+                    duration_ms: m.duration_ms,
+                    face_count: m.face_count,
+                    speech_probability: m.speech_probability,
+                    horizontal_offset: m.horizontal_offset,
+                    vertical_offset: m.vertical_offset,
+                    mouth_motion: m.mouth_motion,
+                    head_horizontal_offset: m.head_horizontal_offset,
+                    head_vertical_offset: m.head_vertical_offset,
+                }),
         })
         .collect();
     proctoring_service::record(owner, session, tx, events).await?;
-    Ok(Json(AcceptedResponse { accepted: true }))
+    Ok(Json(AcceptedResponse {
+        accepted: true,
+    }))
 }

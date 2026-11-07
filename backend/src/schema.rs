@@ -10,7 +10,13 @@ pub async fn upgrade_rag() -> anyhow::Result<()> {
         .execute(&mut *tx)
         .await?;
     let rows: Vec<(i64, Vec<u8>)> = sqlx::query_as(
-        "SELECT version,checksum FROM _sqlx_migrations WHERE success=true ORDER BY version",
+        r#"
+        SELECT version,
+            checksum
+        FROM _sqlx_migrations
+        WHERE success = true
+        ORDER BY version
+        "#,
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -35,11 +41,19 @@ pub async fn upgrade_rag() -> anyhow::Result<()> {
             "-- Persistent post-scoring evidence retrieval (development baseline extension).",
         )
         .ok_or_else(|| anyhow::anyhow!("RAG schema section missing"))?;
-    sqlx::raw_sql(ddl).execute(&mut *tx).await?;
-    sqlx::query("UPDATE _sqlx_migrations SET checksum=$1 WHERE version=202611040001")
-        .bind(checksum)
+    sqlx::raw_sql(ddl)
         .execute(&mut *tx)
         .await?;
+    sqlx::query(
+        r#"
+        UPDATE _sqlx_migrations
+        SET checksum = $1
+        WHERE version = 202611040001
+        "#,
+    )
+    .bind(checksum)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     tracing::info!("Added evidence_embeddings and embedding_jobs; existing records preserved");
     Ok(())

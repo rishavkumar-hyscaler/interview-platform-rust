@@ -116,13 +116,17 @@ pub(crate) async fn generate<T: DeserializeOwned>(base: &str, key: &str, body: V
                         openai::responses_api::AssistantContent::OutputText(part) => {
                             text.push_str(&part.text)
                         }
-                        openai::responses_api::AssistantContent::Refusal { .. } => {
+                        openai::responses_api::AssistantContent::Refusal {
+                            ..
+                        } => {
                             anyhow::bail!("AI response was incomplete or refused")
                         }
                     }
                 }
             }
-            openai::responses_api::Output::Reasoning { .. } => {}
+            openai::responses_api::Output::Reasoning {
+                ..
+            } => {}
             _ => anyhow::bail!("AI response was incomplete or refused"),
         }
     }
@@ -161,10 +165,14 @@ mod tests {
                 }
             }),
         );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .unwrap();
         let base = format!("http://{}/v1", listener.local_addr().unwrap());
         let server = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
+            axum::serve(listener, app)
+                .await
+                .unwrap();
         });
         let provider = AiProvider::new(
             base,
@@ -197,8 +205,14 @@ mod tests {
             .await
             .unwrap();
         server.abort();
-        result.validate("Develop Rust APIs", 1).unwrap();
-        assert!(result.validate("Unrelated job description", 1).is_err());
+        result
+            .validate("Develop Rust APIs", 1)
+            .unwrap();
+        assert!(
+            result
+                .validate("Unrelated job description", 1)
+                .is_err()
+        );
         let requests = requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
         let request = &requests[0];
@@ -229,8 +243,17 @@ mod tests {
             .await
             .unwrap_err();
         server.abort();
-        assert!(!error.downcast_ref::<ProviderFailure>().unwrap().retryable);
-        assert!(!error.to_string().contains("private-secret"));
+        assert!(
+            !error
+                .downcast_ref::<ProviderFailure>()
+                .unwrap()
+                .retryable
+        );
+        assert!(
+            !error
+                .to_string()
+                .contains("private-secret")
+        );
         assert_eq!(requests.lock().unwrap().len(), 1);
     }
 
@@ -292,9 +315,16 @@ mod tests {
                 }
             );
             let wire = request["__wire"].as_str().unwrap();
-            assert!(wire.find("\"prompt\":").unwrap() < wire.find("\"expected_answer\":").unwrap());
             assert!(
-                wire.find("\"expected_answer\":").unwrap() < wire.find("\"criteria\":").unwrap()
+                wire.find("\"prompt\":").unwrap()
+                    < wire
+                        .find("\"expected_answer\":")
+                        .unwrap()
+            );
+            assert!(
+                wire.find("\"expected_answer\":")
+                    .unwrap()
+                    < wire.find("\"criteria\":").unwrap()
             );
         }
     }
@@ -346,8 +376,17 @@ mod tests {
             .await
             .unwrap_err();
         server.abort();
-        assert!(error.downcast_ref::<ProviderFailure>().unwrap().retryable);
-        assert!(!error.to_string().contains("private detail"));
+        assert!(
+            error
+                .downcast_ref::<ProviderFailure>()
+                .unwrap()
+                .retryable
+        );
+        assert!(
+            !error
+                .to_string()
+                .contains("private detail")
+        );
         assert_eq!(requests.lock().unwrap().len(), 1);
         let mut refused = response("{}".into());
         refused["output"][1]["content"] = json!([{"type":"refusal","refusal":"private refusal"}]);
@@ -361,7 +400,11 @@ mod tests {
                 .await
                 .unwrap_err();
             server.abort();
-            assert!(!error.to_string().contains("private refusal"));
+            assert!(
+                !error
+                    .to_string()
+                    .contains("private refusal")
+            );
             assert_eq!(requests.lock().unwrap().len(), 1);
         }
     }

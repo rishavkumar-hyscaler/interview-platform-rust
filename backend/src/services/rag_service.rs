@@ -15,7 +15,10 @@ pub(crate) async fn status(pool: &PgPool, owner: Uuid, session: Uuid) -> Result<
     let job = repo::job(&mut tx, session).await?;
     let scored = repo::scored(&mut tx, session).await?;
     tx.commit().await?;
-    Ok(IndexStatus { job, scored })
+    Ok(IndexStatus {
+        job,
+        scored,
+    })
 }
 pub(crate) async fn retry(pool: &PgPool, owner: Uuid, session: Uuid) -> Result<()> {
     let mut tx = interviewer_transaction(pool, owner).await?;

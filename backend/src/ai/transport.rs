@@ -30,7 +30,11 @@ impl HttpClientExt for Transport {
         let (parts, body) = request.into_parts();
         let body = body.into();
         let mut payload = serde_json::from_slice::<serde_json::Value>(&body).ok();
-        let embedding_count = if parts.uri.path().ends_with("/embeddings") {
+        let embedding_count = if parts
+            .uri
+            .path()
+            .ends_with("/embeddings")
+        {
             payload.as_mut().and_then(|value| {
                 value["encoding_format"] = serde_json::json!("float");
                 value["input"].as_array().map(Vec::len)
@@ -155,7 +159,9 @@ impl HttpClientExt for Transport {
                 }
             };
             let mut result = Response::builder().status(status);
-            *result.headers_mut().expect("valid response builder") = headers;
+            *result
+                .headers_mut()
+                .expect("valid response builder") = headers;
             result
                 .body(Box::pin(stream) as http_client::sse::BoxedStream)
                 .map_err(http_client::Error::Protocol)
@@ -199,7 +205,10 @@ impl StreamGuard {
             let Some((end, delimiter)) = boundary else {
                 break;
             };
-            let frame: Vec<u8> = self.buffer.drain(..end + delimiter).collect();
+            let frame: Vec<u8> = self
+                .buffer
+                .drain(..end + delimiter)
+                .collect();
             let decoded = std::str::from_utf8(&frame)?;
             let data = decoded
                 .lines()
@@ -279,7 +288,11 @@ mod tests {
         }
         assert_eq!(frames, 2);
         assert!(guard.completed);
-        assert!(StreamGuard::default().push(b"data: not-json\n\n").is_err());
+        assert!(
+            StreamGuard::default()
+                .push(b"data: not-json\n\n")
+                .is_err()
+        );
         assert!(
             StreamGuard::default()
                 .push(&vec![b'x'; 2 * 1024 * 1024 + 1])

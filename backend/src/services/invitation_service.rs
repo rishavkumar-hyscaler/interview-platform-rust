@@ -27,7 +27,10 @@ pub(crate) async fn invite(
     input: InviteCandidate,
 ) -> Result<CreatedInvitation> {
     let name = input.candidate_name.trim();
-    let email = input.candidate_email.trim().to_lowercase();
+    let email = input
+        .candidate_email
+        .trim()
+        .to_lowercase();
     if name.contains('\0')
         || email.contains('\0')
         || !(1..=120).contains(&name.chars().count())
@@ -46,9 +49,11 @@ pub(crate) async fn invite(
         .await?
         .ok_or_else(missing)?;
     repo::insert_interviewee(&mut tx, &email).await?;
-    let interviewee = repo::interviewee(&mut tx, &email).await?.ok_or(conflict(
-        "This email belongs to an interviewer. Use the interviewee's email address.",
-    ))?;
+    let interviewee = repo::interviewee(&mut tx, &email)
+        .await?
+        .ok_or(conflict(
+            "This email belongs to an interviewer. Use the interviewee's email address.",
+        ))?;
     let id = Uuid::new_v4();
     let inserted = repo::insert(
         &mut tx,

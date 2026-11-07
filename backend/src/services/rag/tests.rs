@@ -36,12 +36,21 @@ async fn embeddings(
 }
 async fn owner(pool: &PgPool) -> Uuid {
     let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO users(id,email,password_hash) VALUES($1,$2,'test-only')")
-        .bind(id)
-        .bind(format!("{id}@example.test"))
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO users(id,
+                email,
+                password_hash)
+        VALUES ($1,
+                $2,
+                'test-only')
+        "#,
+    )
+    .bind(id)
+    .bind(format!("{id}@example.test"))
+    .execute(pool)
+    .await
+    .unwrap();
     id
 }
 async fn setup(pool: &PgPool, owner: Uuid) -> (Uuid, Uuid) {
@@ -50,18 +59,147 @@ async fn setup(pool: &PgPool, owner: Uuid) -> (Uuid, Uuid) {
     let question = Uuid::new_v4();
     let candidate = Uuid::new_v4();
     let session = Uuid::new_v4();
-    let mut tx = interviewer_transaction(pool, owner).await.unwrap();
+    let mut tx = interviewer_transaction(pool, owner)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO users(id,email,role) VALUES($1,$2,'interviewee')")
         .bind(candidate)
         .bind(format!("{candidate}@example.test"))
         .execute(&mut *tx)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO jobs(id,interviewer_id,request_key,job_code,title,description) VALUES($1,$2,$3,$4,'RAG test','Build reliable Rust services and APIs')").bind(job).bind(owner).bind(Uuid::new_v4()).bind(format!("TEST-{job}").to_uppercase()).execute(&mut *tx).await.unwrap();
-    sqlx::query("INSERT INTO question_sets(id,interviewer_id,job_id,duration_minutes,status,seed) VALUES($1,$2,$3,30,'completed',$4)").bind(set).bind(owner).bind(job).bind(Uuid::new_v4()).execute(&mut *tx).await.unwrap();
-    sqlx::query("INSERT INTO interview_questions(id,interviewer_id,set_id,position,kind,difficulty,prompt,rubric,job_id,fingerprint) VALUES($1,$2,$3,1,'text','easy','Explain Rust ownership','{\"expected_answer\":\"Ownership protects memory\"}',$4,$5)").bind(question).bind(owner).bind(set).bind(job).bind(question.to_string()).execute(&mut *tx).await.unwrap();
-    sqlx::query("INSERT INTO interview_sessions(id,interviewer_id,job_id,request_key,question_set_id,candidate_name,candidate_email,state,duration_minutes,interviewee_id) VALUES($1,$2,$3,$4,$5,'Test candidate','candidate@example.test','completed',30,$6)").bind(session).bind(owner).bind(job).bind(Uuid::new_v4()).bind(set).bind(candidate).execute(&mut *tx).await.unwrap();
-    sqlx::query("INSERT INTO interview_answers(id,interviewer_id,session_id,question_id,content) VALUES($1,$2,$3,$4,'The answer uses borrowing for safe memory')").bind(Uuid::new_v4()).bind(owner).bind(session).bind(question).execute(&mut *tx).await.unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO jobs(id,
+                interviewer_id,
+                request_key,
+                job_code,
+                title,
+                description)
+        VALUES ($1,
+                $2,
+                $3,
+                $4,
+                'RAG test',
+                'Build reliable Rust services and APIs')
+        "#,
+    )
+    .bind(job)
+    .bind(owner)
+    .bind(Uuid::new_v4())
+    .bind(format!("TEST-{job}").to_uppercase())
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO question_sets(id,
+                interviewer_id,
+                job_id,
+                duration_minutes,
+                status,
+                seed)
+        VALUES ($1,
+                $2,
+                $3,
+                30,
+                'completed',
+                $4)
+        "#,
+    )
+    .bind(set)
+    .bind(owner)
+    .bind(job)
+    .bind(Uuid::new_v4())
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO interview_questions(id,
+                interviewer_id,
+                set_id,
+                position,
+                kind,
+                difficulty,
+                prompt,
+                rubric,
+                job_id,
+                fingerprint)
+        VALUES ($1,
+                $2,
+                $3,
+                1,
+                'text',
+                'easy',
+                'Explain Rust ownership',
+                '{"expected_answer":"Ownership protects memory"}',
+                $4,
+                $5)
+        "#,
+    )
+    .bind(question)
+    .bind(owner)
+    .bind(set)
+    .bind(job)
+    .bind(question.to_string())
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO interview_sessions(id,
+                interviewer_id,
+                job_id,
+                request_key,
+                question_set_id,
+                candidate_name,
+                candidate_email,
+                state,
+                duration_minutes,
+                interviewee_id)
+        VALUES ($1,
+                $2,
+                $3,
+                $4,
+                $5,
+                'Test candidate',
+                'candidate@example.test',
+                'completed',
+                30,
+                $6)
+        "#,
+    )
+    .bind(session)
+    .bind(owner)
+    .bind(job)
+    .bind(Uuid::new_v4())
+    .bind(set)
+    .bind(candidate)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO interview_answers(id,
+                interviewer_id,
+                session_id,
+                question_id,
+                content)
+        VALUES ($1,
+                $2,
+                $3,
+                $4,
+                'The answer uses borrowing for safe memory')
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(owner)
+    .bind(session)
+    .bind(question)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
     let queued: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM embedding_jobs WHERE session_id=$1)")
             .bind(session)
@@ -79,7 +217,9 @@ async fn setup(pool: &PgPool, owner: Uuid) -> (Uuid, Uuid) {
     (session, question)
 }
 async fn ready_now(pool: &PgPool, owner: Uuid, session: Uuid) {
-    let mut tx = interviewer_transaction(pool, owner).await.unwrap();
+    let mut tx = interviewer_transaction(pool, owner)
+        .await
+        .unwrap();
     sqlx::query("UPDATE embedding_jobs SET available_at=now() WHERE session_id=$1")
         .bind(session)
         .execute(&mut *tx)
@@ -96,7 +236,12 @@ async fn durable_embeddings_reuse_checkpoints_recover_and_remain_session_scoped(
         .await
         .unwrap();
     let bypass: bool = sqlx::query_scalar(
-        "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname=current_user",
+        r#"
+        SELECT rolsuper
+        OR rolbypassrls
+        FROM pg_roles
+        WHERE rolname = current_user
+        "#,
     )
     .fetch_one(&pool)
     .await
@@ -106,13 +251,17 @@ async fn durable_embeddings_reuse_checkpoints_recover_and_remain_session_scoped(
         batches: Arc::new(Mutex::new(Vec::new())),
         fail_at: Arc::new(AtomicUsize::new(usize::MAX)),
     };
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap();
     let address = listener.local_addr().unwrap();
     let app = Router::new()
         .route("/embeddings", axum::routing::post(embeddings))
         .with_state(mock.clone());
     let server = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(listener, app)
+            .await
+            .unwrap();
     });
     let mut provider = AiProvider::new(
         format!("http://{address}"),
@@ -125,7 +274,11 @@ async fn durable_embeddings_reuse_checkpoints_recover_and_remain_session_scoped(
     provider.dimensions = 3;
     let tenant = owner(&pool).await;
     let (session, question) = setup(&pool, tenant).await;
-    assert!(process_next(&pool, &provider).await.unwrap());
+    assert!(
+        process_next(&pool, &provider)
+            .await
+            .unwrap()
+    );
     assert_eq!(mock.batches.lock().unwrap().len(), 1);
     let indexed = search(&pool, tenant, session, &provider, "ownership", 0)
         .await
@@ -133,19 +286,44 @@ async fn durable_embeddings_reuse_checkpoints_recover_and_remain_session_scoped(
         .unwrap();
     assert!(indexed.total >= 4);
     assert_eq!(
-        *mock.batches.lock().unwrap().last().unwrap(),
+        *mock
+            .batches
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap(),
         1,
         "Chat embeds only its query"
     );
     // An unchanged explicit retry reuses every saved vector, even across a worker restart.
     let before = mock.batches.lock().unwrap().len();
-    let mut tx = interviewer_transaction(&pool, tenant).await.unwrap();
-    sqlx::query("UPDATE embedding_jobs SET status='running',attempts=1,claim_token=$2,lease_until=now()-interval '1 second' WHERE session_id=$1").bind(session).bind(Uuid::new_v4()).execute(&mut *tx).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, tenant)
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"
+        UPDATE embedding_jobs
+        SET status = 'running',
+            attempts = 1,
+            claim_token = $2,
+            lease_until = now() - interval '1 second'
+        WHERE session_id = $1
+        "#,
+    )
+    .bind(session)
+    .bind(Uuid::new_v4())
+    .execute(&mut *tx)
+    .await
+    .unwrap();
     tx.commit().await.unwrap();
-    process_next(&pool, &provider).await.unwrap();
+    process_next(&pool, &provider)
+        .await
+        .unwrap();
     assert_eq!(mock.batches.lock().unwrap().len(), before);
     // Late evidence dirties the index, while old final scores stay intact.
-    let mut tx = interviewer_transaction(&pool, tenant).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, tenant)
+        .await
+        .unwrap();
     for i in 0..65 {
         crate::audit::record(
             &mut tx,
@@ -170,9 +348,14 @@ async fn durable_embeddings_reuse_checkpoints_recover_and_remain_session_scoped(
             .unwrap()
             .is_none()
     );
-    mock.fail_at.store(before + 2, Ordering::SeqCst); // Save batch one, then fail batch two.
-    process_next(&pool, &provider).await.unwrap();
-    let mut tx = interviewer_transaction(&pool, tenant).await.unwrap();
+    mock.fail_at
+        .store(before + 2, Ordering::SeqCst); // Save batch one, then fail batch two.
+    process_next(&pool, &provider)
+        .await
+        .unwrap();
+    let mut tx = interviewer_transaction(&pool, tenant)
+        .await
+        .unwrap();
     let (status, attempts): (String, i32) =
         sqlx::query_as("SELECT status,attempts FROM embedding_jobs WHERE session_id=$1")
             .bind(session)
@@ -188,25 +371,99 @@ async fn durable_embeddings_reuse_checkpoints_recover_and_remain_session_scoped(
             .unwrap();
     assert!(checkpoint >= 28);
     tx.commit().await.unwrap();
-    mock.fail_at.store(usize::MAX, Ordering::SeqCst);
+    mock.fail_at
+        .store(usize::MAX, Ordering::SeqCst);
     ready_now(&pool, tenant, session).await;
     let request_start = mock.batches.lock().unwrap().len();
-    process_next(&pool, &provider).await.unwrap();
-    let fresh_inputs: usize = mock.batches.lock().unwrap()[request_start..].iter().sum();
+    process_next(&pool, &provider)
+        .await
+        .unwrap();
+    let fresh_inputs: usize = mock.batches.lock().unwrap()[request_start..]
+        .iter()
+        .sum();
     assert!(fresh_inputs < 65, "Saved batch is reused after retry");
     // An answer revision re-embeds its changed chunk, not rubrics/events.
-    let mut tx = interviewer_transaction(&pool, tenant).await.unwrap();
-    sqlx::query("UPDATE interview_answers SET content='Revised candidate answer about ownership' WHERE session_id=$1 AND question_id=$2").bind(session).bind(question).execute(&mut *tx).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, tenant)
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"
+        UPDATE interview_answers
+        SET content = 'Revised candidate answer about ownership'
+        WHERE session_id = $1
+        AND question_id = $2
+        "#,
+    )
+    .bind(session)
+    .bind(question)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
     tx.commit().await.unwrap();
     ready_now(&pool, tenant, session).await;
     let request_start = mock.batches.lock().unwrap().len();
-    process_next(&pool, &provider).await.unwrap();
+    process_next(&pool, &provider)
+        .await
+        .unwrap();
     assert_eq!(&mock.batches.lock().unwrap()[request_start..], &[1]);
     // Another candidate assigned this set shares only question/rubric vectors.
     let other_session = Uuid::new_v4();
-    let mut tx = interviewer_transaction(&pool, tenant).await.unwrap();
-    sqlx::query("INSERT INTO interview_sessions(id,interviewer_id,job_id,request_key,question_set_id,candidate_name,candidate_email,state,duration_minutes,interviewee_id) SELECT $1,interviewer_id,job_id,$2,question_set_id,'Other candidate','other@example.test','completed',30,interviewee_id FROM interview_sessions WHERE id=$3").bind(other_session).bind(Uuid::new_v4()).bind(session).execute(&mut *tx).await.unwrap();
-    sqlx::query("INSERT INTO interview_answers(id,interviewer_id,session_id,question_id,content) VALUES($1,$2,$3,$4,'SECRET_OTHER_CANDIDATE')").bind(Uuid::new_v4()).bind(tenant).bind(other_session).bind(question).execute(&mut *tx).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, tenant)
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO interview_sessions(id,
+                interviewer_id,
+                job_id,
+                request_key,
+                question_set_id,
+                candidate_name,
+                candidate_email,
+                state,
+                duration_minutes,
+                interviewee_id)
+        SELECT $1,
+            interviewer_id,
+            job_id,
+            $2,
+            question_set_id,
+            'Other candidate',
+            'other@example.test',
+            'completed',
+            30,
+            interviewee_id
+        FROM interview_sessions
+        WHERE id = $3
+        "#,
+    )
+    .bind(other_session)
+    .bind(Uuid::new_v4())
+    .bind(session)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO interview_answers(id,
+                interviewer_id,
+                session_id,
+                question_id,
+                content)
+        VALUES ($1,
+                $2,
+                $3,
+                $4,
+                'SECRET_OTHER_CANDIDATE')
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(tenant)
+    .bind(other_session)
+    .bind(question)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
     crate::audit::record(
         &mut tx,
         tenant,
@@ -220,7 +477,9 @@ async fn durable_embeddings_reuse_checkpoints_recover_and_remain_session_scoped(
     tx.commit().await.unwrap();
     ready_now(&pool, tenant, other_session).await;
     let start = mock.batches.lock().unwrap().len();
-    process_next(&pool, &provider).await.unwrap();
+    process_next(&pool, &provider)
+        .await
+        .unwrap();
     assert_eq!(
         &mock.batches.lock().unwrap()[start..],
         &[2],
@@ -266,7 +525,9 @@ async fn durable_embeddings_reuse_checkpoints_recover_and_remain_session_scoped(
             .unwrap()
             .is_none()
     );
-    let mut tx = interviewer_transaction(&pool, outsider).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, outsider)
+        .await
+        .unwrap();
     let count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM evidence_embeddings WHERE session_id=$1")
             .bind(session)
@@ -276,7 +537,9 @@ async fn durable_embeddings_reuse_checkpoints_recover_and_remain_session_scoped(
     assert_eq!(count, 0);
     tx.commit().await.unwrap();
     // Exhaustion is bounded; it never rolls completed scoring back.
-    let mut tx = interviewer_transaction(&pool, tenant).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, tenant)
+        .await
+        .unwrap();
     crate::audit::record(
         &mut tx,
         tenant,
@@ -287,17 +550,39 @@ async fn durable_embeddings_reuse_checkpoints_recover_and_remain_session_scoped(
     )
     .await
     .unwrap();
-    sqlx::query("UPDATE embedding_jobs SET attempts=3,available_at=now() WHERE session_id=$1")
-        .bind(session)
-        .execute(&mut *tx)
-        .await
-        .unwrap();
+    sqlx::query(
+        r#"
+        UPDATE embedding_jobs
+        SET attempts = 3,
+            available_at = now()
+        WHERE session_id = $1
+        "#,
+    )
+    .bind(session)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
     tx.commit().await.unwrap();
     mock.fail_at
         .store(mock.batches.lock().unwrap().len() + 1, Ordering::SeqCst);
-    process_next(&pool, &provider).await.unwrap();
-    let mut tx = interviewer_transaction(&pool, tenant).await.unwrap();
-    let states:(String,String)=sqlx::query_as("SELECT j.status,s.state FROM embedding_jobs j JOIN interview_sessions s ON s.id=j.session_id WHERE j.session_id=$1").bind(session).fetch_one(&mut *tx).await.unwrap();
+    process_next(&pool, &provider)
+        .await
+        .unwrap();
+    let mut tx = interviewer_transaction(&pool, tenant)
+        .await
+        .unwrap();
+    let states: (String, String) = sqlx::query_as(
+        r#"
+        SELECT j.status,
+            s.state
+        FROM embedding_jobs j JOIN interview_sessions s ON s.id = j.session_id
+        WHERE j.session_id = $1
+        "#,
+    )
+    .bind(session)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
     assert_eq!(states, ("failed".into(), "completed".into()));
     tx.commit().await.unwrap();
     server.abort();

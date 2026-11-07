@@ -44,5 +44,7 @@ async fn retry(
 ) -> Result<Json<RetryResponse>> {
     let (owner, _) = authenticate(&pool, &headers).await?;
     scoring_service::retry(&pool, owner, session).await?;
-    Ok(Json(RetryResponse { queued: true }))
+    Ok(Json(RetryResponse {
+        queued: true,
+    }))
 }

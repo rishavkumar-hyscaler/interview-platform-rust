@@ -60,7 +60,9 @@ async fn annotate(
         },
     )
     .await?;
-    Ok(Json(SavedResponse { saved: true }))
+    Ok(Json(SavedResponse {
+        saved: true,
+    }))
 }
 async fn export_report(
     State(pool): State<PgPool>,
@@ -127,9 +129,9 @@ async fn chat(
             StreamEvent::Delta(delta) => Event::default()
                 .event("delta")
                 .data(json!({"delta":delta,"verified":false}).to_string()),
-            StreamEvent::Complete(value) => {
-                Event::default().event("complete").data(value.to_string())
-            }
+            StreamEvent::Complete(value) => Event::default()
+                .event("complete")
+                .data(value.to_string()),
             StreamEvent::Failure(error) => Event::default()
                 .event("failure")
                 .data(json!({"error":error}).to_string()),

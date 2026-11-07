@@ -31,7 +31,10 @@ pub(crate) async fn list(
     } else {
         None
     };
-    Ok(SessionPage { items, next_cursor })
+    Ok(SessionPage {
+        items,
+        next_cursor,
+    })
 }
 pub(crate) async fn detail(pool: &PgPool, owner: Uuid, id: Uuid) -> Result<SessionDetail> {
     let mut tx = interviewer_transaction(pool, owner).await?;

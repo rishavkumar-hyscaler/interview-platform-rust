@@ -117,12 +117,14 @@ async fn assess(
         let reused = cached.is_some();
         let score = match cached {
             Some(score) => score,
-            None => evaluate(provider, question).await.map_err(|error| {
-                super::recovery::QuestionFailure {
-                    position: question["position"].as_u64().unwrap_or(0),
+            None => evaluate(provider, question)
+                .await
+                .map_err(|error| super::recovery::QuestionFailure {
+                    position: question["position"]
+                        .as_u64()
+                        .unwrap_or(0),
                     reason: super::recovery::safe_reason(&error),
-                }
-            })?,
+                })?,
         };
         scores.push(score);
         let mut tx = interviewer_transaction(pool, owner).await?;

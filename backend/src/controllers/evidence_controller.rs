@@ -37,12 +37,14 @@ async fn upload(
         source: text(&headers, "x-evidence-source", "camera"),
         capture: text(&headers, "x-evidence-capture", "post_signal"),
         surface: text(&headers, "x-capture-surface", "unknown"),
-        captured: headers.get("x-evidence-captured-at").map(|v| {
-            v.to_str()
-                .ok()
-                .and_then(|v| v.parse::<i64>().ok())
-                .filter(|n| (0..=4_102_444_800_000).contains(n))
-        }),
+        captured: headers
+            .get("x-evidence-captured-at")
+            .map(|v| {
+                v.to_str()
+                    .ok()
+                    .and_then(|v| v.parse::<i64>().ok())
+                    .filter(|n| (0..=4_102_444_800_000).contains(n))
+            }),
     };
     let value = evidence_service::upload(owner, session, tx, event, asset, input, &bytes).await?;
     let response = serde_json::from_value(value).map_err(|_| {

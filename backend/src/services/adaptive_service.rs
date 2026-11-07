@@ -37,7 +37,12 @@ pub(crate) async fn next(
     tx.commit().await?;
     let (mut grade, mut selection) = if let Some(grade) = cached {
         (Some(grade), "cached_grade")
-    } else if question["answer"].as_str().unwrap_or("").trim().is_empty() {
+    } else if question["answer"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .is_empty()
+    {
         // An unanswered/media-only question cannot justify an adaptive difficulty change.
         (None, "no_written_answer")
     } else {
@@ -77,7 +82,14 @@ pub(crate) async fn next(
     let target = grade
         .as_ref()
         .and_then(|g| g["score"].as_u64())
-        .map(|score| target_difficulty(question["difficulty"].as_str().unwrap_or("medium"), score));
+        .map(|score| {
+            target_difficulty(
+                question["difficulty"]
+                    .as_str()
+                    .unwrap_or("medium"),
+                score,
+            )
+        });
     let position: Option<i32> = if let Some(target) = target {
         repo::target_position(&mut tx, session, question_id, target).await?
     } else {
@@ -89,7 +101,9 @@ pub(crate) async fn next(
             repo::next_position(
                 &mut tx,
                 session,
-                question["position"].as_i64().unwrap_or(0) as i32,
+                question["position"]
+                    .as_i64()
+                    .unwrap_or(0) as i32,
             )
             .await?
         }

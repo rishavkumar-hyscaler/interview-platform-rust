@@ -117,7 +117,10 @@ pub(crate) async fn chat_answer(
     let mut sources: Vec<Document> = retrieved
         .sources
         .into_iter()
-        .map(|(id, text)| Document { id, text })
+        .map(|(id, text)| Document {
+            id,
+            text,
+        })
         .collect();
     if integrity_question {
         sources.insert(0, overview);

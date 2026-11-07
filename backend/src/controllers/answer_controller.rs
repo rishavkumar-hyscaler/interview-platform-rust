@@ -26,16 +26,18 @@ async fn room(
     let result = answer_service::room(owner, id, tx, query.position).await?;
     Ok(Json(RoomResponse {
         session: super::candidate_controller::response(result.session),
-        question: result.question.map(|q| QuestionResponse {
-            id: q.id,
-            position: q.position,
-            prompt: q.prompt,
-            kind: q.kind,
-            difficulty: q.difficulty,
-            answer: q.answer,
-            revision: q.revision,
-            saved_at: q.saved_at,
-        }),
+        question: result
+            .question
+            .map(|q| QuestionResponse {
+                id: q.id,
+                position: q.position,
+                prompt: q.prompt,
+                kind: q.kind,
+                difficulty: q.difficulty,
+                answer: q.answer,
+                revision: q.revision,
+                saved_at: q.saved_at,
+            }),
         question_started_at: result.question_started_at,
     }))
 }

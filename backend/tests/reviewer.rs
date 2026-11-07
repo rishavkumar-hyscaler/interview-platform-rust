@@ -29,7 +29,9 @@ async fn call(
         .await
         .unwrap();
     let status = response.status();
-    let bytes = to_bytes(response.into_body(), 262144).await.unwrap();
+    let bytes = to_bytes(response.into_body(), 262144)
+        .await
+        .unwrap();
     (
         status,
         serde_json::from_slice(&bytes).unwrap_or(Value::Null),
@@ -42,12 +44,22 @@ async fn account(app: &Router) -> Value {
 }
 async fn setup(pool: &PgPool, app: &Router, owner: &Value) -> (Value, Vec<Uuid>) {
     let token = owner["token"].as_str().unwrap();
-    let user: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let user: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let(s,job)=call(app,"POST","/api/v1/jobs",json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Interview room test","description":"Build reliable applications in Rust and PostgreSQL.","request_key":Uuid::new_v4()}),token).await;
     assert_eq!(s, StatusCode::CREATED);
-    let job: Uuid = job["id"].as_str().unwrap().parse().unwrap();
+    let job: Uuid = job["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let ids = vec![Uuid::new_v4(), Uuid::new_v4()];
-    let mut tx = interviewer_transaction(pool, user).await.unwrap();
+    let mut tx = interviewer_transaction(pool, user)
+        .await
+        .unwrap();
     let id: Uuid = sqlx::query_scalar(
         "SELECT id FROM question_sets WHERE job_id=$1 ORDER BY created_at,id LIMIT 1",
     )
@@ -96,7 +108,12 @@ async fn mock_response(Json(body): Json<Value>) -> axum::response::Response {
     .unwrap();
     if body["stream"] == true {
         let source = &input["sources"][0];
-        let quote: String = source["text"].as_str().unwrap().chars().take(30).collect();
+        let quote: String = source["text"]
+            .as_str()
+            .unwrap()
+            .chars()
+            .take(30)
+            .collect();
         let reply=json!({"answer":"Evidence-based session summary.","citations":[{"source_id":source["id"],"quote":quote}]}).to_string();
         let mut data = String::new();
         for character in reply.chars() {
@@ -118,7 +135,9 @@ async fn mock_response(Json(body): Json<Value>) -> axum::response::Response {
 #[ignore = "requires PostgreSQL and localhost mock AI"]
 async fn reviewer_stream_and_adaptive_selection_are_scoped_and_grounded() {
     platform_api::infrastructure::load_environment().unwrap();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         axum::serve(
@@ -143,10 +162,22 @@ async fn reviewer_stream_and_adaptive_selection_are_scoped_and_grounded() {
     let app = platform_api::router_with_ai(pool.clone(), None);
     let owner = account(&app).await;
     let (invite, questions) = setup(&pool, &app, &owner).await;
-    let session: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
-    let owner_id: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
-    let candidate = invite["invitation_token"].as_str().unwrap();
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let session: Uuid = invite["session"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let owner_id: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let candidate = invite["invitation_token"]
+        .as_str()
+        .unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     sqlx::query("UPDATE interview_sessions SET state='in_progress',started_at=now(),deadline_at=now()+interval '30 minutes' WHERE id=$1").bind(session).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     assert_eq!(

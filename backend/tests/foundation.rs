@@ -24,11 +24,17 @@ async fn call(
     }
     let response = app
         .clone()
-        .oneshot(request.body(Body::from(body.to_string())).unwrap())
+        .oneshot(
+            request
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
         .await
         .unwrap();
     let status = response.status();
-    let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
+    let bytes = to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
     (
         status,
         serde_json::from_slice(&bytes).unwrap_or(Value::Null),
@@ -70,12 +76,20 @@ async fn authentication_and_tenant_isolation() {
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(a["role"], "interviewer");
     let token = a["token"].as_str().unwrap();
-    let recruiter: Uuid = a["user_id"].as_str().unwrap().parse().unwrap();
+    let recruiter: Uuid = a["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let (status, _) = call(&app, "POST", "/api/auth/register", credentials, None).await;
     assert_eq!(status, StatusCode::CONFLICT);
     let (status, b) = call(&app,"POST","/api/auth/register",json!({"email":format!("{}@example.test",Uuid::new_v4()),"password":"another-strong-password"}),None).await;
     assert_eq!(status, StatusCode::CREATED);
-    let other: Uuid = b["user_id"].as_str().unwrap().parse().unwrap();
+    let other: Uuid = b["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let job_input = json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Backend engineer","description":"Build reliable Rust services and PostgreSQL APIs.","request_key":Uuid::new_v4()});
     let (status, job) = call(&app, "POST", "/api/v1/jobs", job_input, Some(token)).await;
     assert_eq!(status, StatusCode::CREATED);
@@ -89,10 +103,17 @@ async fn authentication_and_tenant_isolation() {
         b["token"].as_str(),
     )
     .await;
-    assert!(theirs["items"].as_array().unwrap().is_empty());
+    assert!(
+        theirs["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
     assert!(a.get("organization_id").is_none());
     assert_eq!(
-        call(&app, "GET", "/api/me", Value::Null, None).await.0,
+        call(&app, "GET", "/api/me", Value::Null, None)
+            .await
+            .0,
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
@@ -139,7 +160,9 @@ async fn authentication_and_tenant_isolation() {
         .await
         .unwrap();
     assert_eq!(count, 0);
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     let ids: Vec<Uuid> = sqlx::query_scalar("SELECT interviewer_id FROM jobs")
         .fetch_all(&mut *tx)
         .await
@@ -152,7 +175,9 @@ async fn authentication_and_tenant_isolation() {
         .await
         .unwrap();
     assert_eq!(count, 0);
-    let mut tx = interviewer_transaction(&pool, recruiter).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, recruiter)
+        .await
+        .unwrap();
     let denied = sqlx::query("INSERT INTO jobs(id,interviewer_id,request_key,title,description,job_code) VALUES($1,$2,$3,'Forbidden','Forbidden job description text','FORBIDDEN')")
         .bind(Uuid::new_v4()).bind(other).bind(Uuid::new_v4())
         .execute(&mut *tx)

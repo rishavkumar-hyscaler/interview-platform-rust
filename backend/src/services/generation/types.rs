@@ -139,7 +139,12 @@ impl PromptSet {
         );
         let mut fingerprints = HashSet::new();
         let mut total = 0u64;
-        for (index, (question, slot)) in self.questions.iter().zip(&blueprint.slots).enumerate() {
+        for (index, (question, slot)) in self
+            .questions
+            .iter()
+            .zip(&blueprint.slots)
+            .enumerate()
+        {
             ensure!(
                 question.competency_id == slot.competency_id
                     && question.kind == slot.kind
@@ -241,9 +246,12 @@ impl Blueprint {
             .slots
             .iter()
             .map(|slot| {
-                mapping.get(&slot.competency_id).cloned().ok_or_else(|| {
-                    anyhow::anyhow!("Blueprint slot references an unknown competency")
-                })
+                mapping
+                    .get(&slot.competency_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("Blueprint slot references an unknown competency")
+                    })
             })
             .collect::<Result<_>>()?;
         for competency in &mut self.competencies {
@@ -268,7 +276,9 @@ impl Blueprint {
         for c in &self.competencies {
             ensure!(
                 bounded(&c.id, 1, 40)
-                    && c.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                    && c.id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
                     && ids.insert(c.id.clone()),
                 "Blueprint competency IDs are invalid"
             );
@@ -292,8 +302,10 @@ impl Blueprint {
             );
         }
         ensure!(
-            ids.iter()
-                .all(|id| self.slots.iter().any(|s| &s.competency_id == id)),
+            ids.iter().all(|id| self
+                .slots
+                .iter()
+                .any(|s| &s.competency_id == id)),
             "Blueprint must cover every competency"
         );
         let easy = self
@@ -330,7 +342,9 @@ impl Blueprint {
                     let deficit = |i: usize| {
                         self.competencies[i].weight as i64 * count as i64 - expected[i] as i64 * 100
                     };
-                    deficit(*a).cmp(&deficit(*b)).then_with(|| b.cmp(a))
+                    deficit(*a)
+                        .cmp(&deficit(*b))
+                        .then_with(|| b.cmp(a))
                 })
                 .ok_or_else(|| anyhow::anyhow!("Blueprint has no competencies"))?;
             expected[index] += 1;
@@ -372,7 +386,12 @@ impl QuestionSet {
         );
         let mut prompts = HashSet::new();
         let mut failures = Vec::new();
-        for (index, (q, slot)) in self.questions.iter().zip(&blueprint.slots).enumerate() {
+        for (index, (q, slot)) in self
+            .questions
+            .iter()
+            .zip(&blueprint.slots)
+            .enumerate()
+        {
             let checked = (|| -> Result<()> {
                 ensure!(
                     q.competency_id == slot.competency_id
@@ -389,7 +408,10 @@ impl QuestionSet {
                     "Question time budget is invalid"
                 );
                 ensure!(
-                    q.assumptions.len() <= 5 && q.assumptions.iter().all(|s| bounded(s, 10, 1000)),
+                    q.assumptions.len() <= 5
+                        && q.assumptions
+                            .iter()
+                            .all(|s| bounded(s, 10, 1000)),
                     "Reference assumptions are invalid"
                 );
                 ensure!(
@@ -401,7 +423,9 @@ impl QuestionSet {
                 );
                 ensure!(
                     (1..=5).contains(&q.common_mistakes.len())
-                        && q.common_mistakes.iter().all(|s| bounded(s, 20, 1000)),
+                        && q.common_mistakes
+                            .iter()
+                            .all(|s| bounded(s, 20, 1000)),
                     "Reference must identify concrete mistakes"
                 );
                 match (&q.kind, &q.coding) {
@@ -418,13 +442,18 @@ impl QuestionSet {
                                     .tests
                                     .iter()
                                     .any(|t| t.category == TestCategory::Typical)
-                                && code.tests.iter().any(|t| t.category == TestCategory::Edge),
+                                && code
+                                    .tests
+                                    .iter()
+                                    .any(|t| t.category == TestCategory::Edge),
                             "Coding reference needs typical and edge-case tests"
                         );
                         ensure!(
-                            code.tests.iter().all(|t| bounded(&t.input, 1, 2000)
-                                && bounded(&t.expected_output, 1, 2000)
-                                && bounded(&t.explanation, 10, 1000)),
+                            code.tests
+                                .iter()
+                                .all(|t| bounded(&t.input, 1, 2000)
+                                    && bounded(&t.expected_output, 1, 2000)
+                                    && bounded(&t.explanation, 10, 1000)),
                             "Coding reference test is invalid"
                         );
                     }
@@ -450,9 +479,11 @@ impl QuestionSet {
                     let number = criterion_index + 1;
                     ensure!(
                         bounded(&c.id, 1, 40)
-                            && c.id.bytes().all(|byte| byte.is_ascii_lowercase()
-                                || byte.is_ascii_digit()
-                                || byte == b'_'),
+                            && c.id
+                                .bytes()
+                                .all(|byte| byte.is_ascii_lowercase()
+                                    || byte.is_ascii_digit()
+                                    || byte == b'_'),
                         "Rubric criterion {number} ID must be 1–40 lowercase ASCII letters, digits or underscores"
                     );
                     ensure!(
@@ -536,7 +567,12 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f64 {
         .zip(b)
         .map(|(x, y)| f64::from(*x) * f64::from(*y))
         .sum();
-    let norm = |v: &[f32]| v.iter().map(|x| f64::from(*x).powi(2)).sum::<f64>().sqrt();
+    let norm = |v: &[f32]| {
+        v.iter()
+            .map(|x| f64::from(*x).powi(2))
+            .sum::<f64>()
+            .sqrt()
+    };
     dot / (norm(a) * norm(b))
 }
 #[cfg(test)]
@@ -607,7 +643,10 @@ mod tests {
             "prompt",
             "estimated_minutes",
         ] {
-            reference.as_object_mut().unwrap().remove(key);
+            reference
+                .as_object_mut()
+                .unwrap()
+                .remove(key);
         }
         let answer: ReferenceAnswer = serde_json::from_value(reference.clone()).unwrap();
         assert_eq!(answer.attach(&prompt).prompt, prompt.prompt);
@@ -649,11 +688,17 @@ mod tests {
         set.questions[0].coding = None;
         assert!(set.validate(&blueprint).is_err());
         let (_, mut set) = code_fixture();
-        set.questions[0].coding.as_mut().unwrap().tests[1].category = TestCategory::Typical;
+        set.questions[0]
+            .coding
+            .as_mut()
+            .unwrap()
+            .tests[1]
+            .category = TestCategory::Typical;
         assert!(set.validate(&blueprint).is_err());
         let (_, mut set) = code_fixture();
-        set.questions[0].criteria[0].partial_credit =
-            set.questions[0].criteria[0].full_credit.clone();
+        set.questions[0].criteria[0].partial_credit = set.questions[0].criteria[0]
+            .full_credit
+            .clone();
         assert!(set.validate(&blueprint).is_err());
     }
     #[test]
@@ -662,7 +707,11 @@ mod tests {
         let reference = "Compute the addition using the declared non-overflowing integer inputs and return the resulting integer.";
         set.questions[0].criteria[0].reference_answer = reference.into();
         set.validate(&blueprint).unwrap();
-        assert!(!set.questions[0].expected_answer.contains(reference));
+        assert!(
+            !set.questions[0]
+                .expected_answer
+                .contains(reference)
+        );
         let compiled = set.questions[0].worked_reference();
         assert!(compiled.contains(reference));
         assert!(compiled.contains("[correctness]"));

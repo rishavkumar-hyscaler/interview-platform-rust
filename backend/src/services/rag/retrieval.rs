@@ -30,7 +30,10 @@ pub(crate) async fn search(
         return Ok(None);
     }
     // Exactly one text is embedded per chat request. Stored evidence is never re-embedded here.
-    let vectors = match provider.embeddings(&[question.to_string()]).await {
+    let vectors = match provider
+        .embeddings(&[question.to_string()])
+        .await
+    {
         Ok(vectors) => vectors,
         Err(_) => {
             tracing::warn!(%session,"Query embedding failed; using session keyword retrieval");
@@ -68,7 +71,10 @@ pub(crate) async fn search(
     )
     .await?;
     tx.commit().await?;
-    Ok(Some(Retrieved { sources, total }))
+    Ok(Some(Retrieved {
+        sources,
+        total,
+    }))
 }
 pub(crate) async fn fallback(
     pool: &PgPool,
@@ -97,7 +103,10 @@ pub(crate) async fn fallback(
             (score, chunk)
         })
         .collect();
-    ranked.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.source_id.cmp(&b.1.source_id)));
+    ranked.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then(a.1.source_id.cmp(&b.1.source_id))
+    });
     let total = ranked.len() as i64;
     let sources = ranked
         .into_iter()
@@ -105,5 +114,8 @@ pub(crate) async fn fallback(
         .take(6)
         .map(|(_, c)| (c.source_id, c.text))
         .collect();
-    Ok(Retrieved { sources, total })
+    Ok(Retrieved {
+        sources,
+        total,
+    })
 }

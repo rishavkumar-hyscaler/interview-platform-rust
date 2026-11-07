@@ -29,7 +29,9 @@ async fn call(
         .await
         .unwrap();
     let status = response.status();
-    let bytes = to_bytes(response.into_body(), 262144).await.unwrap();
+    let bytes = to_bytes(response.into_body(), 262144)
+        .await
+        .unwrap();
     (
         status,
         serde_json::from_slice(&bytes).unwrap_or(Value::Null),
@@ -42,12 +44,22 @@ async fn account(app: &Router) -> Value {
 }
 async fn setup(pool: &PgPool, app: &Router, owner: &Value) -> (Value, Vec<Uuid>) {
     let token = owner["token"].as_str().unwrap();
-    let user: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let user: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let(s,job)=call(app,"POST","/api/v1/jobs",json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Interview room test","description":"Build reliable applications in Rust and PostgreSQL.","request_key":Uuid::new_v4()}),token).await;
     assert_eq!(s, StatusCode::CREATED);
-    let job: Uuid = job["id"].as_str().unwrap().parse().unwrap();
+    let job: Uuid = job["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let ids = vec![Uuid::new_v4(), Uuid::new_v4()];
-    let mut tx = interviewer_transaction(pool, user).await.unwrap();
+    let mut tx = interviewer_transaction(pool, user)
+        .await
+        .unwrap();
     let id: Uuid = sqlx::query_scalar(
         "SELECT id FROM question_sets WHERE job_id=$1 ORDER BY created_at,id LIMIT 1",
     )
@@ -80,10 +92,22 @@ async fn blank_answers_are_zero_scoring_is_idempotent_and_private() {
     let app = platform_api::router_with_ai(pool.clone(), None);
     let owner = account(&app).await;
     let (invite, _) = setup(&pool, &app, &owner).await;
-    let session: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
-    let owner_id: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
-    let candidate = invite["invitation_token"].as_str().unwrap();
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let session: Uuid = invite["session"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let owner_id: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let candidate = invite["invitation_token"]
+        .as_str()
+        .unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     sqlx::query("UPDATE interview_sessions SET state='in_progress',started_at=now(),deadline_at=now()+interval '30 minutes' WHERE id=$1").bind(session).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     let event = Uuid::new_v4();
@@ -173,8 +197,16 @@ async fn blank_answers_are_zero_scoring_is_idempotent_and_private() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(export["questions"].as_array().unwrap().len(), 2);
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    assert_eq!(
+        export["questions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     sqlx::query("UPDATE interview_sessions SET state='submitted',submitted_at=now() WHERE id=$1")
         .bind(session)
         .execute(&mut *tx)
@@ -197,7 +229,9 @@ async fn blank_answers_are_zero_scoring_is_idempotent_and_private() {
             break;
         }
     }
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM audit_events WHERE entity_id=$1 AND action='assessment.completed'",
     )
@@ -228,7 +262,9 @@ async fn blank_answers_are_zero_scoring_is_idempotent_and_private() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(metrics["sessions"].as_i64().unwrap() > 0);
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     let job: Uuid = sqlx::query_scalar("SELECT job_id FROM interview_sessions WHERE id=$1")
         .bind(session)
         .fetch_one(&mut *tx)
@@ -244,7 +280,12 @@ async fn blank_answers_are_zero_scoring_is_idempotent_and_private() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(!analytics["groups"].as_array().unwrap().is_empty());
+    assert!(
+        !analytics["groups"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 
     assert_eq!(report["assessment"]["questions"][0]["score"], 0);
     let (status, _) = call(
@@ -252,7 +293,9 @@ async fn blank_answers_are_zero_scoring_is_idempotent_and_private() {
         "GET",
         &path,
         Value::Null,
-        invite["invitation_token"].as_str().unwrap(),
+        invite["invitation_token"]
+            .as_str()
+            .unwrap(),
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -269,10 +312,20 @@ async fn failed_scoring_retries_promptly_and_reuses_validated_checkpoints() {
     let app = platform_api::router_with_ai(pool.clone(), None);
     let owner = account(&app).await;
     let (invite, ids) = setup(&pool, &app, &owner).await;
-    let session: Uuid = invite["session"]["id"].as_str().unwrap().parse().unwrap();
-    let owner_id: Uuid = owner["user_id"].as_str().unwrap().parse().unwrap();
+    let session: Uuid = invite["session"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let owner_id: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let token = owner["token"].as_str().unwrap();
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     sqlx::query("UPDATE interview_sessions SET state='submitted',submitted_at=now() WHERE id=$1")
         .bind(session)
         .execute(&mut *tx)
@@ -316,7 +369,9 @@ async fn failed_scoring_retries_promptly_and_reuses_validated_checkpoints() {
             .unwrap(),
         "explicit failure must not hold a 15 minute lease"
     );
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     let reused:i64=sqlx::query_scalar("SELECT count(*) FROM audit_events WHERE entity_id=$1 AND action='assessment.question.scored' AND metadata->>'reused'='true'").bind(session).fetch_one(&mut *tx).await.unwrap();
     assert_eq!(reused, 1);
     tx.commit().await.unwrap();
@@ -327,7 +382,9 @@ async fn failed_scoring_retries_promptly_and_reuses_validated_checkpoints() {
             .0,
         StatusCode::OK
     );
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     sqlx::query("UPDATE interview_answers SET content='' WHERE session_id=$1")
         .bind(session)
         .execute(&mut *tx)
@@ -341,7 +398,9 @@ async fn failed_scoring_retries_promptly_and_reuses_validated_checkpoints() {
     );
     let (_, report) = call(&app, "GET", &path, Value::Null, token).await;
     assert_eq!(report["state"], "completed");
-    let mut tx = interviewer_transaction(&pool, owner_id).await.unwrap();
+    let mut tx = interviewer_transaction(&pool, owner_id)
+        .await
+        .unwrap();
     let queued: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM embedding_jobs WHERE session_id=$1 AND status='pending')",
     )

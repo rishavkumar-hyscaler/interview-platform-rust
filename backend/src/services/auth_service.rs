@@ -84,7 +84,9 @@ pub(crate) async fn login(pool: &PgPool, input: Credentials) -> Result<Session> 
     validate(&email, &input.password).map_err(|_| unauthorized())?;
     let row = repo::credentials(pool, &email).await?;
     // Always run Argon2, including for unknown accounts, to reduce account timing leakage.
-    let hash = row.as_ref().map(|r| r.password_hash.clone());
+    let hash = row
+        .as_ref()
+        .map(|r| r.password_hash.clone());
     let valid = tokio::task::spawn_blocking(move || match hash {
         Some(hash) => PasswordHash::new(&hash).is_ok_and(|h| {
             Argon2::default()

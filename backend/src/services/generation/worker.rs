@@ -100,10 +100,17 @@ pub async fn process_next(pool: &PgPool, provider: &AiProvider) -> anyhow::Resul
     tracing::info!(target_id=%claim.id,attempt=claim.attempts,elapsed_ms=started.elapsed().as_millis() as u64,success=result.is_ok(),"question preparation attempt finished");
     let success = result.is_ok();
     if let Err(failure) = result {
-        let message = if failure.downcast_ref::<sqlx::Error>().is_some() {
+        let message = if failure
+            .downcast_ref::<sqlx::Error>()
+            .is_some()
+        {
             "Generation database operation failed".to_string()
         } else {
-            failure.to_string().chars().take(300).collect()
+            failure
+                .to_string()
+                .chars()
+                .take(300)
+                .collect()
         };
         tracing::warn!(job_id=%claim.id,attempt=claim.attempts,"question generation failed");
         let mut tx = interviewer_transaction(pool, claim.recruiter).await?;
@@ -154,8 +161,16 @@ mod tests {
             Ok(())
         });
         let error = preparation_result(task.await).unwrap_err();
-        assert!(error.to_string().contains("stopped unexpectedly"));
-        assert!(!error.to_string().contains("synthetic panic payload"));
+        assert!(
+            error
+                .to_string()
+                .contains("stopped unexpectedly")
+        );
+        assert!(
+            !error
+                .to_string()
+                .contains("synthetic panic payload")
+        );
         assert_eq!(MAX_ATTEMPTS, 4);
     }
 }

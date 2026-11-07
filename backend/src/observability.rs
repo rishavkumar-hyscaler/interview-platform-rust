@@ -29,7 +29,10 @@ pub(crate) async fn request_log(request: Request, next: Next) -> Response {
         let mut response = next.run(request).await;
         response.headers_mut().insert(
             "x-request-id",
-            request_id.to_string().parse().expect("UUID header"),
+            request_id
+                .to_string()
+                .parse()
+                .expect("UUID header"),
         );
         let status = response.status().as_u16();
         // Duration ends at response headers; streams have separate task lifecycle logs.
@@ -111,7 +114,10 @@ mod tests {
     struct Capture(Arc<Mutex<Vec<u8>>>);
     impl Write for Capture {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
+            self.0
+                .lock()
+                .unwrap()
+                .extend_from_slice(bytes);
             Ok(bytes.len())
         }
         fn flush(&mut self) -> std::io::Result<()> {
@@ -139,7 +145,11 @@ mod tests {
                 .header("authorization", "Bearer private-auth-secret")
                 .body(axum::body::Body::empty())
                 .unwrap();
-            let response = router.clone().oneshot(request).await.unwrap();
+            let response = router
+                .clone()
+                .oneshot(request)
+                .await
+                .unwrap();
             assert_eq!(response.headers()["x-request-id"], id.to_string());
             assert_eq!(response.status(), 200);
             let request = Request::builder()
@@ -148,7 +158,14 @@ mod tests {
                 .body(axum::body::Body::empty())
                 .unwrap();
             let response = router.oneshot(request).await.unwrap();
-            assert!(Uuid::parse_str(response.headers()["x-request-id"].to_str().unwrap()).is_ok());
+            assert!(
+                Uuid::parse_str(
+                    response.headers()["x-request-id"]
+                        .to_str()
+                        .unwrap()
+                )
+                .is_ok()
+            );
             assert_eq!(response.status(), 404);
         }
         .with_subscriber(subscriber)

@@ -40,7 +40,10 @@ pub(super) async fn prepare(
             "{}\nPrevious failure: {}\nSpecific findings: {}",
             feedback, prior["summary"], prior["findings"]
         );
-        previous = prior.get("draft").filter(|value| !value.is_null()).cloned();
+        previous = prior
+            .get("draft")
+            .filter(|value| !value.is_null())
+            .cloned();
     }
     let mut duplicate_replaced = false;
     let mut content_repaired = false;
@@ -95,7 +98,12 @@ pub(super) async fn prepare(
             let texts = vec![prompts.questions[0].prompt.clone()];
             let vectors = match &cached_embedding {
                 Some((prompt, vector)) if prompt == &texts[0] => vec![vector.clone()],
-                _ => context.provider.embeddings(&texts).await?,
+                _ => {
+                    context
+                        .provider
+                        .embeddings(&texts)
+                        .await?
+                }
             };
             cached_embedding = Some((texts[0].clone(), vectors[0].clone()));
             semantic_duplicates(context, &prompts, &vectors, &mut excluded).await?;
