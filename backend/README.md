@@ -143,3 +143,5 @@ Question preparation completes one question at a time: validate/deduplicate the 
 After `assessment.completed`, a separate durable embedding job indexes final answers, shared question/rubric text, assessment reasoning and proctoring/annotation/attachment metadata into pgvector. Review chat embeds only the interviewer’s query. The UI shows queued/running/ready/failed state and offers retry; scores remain complete if indexing fails. See [RAG indexing and recovery](docs/rag.md).
 
 For an existing database using the immediately preceding single baseline, run `cargo run -- --upgrade-rag` once from `backend/`, then restart `cargo run`. This adds only the two RAG tables, indexes and queue triggers and updates the verified development baseline checksum; it preserves existing rows. Fresh databases use `cargo run -- --migrate`. There is still only one migration file.
+
+Backend code organization: [controller/service/repository structure](docs/backend-structure.md).

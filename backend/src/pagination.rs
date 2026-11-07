@@ -1,7 +1,6 @@
 //! Bounded keyset pagination shared by list endpoints.
 use crate::{Result, error::bad};
 use serde::Deserialize;
-use serde_json::{Value, json};
 use uuid::Uuid;
 #[derive(Deserialize)]
 pub(crate) struct Page {
@@ -16,14 +15,4 @@ impl Page {
             _ => Err(bad("Limit must be between 1 and 100")),
         }
     }
-}
-pub(crate) fn paginated(mut items: Vec<Value>, limit: i64) -> Value {
-    let more = items.len() > limit as usize;
-    items.truncate(limit as usize);
-    let cursor = if more {
-        items.last().and_then(|item| item.get("id")).cloned()
-    } else {
-        None
-    };
-    json!({"items":items,"next_cursor":cursor})
 }

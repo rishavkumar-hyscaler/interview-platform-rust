@@ -1,0 +1,16 @@
+pub(crate) mod adaptive_controller;
+pub(crate) mod answer_controller;
+pub(crate) mod audit_controller;
+pub(crate) mod auth_controller;
+pub(crate) mod candidate_controller;
+pub(crate) mod evidence_controller;
+pub(crate) mod generation_controller;
+pub(crate) mod interview_controller;
+pub(crate) mod interview_routes;
+pub(crate) mod invitation_controller;
+pub(crate) mod job_controller;
+pub(crate) mod media_controller;
+pub(crate) mod proctoring_controller;
+pub(crate) mod rag_controller;
+pub(crate) mod review_controller;
+pub(crate) mod scoring_controller;

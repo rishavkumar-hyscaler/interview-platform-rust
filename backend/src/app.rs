@@ -1,8 +1,8 @@
 //! Application composition, health checks and HTTP-wide policies.
 use crate::{
-    Result, adaptive,
-    auth::{login, logout, me, register},
-    generation, interview_room, interviews, media, proctoring, review, scoring,
+    Result,
+    controllers::auth_controller::{login, logout, me, register},
+    generation, interviews, review, scoring,
 };
 use axum::{
     Json, Router,
@@ -30,14 +30,14 @@ pub fn router_with_ai(pool: PgPool, provider: Option<generation::provider::AiPro
         .route("/api/auth/logout", post(logout))
         .route("/api/me", get(me))
         .merge(interviews::routes())
-        .merge(interview_room::routes())
-        .merge(media::routes())
-        .merge(proctoring::routes())
-        .merge(crate::proctor_evidence::routes())
+        .merge(crate::controllers::answer_controller::routes())
+        .merge(crate::controllers::media_controller::routes())
+        .merge(crate::controllers::proctoring_controller::routes())
+        .merge(crate::controllers::evidence_controller::routes())
         .merge(scoring::routes())
         .merge(review::routes())
         .merge(crate::rag::routes())
-        .merge(adaptive::routes())
+        .merge(crate::controllers::adaptive_controller::routes())
         .merge(generation::routes(provider))
         .layer(
             tower_http::set_header::SetResponseHeaderLayer::if_not_present(

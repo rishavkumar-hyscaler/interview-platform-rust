@@ -59,46 +59,5 @@ pub async fn interviewer_transaction(
     Ok(tx)
 }
 
-/// Short transactional jobs: crashes roll back work and acknowledgement together.
-/// Savepoints retain retry metadata; concurrent workers skip locked jobs.
-pub async fn process_expiry_job(pool: &PgPool) -> Result<bool, sqlx::Error> {
-    let interviewers: Vec<Uuid> =
-        sqlx::query_scalar("SELECT id FROM users WHERE role='interviewer' ORDER BY id")
-            .fetch_all(pool)
-            .await?;
-    for interviewer in interviewers {
-        let mut tx = interviewer_transaction(pool, interviewer).await?;
-        let session: Option<Uuid> = sqlx::query_scalar("SELECT id FROM interview_sessions WHERE state IN ('invited','ready','in_progress') AND least(expires_at,coalesce(deadline_at,expires_at))<=now() ORDER BY expires_at,id FOR UPDATE SKIP LOCKED LIMIT 1")
-            .fetch_optional(&mut *tx).await?;
-        if let Some(session) = session {
-            let mut task = crate::observability::TaskLog::start("session.expire", session);
-            finalize_due_session(&mut tx, interviewer, session).await?;
-            tx.commit().await?;
-            task.finish(true);
-            return Ok(true);
-        }
-        tx.commit().await?;
-    }
-    Ok(false)
-}
-
-/// Finalize once under a row lock; late answer writes cannot race submission.
-pub async fn finalize_due_session(
-    tx: &mut Transaction<'_, Postgres>,
-    interviewer: Uuid,
-    session: Uuid,
-) -> Result<(), sqlx::Error> {
-    use sqlx::Row;
-    sqlx::query("SELECT id FROM interview_sessions WHERE id=$1 FOR UPDATE")
-        .bind(session)
-        .fetch_optional(&mut **tx)
-        .await?;
-    let row=sqlx::query("UPDATE interview_sessions SET submitted_at=CASE WHEN state='in_progress' THEN least(expires_at,coalesce(deadline_at,expires_at)) ELSE submitted_at END,state=CASE WHEN state='in_progress' THEN 'submitted' ELSE 'expired' END WHERE id=$1 AND state IN ('invited','ready','in_progress') AND least(expires_at,coalesce(deadline_at,expires_at))<=clock_timestamp() RETURNING state")
-        .bind(session).fetch_optional(&mut **tx).await?;
-    if let Some(row) = row {
-        let state: String = row.get("state");
-        sqlx::query("INSERT INTO audit_events(id,interviewer_id,entity_id,action,metadata) VALUES($1,$2,$3,$4,'{\"actor\":\"system\",\"reason\":\"deadline\"}')")
-            .bind(Uuid::new_v4()).bind(interviewer).bind(session).bind(if state=="submitted" {"session.timed_out"} else {"session.expired"}).execute(&mut **tx).await?;
-    }
-    Ok(())
-}
+// Preserve existing callers while domain expiry lives in the service layer.
+pub use crate::services::expiry_service::{finalize_due_session, process_expiry_job};
