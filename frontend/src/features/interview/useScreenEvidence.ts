@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { evidenceQueue, snapshot } from './proctoring/evidence';
+import { evidenceQueue } from './proctoring/evidence';
+import { captureScreenFrame } from './proctoring/screenFrame';
 import type { BrowserObservation, Observations } from './proctoring/observations';
 const flags = new Set(['fullscreen_entered','fullscreen_exited','focus_lost','hidden','paste','copy','context_menu','devtools_suspected','multiple_displays','typing_burst','rapid_answer','camera_disabled','microphone_disabled','screen_share_started','face_missing','multiple_faces','gaze_away','possible_background_speech','speech_detected']);
 export function useScreenEvidence(token:string, session:string|undefined, active:boolean, observations:Observations) {
@@ -55,16 +56,16 @@ export function useScreenEvidence(token:string, session:string|undefined, active
       if(!entered.current || !flags.has(event.kind))return;
       try {
         const preview=video.current;
-        if(preview.readyState<2)await new Promise<void>(resolve=>{
-          const ready=()=>{clearTimeout(timer);preview.removeEventListener('loadeddata',ready);resolve();};
-          const timer=setTimeout(ready,2000);preview.addEventListener('loadeddata',ready,{once:true});
-        });
-        if(!isActive.current || preview!==video.current || !stream.current)return;
-        const captured=Date.now();const blob=await snapshot(preview,1280);
-        if(!blob)throw new Error('Screen frame unavailable');
-        const selected=stream.current.getVideoTracks()[0]?.getSettings().displaySurface ?? 'unknown';
-        await queue.current?.enqueue(event,[{id:crypto.randomUUID(),blob,source:'screen',surface:selected,captured}]);
-      }catch{observations.record('evidence_capture_failed');setStatus('Screen snapshot could not be saved. Browser event remains recorded.');}
+        const sharedStream=stream.current;
+        const destination=queue.current;
+        const track=sharedStream.getVideoTracks()[0];
+        if(!track)throw new Error('Screen track unavailable');
+        const {blob,captured}=await captureScreenFrame(track,preview);
+        // A permission/source/session change must not attach a frame to the previous event.
+        if(!isActive.current || preview!==video.current || sharedStream!==stream.current || destination!==queue.current)return;
+        const selected=track.getSettings().displaySurface ?? 'unknown';
+        await destination.enqueue(event,[{id:crypto.randomUUID(),blob,source:'screen',surface:selected,captured}]);
+      }catch{observations.record('evidence_capture_failed');setStatus('No fresh screen frame available. Screenshot omitted; event and camera evidence are retained.');}
     }
     const unsubscribe=observations.subscribe(event=>{void capture(event);});
     const media=(event:Event)=>{void capture((event as CustomEvent<BrowserObservation>).detail);};

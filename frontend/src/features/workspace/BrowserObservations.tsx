@@ -1,3 +1,4 @@
+import { ExpandableSection } from './ExpandableSection';
 type Observation = { kind: string; character_count?: number | null; measurement?: number | null; unit?: string; measurements?: Record<string, number | null> };
 const descriptions: Record<string,string> = {
   camera_permission_requested:'The browser requested camera access.', camera_enabled:'Camera access was enabled.', camera_disabled:'The camera was turned off or its track ended.', camera_denied:'Camera permission was denied.', camera_unavailable:'The camera could not be accessed.',
@@ -22,5 +23,5 @@ export function observationDescription(event: Observation) {
   return `${descriptions[event.kind] ?? 'A browser activity observation was recorded.'}${facts.length ? ` ${facts.join(' · ')}.` : ''}`;
 }
 export function BrowserObservations({events}:{events:{id:string;received_at:string;observation:Observation}[]}) {
-  return <details><summary>View observations ({events.length})</summary>{events.map(event=><article className="browser-observation" key={event.id}><strong>{event.observation.kind.replaceAll('_',' ')}</strong><small> · {new Date(event.received_at).toLocaleString()}</small><p>{observationDescription(event.observation)}</p><details><summary>Technical details</summary><code>Event ID: {event.id}</code><pre className="preserve">{JSON.stringify(event.observation,null,2)}</pre></details></article>)}</details>;
+  return <ExpandableSection label={<>View observations ({events.length})</>}>{events.map(event=><article className="browser-observation" key={event.id}><strong>{event.observation.kind.replaceAll('_',' ')}</strong><small> · {new Date(event.received_at).toLocaleString()}</small><p>{observationDescription(event.observation)}</p><ExpandableSection label={<>Technical details</>}><code>Event ID: {event.id}</code><pre className="preserve">{JSON.stringify(event.observation,null,2)}</pre></ExpandableSection></article>)}</ExpandableSection>;
 }
