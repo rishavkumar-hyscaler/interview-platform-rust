@@ -20,3 +20,5 @@ pub mod generation;
 pub mod rag;
 pub(crate) mod review;
 pub mod scoring;
+
+pub(crate) mod live_screen_service;

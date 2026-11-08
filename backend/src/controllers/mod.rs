@@ -14,3 +14,5 @@ pub(crate) mod proctoring_controller;
 pub(crate) mod rag_controller;
 pub(crate) mod review_controller;
 pub(crate) mod scoring_controller;
+
+pub(crate) mod live_screen_controller;

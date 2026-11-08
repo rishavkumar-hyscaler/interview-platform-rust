@@ -9,6 +9,14 @@ use axum::{
 use sqlx::PgPool;
 pub fn routes() -> Router<PgPool> {
     Router::new()
+        .route(
+            "/api/v1/sessions/{session}/live-screen",
+            post(crate::controllers::live_screen_controller::staff),
+        )
+        .route(
+            "/api/v1/candidate/live-screen",
+            post(crate::controllers::live_screen_controller::candidate),
+        )
         .route("/api/v1/summary", get(summary))
         .route(
             "/api/v1/jobs",

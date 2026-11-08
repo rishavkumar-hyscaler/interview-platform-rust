@@ -17,3 +17,5 @@ pub(crate) mod rag_repository;
 pub(crate) mod review_repository;
 pub(crate) mod scoring_repository;
 pub(crate) mod scoring_task_repository;
+
+pub(crate) mod live_screen_repository;

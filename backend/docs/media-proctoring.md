@@ -81,3 +81,27 @@ retrying remaining attachments. Analysis-ready/calibration events are status-onl
 they intentionally have no attached screenshots or clips. These changes do not add
 speaker identification; possible background speech remains a face/mouth-and-speech
 heuristic, not verified detection of another speaker.
+
+## On-demand live screen (WebRTC)
+
+During an active interview, session details offer **View live screen** / **Stop live view**.
+The candidate sees a notice while connecting/viewing. The sender reuses the screen
+already selected through the browser screen picker. No camera/audio tracks are sent.
+Screen evidence capture continues independently. Closing the viewer closes the peer;
+stopping sharing or ending the interview closes the sender. One viewer per session.
+
+The Rust API handles authenticated SDP signaling over short HTTP polls (2 seconds),
+not media transport. Every poll checks session ownership and the active deadline;
+candidate access derives the session from their invitation token. SDP has a 64 KiB
+limit. Ephemeral rooms expire after 20 seconds without viewer heartbeats; no database
+migration or live video storage is involved. Server restart requires reconnecting.
+This in-memory signaling implementation requires one backend process (use a shared
+signaling store before scaling to multiple instances).
+
+`WEBRTC_ICE_SERVERS` is a JSON array of browser RTCIceServer objects, default `[]`.
+Local reachable peers can connect without a relay. Across NAT/firewalls configure
+STUN and **TURN**; STUN alone does not guarantee a connection. Example structure:
+`[{"urls":"stun:your-host:3478"},{"urls":"turn:your-host:3478","username":"temporary-user","credential":"temporary-password"}]`.
+ICE credentials are sent to authorized participating browsers: use limited-lived
+TURN credentials, never unrestricted permanent secrets. Production requires HTTPS.
+No public third-party ICE service is contacted by default.

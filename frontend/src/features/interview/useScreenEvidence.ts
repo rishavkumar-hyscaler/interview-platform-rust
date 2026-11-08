@@ -1,3 +1,4 @@
+import { useLiveScreenSender } from '../live-screen/useLiveScreenSender';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { evidenceQueue } from './proctoring/evidence';
 import { captureScreenFrame } from './proctoring/screenFrame';
@@ -8,6 +9,8 @@ export function useScreenEvidence(token:string, session:string|undefined, active
   const video = useRef<HTMLVideoElement|null>(null);
   const queue = useRef<ReturnType<typeof evidenceQueue>|null>(null);
   const alive = useRef(true); const entered = useRef(false); const entryRecorded = useRef(false); const isActive=useRef(active); isActive.current=active;
+  const [liveStream,setLiveStream]=useState<MediaStream|null>(null);
+  const liveStatus=useLiveScreenSender(token,active,liveStream);
   const [shared,setShared]=useState(false); const [busy,setBusy]=useState(false);
   const [surface,setSurface]=useState(''); const [error,setError]=useState(''); const [status,setStatus]=useState('Screen sharing not started');
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;stream.current?.getTracks().forEach(track=>track.stop());if(video.current)video.current.srcObject=null;};},[]);
@@ -23,7 +26,7 @@ export function useScreenEvidence(token:string, session:string|undefined, active
   const stop = useCallback(()=>{
     stream.current?.getTracks().forEach(track=>track.stop());stream.current=null;
     if(video.current)video.current.srcObject=null;
-    setShared(false);setStatus('Screen sharing stopped');
+    setLiveStream(null);setShared(false);setStatus('Screen sharing stopped');
   },[]);
   const request = useCallback(async()=>{
     setBusy(true);setError('');observations.record('screen_share_requested');
@@ -38,7 +41,7 @@ export function useScreenEvidence(token:string, session:string|undefined, active
       await preview.play();
       const selected=track.getSettings().displaySurface ?? 'unknown';setSurface(selected);
       track.onended=()=>{if(alive.current){stop();observations.record('screen_share_stopped');}};
-      setShared(true);setStatus('Screen sharing active · screenshots are saved on fullscreen entry and flagged events');
+      setLiveStream(acquired);setShared(true);setStatus('Screen sharing active · screenshots are saved on fullscreen entry and flagged events');
       observations.record('screen_share_started');
     } catch(failure) {
       if(!alive.current)return;
@@ -73,6 +76,6 @@ export function useScreenEvidence(token:string, session:string|undefined, active
     if(active && shared && document.fullscreenElement && !entryRecorded.current)observations.record('fullscreen_entered');
     return ()=>{unsubscribe();window.removeEventListener('interview-media-observation',media);};
   },[active,shared,observations.record,observations.subscribe]);
-  return {shared,busy,surface,status,error,request,stop};
+  return {shared,busy,surface,status,error,request,stop,liveStatus};
 }
 export type ScreenEvidence=ReturnType<typeof useScreenEvidence>;

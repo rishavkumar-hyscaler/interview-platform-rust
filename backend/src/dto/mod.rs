@@ -13,3 +13,5 @@ pub(crate) mod proctoring;
 pub(crate) mod rag;
 pub(crate) mod review;
 pub(crate) mod scoring;
+
+pub(crate) mod live_screen;
