@@ -15,8 +15,10 @@ button,input,textarea,select {
 button,a,input,textarea,select {
   @apply [-webkit-tap-highlight-color:transparent];
 }
-button {
-  @apply cursor-pointer;
+@layer base {
+  button {
+    @apply cursor-pointer rounded-xl border border-solid border-indigo-200 bg-indigo-100 text-indigo-950 transition-colors hover:border-indigo-300 hover:bg-indigo-200 motion-reduce:transition-none;
+  }
 }
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible {
   @apply outline-2 outline-offset-2 outline-focus;
@@ -109,19 +111,10 @@ code {
   @apply flex [gap:10px] shrink-0;
 }
 .button {
-  @apply border border-solid border-primary bg-primary [color:#fff] [border-radius:7px] [padding:11px_17px] text-control font-semibold inline-block;
-}
-.button:hover {
-  @apply bg-primary-hover;
-}
-.button.secondary {
-  @apply [background:#fff] [border-color:#dde1e6] [color:#5b6571];
-}
-.button.secondary:hover {
-  @apply [background:#f1f5f9];
+  @apply inline-flex min-h-10 items-center justify-center gap-2 px-4 py-2 text-control font-medium;
 }
 .text-button {
-  @apply [background:transparent] [border:0] [color:#575e67] [padding:8px_0] text-control;
+  @apply px-3 py-1.5 text-control font-medium;
 }
 .accent {
   @apply [color:#64748b] font-semibold;
@@ -253,7 +246,7 @@ footer span {
   @apply [letter-spacing:0];
 }
 .load-more {
-  @apply block w-full [background:#fafbfc] [border:0] [border-top:1px_solid_#edf0f3] [color:#475569] [padding:14px] text-control;
+  @apply block w-full px-4 py-3 text-control font-medium;
 }
 form {
   @apply grid [gap:18px];
@@ -286,7 +279,7 @@ form>.muted {
   @apply text-control;
 }
 .icon-button {
-  @apply [border:0] [background:#f5f6f7] text-subheading [color:#636970] [border-radius:6px] [width:30px] [height:30px] shrink-0;
+  @apply inline-grid size-8 shrink-0 place-items-center p-0 text-subheading;
 }
 .detail-modal {
   @apply [width:700px];
@@ -625,10 +618,10 @@ dialog.modal-backdrop::backdrop {
   @apply flex flex-wrap [gap:8px] [margin:18px_0];
 }
 .question-navigation>div button {
-  @apply [border:1px_solid_#cbd5e1] [border-radius:6px] [background:#f8fafc] [color:#475569] [width:38px] [height:38px];
+  @apply size-[38px];
 }
 .question-navigation button.current {
-  @apply bg-primary [color:white];
+  @apply ring-1 ring-focus;
 }
 .question-navigation p {
   @apply text-control [color:#475569];
@@ -775,10 +768,10 @@ dialog.modal-backdrop::backdrop {
   @apply flex items-center flex-wrap [gap:8px] [margin-top:28px];
 }
 .room-navigation button {
-  @apply [width:34px] [height:34px] [border:1px_solid_#e2e8f0] [background:#f8fafc] [border-radius:7px] [color:#334155];
+  @apply size-[34px];
 }
 .room-navigation button.current {
-  @apply bg-primary [color:white];
+  @apply ring-1 ring-focus;
 }
 .room-navigation small {
   @apply [margin-left:auto] [color:#475569];

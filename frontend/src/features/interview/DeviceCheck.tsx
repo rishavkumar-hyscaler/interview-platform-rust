@@ -12,7 +12,7 @@ export function DeviceCheck({ devices, screen }: { devices: InterviewDevices; sc
 
   return <section className="candidate-check" aria-labelledby="candidate-check-title">
     <h2 id="candidate-check-title">Device and screen check</h2>
-    <p>Share your screen to start. Camera and microphone access support local face and speech checks. Permission denials are logged. Your interviewer can view the shared screen live during the interview.</p>
+    <p>Share your screen to start. Camera and microphone access support local face and speech checks. Permission denials are logged. Your interviewer can view the shared screen and enabled camera live during the interview.</p>
     <ul>
       {checks.map(({ label, icon: Icon, status, ready, busy, action, request }) => <li key={label}>
         <Icon size={20} aria-hidden="true" />
@@ -24,7 +24,7 @@ export function DeviceCheck({ devices, screen }: { devices: InterviewDevices; sc
     {screen.error && <p className="error" role="alert">{screen.error}</p>}
     <details>
       <summary>What your interviewer can see</summary>
-      <p>Choose your entire screen and keep sharing until submission. The app captures screenshots when you enter fullscreen and on flagged browser activity. Your interviewer can view the shared screen live during the interview, and you’ll see a notice when that happens. Live screen video is not recorded. Flagged camera and audio evidence can also be reviewed.</p>
+      <p>Choose your entire screen and keep sharing until submission. The app captures screenshots when you enter fullscreen and on flagged browser activity. Your interviewer can view the shared screen and enabled camera live during the interview, and you’ll see a notice when that happens. Live video is not recorded and does not include microphone audio. Flagged camera and audio evidence can also be reviewed.</p>
     </details>
   </section>;
 }

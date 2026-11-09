@@ -4,14 +4,14 @@ import { evidenceQueue } from './proctoring/evidence';
 import { captureScreenFrame } from './proctoring/screenFrame';
 import type { BrowserObservation, Observations } from './proctoring/observations';
 const flags = new Set(['fullscreen_entered','fullscreen_exited','focus_lost','hidden','paste','copy','context_menu','devtools_suspected','multiple_displays','typing_burst','rapid_answer','camera_disabled','microphone_disabled','screen_share_started','face_missing','multiple_faces','gaze_away','possible_background_speech','speech_detected']);
-export function useScreenEvidence(token:string, session:string|undefined, active:boolean, observations:Observations) {
+export function useScreenEvidence(token:string, session:string|undefined, active:boolean, observations:Observations, cameraTrack:MediaStreamTrack|null) {
   const pickerOpen = useRef(false);
   const stream = useRef<MediaStream|null>(null);
   const video = useRef<HTMLVideoElement|null>(null);
   const queue = useRef<ReturnType<typeof evidenceQueue>|null>(null);
   const alive = useRef(true); const entered = useRef(false); const entryRecorded = useRef(false); const isActive=useRef(active); isActive.current=active;
   const [liveStream,setLiveStream]=useState<MediaStream|null>(null);
-  const liveStatus=useLiveScreenSender(token,active,liveStream);
+  const liveStatus=useLiveScreenSender(token,active,liveStream,cameraTrack);
   const [shared,setShared]=useState(false); const [busy,setBusy]=useState(false);
   const [surface,setSurface]=useState(''); const [error,setError]=useState(''); const [status,setStatus]=useState('Screen sharing not started');
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;stream.current?.getTracks().forEach(track=>track.stop());if(video.current)video.current.srcObject=null;};},[]);

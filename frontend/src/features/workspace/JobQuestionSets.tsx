@@ -10,7 +10,7 @@ function FailureDetails({ failure }: { failure: PreparationFailure }) {
   return <div className="preparation-findings"><strong>{failure.phase === 'reference' ? 'Reference review findings' : 'Question review findings'}</strong><ul>{issues.map((issue, index) => <li key={index}>Question {issue.position ?? '—'}: {issue.messages.join('; ')}</li>)}</ul></div>;
 }
 
-export function JobQuestionSets({ job, token, onReadyChange }: { job: string; token: string; onReadyChange?: (job: string, durations: number[]) => void }) {
+export function JobQuestionSets({ job, token, onReadyChange, summaryOnly = false }: { summaryOnly?: boolean; job: string; token: string; onReadyChange?: (job: string, durations: number[]) => void }) {
   const api = useMemo(() => workspaceApi(token), [token]);
   const [pool, setPool] = useState<JobPool | null>(null);
   const [error, setError] = useState('');
@@ -52,6 +52,11 @@ export function JobQuestionSets({ job, token, onReadyChange }: { job: string; to
       return count ? [`${count} ${status === 'running' ? 'preparing' : status === 'pending' ? 'queued' : 'failed'}`] : [];
     }),
   ].join(' · ') : 'loading…';
+  if (summaryOnly) {
+    return <span className="text-control text-slate-600 workspace-dark:text-slate-300">
+      Question sets · {error ? 'Status unavailable' : counts}
+    </span>;
+  }
   return <ExpandableSection className="job-question-sets" label={<>Question sets · {counts}</>}>
 
     {error && <p className="error" role="alert">{error} <button className="text-button" onClick={() => setRefresh(value => value + 1)}>Reload</button></p>}

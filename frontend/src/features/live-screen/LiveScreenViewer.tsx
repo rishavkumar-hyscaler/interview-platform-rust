@@ -5,8 +5,11 @@ export function LiveScreenViewer({ session, token }: { session: string; token: s
   const [watching, setWatching] = useState(false);
   const [status, setStatus] = useState('');
   const video = useRef<HTMLVideoElement>(null);
+  const camera = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     if (!watching) return;
+    const screenVideo = video.current;
+    const cameraVideo = camera.current;
     const path = `/api/v1/sessions/${session}/live-screen`;
     const abort = new AbortController(); let room = ''; let peer: RTCPeerConnection | null = null;
     let timer: ReturnType<typeof setTimeout>;
@@ -22,10 +25,21 @@ export function LiveScreenViewer({ session, token }: { session: string; token: s
         if (state.offer && !peer) {
           peer = new RTCPeerConnection({ iceServers: state.ice_servers });
           peer.ontrack = event => {
-            if (video.current) { video.current.srcObject = new MediaStream([event.track]); void video.current.play().catch(() => setStatus('Click the video play button to view.')); }
+            const target = event.transceiver === peer?.getTransceivers()[0] ? screenVideo : cameraVideo;
+            if (abort.signal.aborted || event.track.kind !== 'video' || !target) return;
+            target.srcObject = new MediaStream([event.track]);
+            void target.play().catch(() => {
+              if (!abort.signal.aborted) setStatus('Click the video play button to view.');
+            });
           };
           peer.onconnectionstatechange = () => {
-            if (!abort.signal.aborted && peer) setStatus(peer.connectionState === 'connected' ? 'Live candidate screen · video only' : `Connection: ${peer.connectionState}`);
+            if (abort.signal.aborted || !peer) return;
+            if (peer.connectionState === 'failed') {
+              setStatus('Live connection lost. Start live view again to reconnect.');
+              setWatching(false);
+              return;
+            }
+            setStatus(peer.connectionState === 'connected' ? 'Live video connected' : `Connection: ${peer.connectionState}`);
           };
           await peer.setRemoteDescription({ type: 'offer', sdp: state.offer });
           await peer.setLocalDescription(await peer.createAnswer());
@@ -41,9 +55,27 @@ export function LiveScreenViewer({ session, token }: { session: string; token: s
     void poll();
     return () => {
       abort.abort(); clearTimeout(timer); peer?.close();
-      if (video.current) video.current.srcObject = null;
+      if (screenVideo) screenVideo.srcObject = null;
+      if (cameraVideo) cameraVideo.srcObject = null;
       if (room) void signal(path, token, 'stop', room).catch(() => {});
     };
   }, [watching, session, token]);
-  return <section className="invitation-panel"><h3>Live screen</h3><p>The candidate sees a live-view notice. Uses their shared screen; camera and microphone are not streamed.</p><button className="button secondary" onClick={() => { setStatus(''); setWatching(value => !value); }}>{watching ? 'Stop live view' : 'View live screen'}</button>{status && <p role="status">{status}</p>}{watching && <video ref={video} autoPlay muted playsInline controls style={{ width: '100%', maxHeight: '65vh', background: '#000', marginTop: 12 }} />}</section>;
+  return <section className="invitation-panel">
+    <h3>Live view</h3>
+    <p>View the shared screen and the candidate’s camera when enabled. The candidate sees a live-view notice. Microphone audio is excluded.</p>
+    <button className="button secondary" onClick={() => { setStatus(''); setWatching(value => !value); }}>
+      {watching ? 'Stop live view' : 'Start live view'}
+    </button>
+    {status && <p role="status">{status}</p>}
+    {watching && <div className="mt-3 grid gap-4">
+      <div>
+        <h4>Shared screen</h4>
+        <video ref={video} className="w-full max-h-[65vh] bg-black" autoPlay muted playsInline controls />
+      </div>
+      <div>
+        <h4>Candidate camera</h4>
+        <video ref={camera} className="aspect-video w-full max-w-sm bg-black" autoPlay muted playsInline controls />
+      </div>
+    </div>}
+  </section>;
 }

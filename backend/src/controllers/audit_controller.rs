@@ -42,5 +42,6 @@ pub(crate) async fn audit_log(
             })
             .collect(),
         next_cursor: result.next_cursor,
+        total: result.total,
     }))
 }

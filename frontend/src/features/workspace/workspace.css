@@ -133,7 +133,7 @@
 .interviewer-workspace[data-theme="dark"] :is(.panel,.stat,.job-card,.modal,.proctor-event) {
   @apply [background:#111b2e] [border-color:#2a3850] [color:#e2e8f0];
 }
-.interviewer-workspace[data-theme="dark"] :is(.sidebar-bottom,.question-preparation,.invitation-panel,.detail-grid,.pill,.load-more,.proctor-media,.review-placeholder,.review-reply) {
+.interviewer-workspace[data-theme="dark"] :is(.sidebar-bottom,.question-preparation,.invitation-panel,.detail-grid,.pill,.proctor-media,.review-placeholder,.review-reply) {
   @apply [background:#162238] [border-color:#2a3850] [color:#cbd5e1];
 }
 .interviewer-workspace[data-theme="dark"] :is(.logo,.workspace-name,h1,h2,h3,h4,.stat strong,.panel-heading h2,.job-card h3,td strong,.timeline strong,.empty h3) {
@@ -148,17 +148,10 @@
 .interviewer-workspace[data-theme="dark"] :is(.eyebrow,.accent,.logo-light,.foundation-tag,.empty-icon) {
   @apply [color:#a5b4fc];
 }
-.interviewer-workspace[data-theme="dark"] .button {
-  @apply [background:#6366f1] [border-color:#6366f1] [color:#fff];
-}
-.interviewer-workspace[data-theme="dark"] .button:hover {
-  @apply [background:#818cf8];
-}
-.interviewer-workspace[data-theme="dark"] :is(.button.secondary,.theme-toggle,.icon-button,.help-tip-trigger) {
-  @apply [background:#1e2b43] [border-color:#3b4b65] [color:#e2e8f0];
-}
-.interviewer-workspace[data-theme="dark"] :is(.button.secondary,.theme-toggle,.icon-button):hover {
-  @apply [background:#2a3850];
+@layer base {
+  .interviewer-workspace[data-theme="dark"] button {
+    @apply border-indigo-900 bg-indigo-950 text-indigo-100 hover:border-indigo-700 hover:bg-indigo-900;
+  }
 }
 .interviewer-workspace[data-theme="dark"] :is(.text-button,.accordion-trigger) {
   @apply [color:#c7d2fe];
@@ -249,12 +242,6 @@
 }
 .interviewer-workspace .muted {
   @apply text-slate-500;
-}
-.interviewer-workspace .button {
-  @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border-primary bg-primary px-4 py-2 leading-snug text-control font-semibold text-white shadow-sm transition-colors hover:bg-primary-hover disabled:cursor-not-allowed;
-}
-.interviewer-workspace .button.secondary {
-  @apply border-slate-200 bg-white text-slate-700 shadow-none hover:border-slate-300 hover:bg-slate-50;
 }
 .interviewer-workspace .accent {
   @apply font-semibold text-indigo-700;
@@ -401,9 +388,6 @@ dialog.interviewer-workspace {
 .interviewer-workspace .detail-grid {
   @apply gap-5 rounded-xl border border-slate-200 bg-slate-50 p-5;
 }
-.interviewer-workspace .icon-button {
-  @apply rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200;
-}
 .interviewer-workspace .question-preparation,
 .interviewer-workspace .invitation-panel {
   @apply rounded-xl border-slate-200 bg-slate-50;
@@ -420,9 +404,6 @@ dialog.interviewer-workspace {
 }
 .interviewer-workspace .empty-icon {
   @apply text-indigo-500;
-}
-.interviewer-workspace .load-more {
-  @apply bg-slate-50 text-indigo-700 hover:bg-indigo-50;
 }
 .interviewer-workspace :focus-visible {
   @apply [outline-color:#818cf8];

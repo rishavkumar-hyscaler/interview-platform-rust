@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       strictPort: true,
+      allowedHosts: ['entryway-grant-recognize.ngrok-free.dev'],
       proxy: {
         '/api': { target, changeOrigin: true },
         '/health': { target, changeOrigin: true },

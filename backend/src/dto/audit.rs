@@ -21,4 +21,5 @@ pub(crate) struct AuditEventResponse {
 pub(crate) struct AuditPageResponse {
     pub items: Vec<AuditEventResponse>,
     pub next_cursor: Option<Uuid>,
+    pub total: i64,
 }

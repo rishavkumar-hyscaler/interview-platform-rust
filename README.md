@@ -714,9 +714,10 @@ heuristic, not verified detection of another speaker.
 
 ### On-demand live screen (WebRTC)
 
-During an active interview, session details offer **View live screen** / **Stop live view**.
+During an active interview, session details offer **Start live view** / **Stop live view**.
 The candidate sees a notice while connecting/viewing. The sender reuses the screen
-already selected through the browser screen picker. No camera/audio tracks are sent.
+already selected through the browser screen picker and sends enabled camera video
+as a separate track. No microphone audio is sent.
 Screen evidence capture continues independently. Closing the viewer closes the peer;
 stopping sharing or ending the interview closes the sender. One viewer per session.
 

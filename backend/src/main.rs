@@ -35,13 +35,16 @@ async fn main() -> anyhow::Result<()> {
     };
     let listener = tokio::net::TcpListener::bind(&address).await?;
     tracing::info!(%address, "API listening");
-    let origin: axum::http::HeaderValue = match std::env::var("FRONTEND_ORIGIN") {
+    let origins = match std::env::var("FRONTEND_ORIGIN") {
         Ok(value) => value,
         Err(_) => "http://localhost:5173".to_string(),
-    }
-    .parse()?;
+    };
+    let origins = origins
+        .split(',')
+        .map(|origin| origin.trim().parse::<axum::http::HeaderValue>())
+        .collect::<Result<Vec<_>, _>>()?;
     let cors = tower_http::cors::CorsLayer::new()
-        .allow_origin(origin)
+        .allow_origin(origins)
         .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
         .allow_headers([
             axum::http::header::AUTHORIZATION,

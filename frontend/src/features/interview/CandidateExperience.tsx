@@ -25,7 +25,8 @@ function CandidateSessionView({ token }: { token: string }) {
   const active = !!session && ['invited','ready','in_progress'].includes(session.state);
   const observations = useObservations(token,session?.id,active);
   const devices = useInterviewDevices(session?.id,active,observations.record);
-  const screen = useScreenEvidence(token,session?.id,session?.state==='in_progress',observations);
+  const cameraTrack = devices.stream.current?.getVideoTracks().find(track => track.readyState === 'live') ?? null;
+  const screen = useScreenEvidence(token,session?.id,session?.state==='in_progress',observations,cameraTrack);
   useEffect(()=>{if(session && !active)screen.stop();},[active,session?.id,screen.stop]);
   useEffect(() => {
     if (session?.state === 'in_progress' || ['submitted', 'scoring', 'completed', 'expired'].includes(session?.state ?? '')) return;

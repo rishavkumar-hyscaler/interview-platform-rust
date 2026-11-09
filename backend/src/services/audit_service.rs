@@ -10,6 +10,7 @@ use uuid::Uuid;
 pub(crate) struct AuditPage {
     pub items: Vec<AuditEvent>,
     pub next_cursor: Option<Uuid>,
+    pub total: i64,
 }
 pub(crate) async fn list(
     pool: &PgPool,
@@ -32,6 +33,7 @@ pub(crate) async fn list(
     let mut tx = interviewer_transaction(pool, owner).await?;
     let mut items =
         audit_repository::list(&mut tx, owner, entity, cursor, limit + 1, filters).await?;
+    let total = audit_repository::count(&mut tx, owner, entity, filters).await?;
     tx.commit().await?;
     let more = items.len() > limit as usize;
     items.truncate(limit as usize);
@@ -43,5 +45,6 @@ pub(crate) async fn list(
     Ok(AuditPage {
         items,
         next_cursor,
+        total,
     })
 }

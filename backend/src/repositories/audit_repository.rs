@@ -49,7 +49,7 @@ pub(crate) async fn list(
     limit: i64,
     filters: &AuditFilters,
 ) -> Result<Vec<AuditEvent>> {
-    Ok(sqlx::query_as(
+    let query = format!(
         r#"
         SELECT a.id,
             a.interviewer_id,
@@ -63,7 +63,43 @@ pub(crate) async fn list(
             q.position AS question_position,
             a.action,
             a.metadata,
-            to_jsonb(a.created_at) #>> '{}' AS created_at
+            to_jsonb(a.created_at) #>> '{{}}' AS created_at
+        {FILTERED_EVENTS}
+          AND ($7::uuid IS NULL OR (a.created_at, a.id) < (
+              SELECT created_at, id
+              FROM audit_events
+              WHERE id = $7 AND interviewer_id = $1
+          ))
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT $8
+        "#,
+    );
+    Ok(sqlx::query_as(&query)
+        .bind(owner)
+        .bind(entity)
+        .bind(
+            filters
+                .candidate
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
+        .bind(
+            filters
+                .job
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
+        .bind(filters.from)
+        .bind(filters.until)
+        .bind(cursor)
+        .bind(limit)
+        .fetch_all(&mut **tx)
+        .await?)
+}
+
+const FILTERED_EVENTS: &str = r#"
         FROM audit_events a
         LEFT JOIN users u ON u.id = a.actor_id AND u.id = a.interviewer_id
         LEFT JOIN interview_sessions s
@@ -79,43 +115,42 @@ pub(crate) async fn list(
             AND q.set_id = coalesce(s.question_set_id, qs.id)
         WHERE a.interviewer_id = $1
           AND ($2::uuid IS NULL OR a.entity_id = $2)
-          AND ($3::uuid IS NULL OR (a.created_at, a.id) < (
-              SELECT created_at, id
-              FROM audit_events
-              WHERE id = $3 AND interviewer_id = $1
-          ))
-          AND ($5::text IS NULL
-              OR strpos(lower(s.candidate_name), lower($5)) > 0
-              OR strpos(lower(s.candidate_email), lower($5)) > 0)
-          AND ($6::text IS NULL
-              OR strpos(lower(j.title), lower($6)) > 0
-              OR strpos(lower(j.job_code), lower($6)) > 0)
-          AND ($7::bigint IS NULL OR a.created_at >= to_timestamp($7::bigint))
-          AND ($8::bigint IS NULL OR a.created_at < to_timestamp($8::bigint))
-        ORDER BY a.created_at DESC, a.id DESC
-        LIMIT $4
-        "#,
-    )
-    .bind(owner)
-    .bind(entity)
-    .bind(cursor)
-    .bind(limit)
-    .bind(
-        filters
-            .candidate
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty()),
-    )
-    .bind(
-        filters
-            .job
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty()),
-    )
-    .bind(filters.from)
-    .bind(filters.until)
-    .fetch_all(&mut **tx)
-    .await?)
+          AND ($3::text IS NULL
+              OR strpos(lower(s.candidate_name), lower($3)) > 0
+              OR strpos(lower(s.candidate_email), lower($3)) > 0)
+          AND ($4::text IS NULL
+              OR strpos(lower(j.title), lower($4)) > 0
+              OR strpos(lower(j.job_code), lower($4)) > 0)
+          AND ($5::bigint IS NULL OR a.created_at >= to_timestamp($5::bigint))
+          AND ($6::bigint IS NULL OR a.created_at < to_timestamp($6::bigint))
+"#;
+
+pub(crate) async fn count(
+    tx: &mut Transaction<'_, Postgres>,
+    owner: Uuid,
+    entity: Option<Uuid>,
+    filters: &AuditFilters,
+) -> Result<i64> {
+    let query = format!("SELECT count(*) {FILTERED_EVENTS}");
+    Ok(sqlx::query_scalar(&query)
+        .bind(owner)
+        .bind(entity)
+        .bind(
+            filters
+                .candidate
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
+        .bind(
+            filters
+                .job
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        )
+        .bind(filters.from)
+        .bind(filters.until)
+        .fetch_one(&mut **tx)
+        .await?)
 }
