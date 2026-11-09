@@ -153,3 +153,7 @@ pub(crate) async fn require_session(pool: &PgPool, owner: Uuid, hash: &str) -> R
     }
     Ok(())
 }
+
+pub(crate) async fn interviewer_email(pool: &PgPool, user: Uuid) -> Result<String> {
+    crate::repositories::auth_repository::interviewer_email(pool, user).await
+}

@@ -1,6 +1,7 @@
 /* No global reset: the candidate room keeps its existing device/fullscreen styles. */
 @import "tailwindcss/theme.css";
 @import "tailwindcss/utilities.css";
+@custom-variant workspace-dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 @source "./**/*.tsx";
 @source "../../components/ui/**/*.tsx";
 

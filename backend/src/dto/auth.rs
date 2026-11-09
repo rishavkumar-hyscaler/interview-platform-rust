@@ -19,6 +19,7 @@ pub(crate) struct SessionResponse {
 }
 #[derive(Serialize)]
 pub(crate) struct UserResponse {
+    pub email: String,
     pub user_id: Uuid,
     pub role: &'static str,
 }

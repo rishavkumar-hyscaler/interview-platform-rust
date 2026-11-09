@@ -50,6 +50,7 @@ pub(crate) async fn me(
 ) -> Result<Json<UserResponse>> {
     let (user_id, _) = authenticate(&pool, &headers).await?;
     Ok(Json(UserResponse {
+        email: auth_service::interviewer_email(&pool, user_id).await?,
         user_id,
         role: "interviewer",
     }))
