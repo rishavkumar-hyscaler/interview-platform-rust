@@ -58,7 +58,7 @@
   @apply [max-width:600px] [margin-top:6px];
 }
 .interviewer-workspace .audit-technical .accordion-trigger {
-  @apply [padding:4px_0] [font-size:12px];
+  @apply [padding:4px_0] text-xs;
 }
 .interviewer-workspace .question-set-list {
   @apply my-4 grid gap-3;
@@ -234,7 +234,7 @@
   @apply mb-8 flex-wrap gap-5;
 }
 .interviewer-workspace .page-heading h1 {
-  @apply text-3xl font-bold tracking-tight;
+  @apply text-4xl font-bold tracking-tight;
 }
 .interviewer-workspace .eyebrow {
   @apply text-indigo-600;
@@ -261,7 +261,7 @@
   @apply text-sm font-medium text-slate-500;
 }
 .interviewer-workspace .stat strong {
-  @apply my-3 text-3xl font-bold tracking-tight text-slate-900;
+  @apply my-3 text-4xl font-bold tracking-tight text-slate-900;
 }
 .interviewer-workspace .stat small {
   @apply text-xs text-slate-500;
@@ -273,7 +273,7 @@
   @apply gap-4 p-6;
 }
 .interviewer-workspace .panel-heading h2 {
-  @apply text-lg font-bold tracking-tight text-slate-900;
+  @apply text-xl font-bold tracking-tight text-slate-900;
 }
 .interviewer-workspace .panel-heading p {
   @apply text-sm text-slate-500;
@@ -296,7 +296,7 @@
   @apply size-10 rounded-xl bg-indigo-50 text-indigo-600;
 }
 .interviewer-workspace .job-card h3 {
-  @apply mb-1 mt-4 text-lg font-bold leading-snug text-slate-900;
+  @apply mb-1 mt-4 text-xl font-bold leading-snug text-slate-900;
 }
 .interviewer-workspace .job-code {
   @apply my-2 text-xs text-slate-500;
