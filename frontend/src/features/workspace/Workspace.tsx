@@ -156,16 +156,23 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
     catch { setCopyFeedback('Select the link above and copy it manually.'); }
   }
   const visible = sessions.items.filter(s => (filter === 'all' || s.state === filter) && `${s.candidate_name} ${s.candidate_email} ${s.job_title} ${s.job_code}`.toLowerCase().includes(search.toLowerCase()));
-  return <div className="app-shell interviewer-workspace" data-theme={theme}>
-    <aside id="interviewer-sidebar" className={`sidebar overflow-y-auto ${sidebarOpen ? '' : 'hidden!'}`}>
+  return <div className="interviewer-workspace flex min-h-screen [--sidebar-width:clamp(248px,18vw,350px)] bg-slate-50 text-slate-900 max-sm:block workspace-dark:bg-slate-950 workspace-dark:text-slate-100" data-theme={theme}>
+    <aside
+      id="interviewer-sidebar"
+      inert={!sidebarOpen}
+      aria-hidden={!sidebarOpen}
+      className={`flex flex-col overflow-hidden border-slate-200 bg-white sm:fixed sm:inset-y-0 sm:left-0 sm:z-10 sm:w-[var(--sidebar-width)] sm:overflow-y-auto sm:border-r sm:border-solid sm:px-5 sm:py-7 2xl:px-7 workspace-dark:border-slate-800 workspace-dark:bg-slate-900 motion-safe:transition-[translate,max-height,padding,opacity] motion-safe:duration-200 motion-safe:ease-out ${sidebarOpen
+        ? 'max-sm:max-h-64 max-sm:border-b max-sm:border-solid max-sm:p-4 sm:translate-x-0'
+        : 'max-sm:max-h-0 max-sm:px-4 max-sm:py-0 max-sm:opacity-0 sm:-translate-x-full'}`}
+    >
       <div className="flex items-center justify-between gap-2">
-      <a className="logo" href="#" onClick={() => setView('interviewer')}><span className="logo-mark">i</span> interview<span className="logo-light"> / </span></a>
+      <a className="flex min-w-0 items-center gap-2 text-lg font-bold tracking-tight" href="#" onClick={() => setView('interviewer')}><span className="grid size-8 shrink-0 place-items-center rounded-xl bg-indigo-600 font-serif text-xl text-white italic">i</span> interview<span className="text-indigo-500"> / </span></a>
         <Button aria-label="Close navigation" className="size-8 min-h-8 shrink-0 border-0 bg-transparent p-0" onClick={() => {
           setSidebarOpen(false);
           requestAnimationFrame(() => sidebarToggle.current?.focus());
         }}><X size={17} aria-hidden="true" /></Button>
       </div>
-      <nav className="mt-6 flex! min-h-0 flex-1 flex-col gap-1 max-sm:mt-4 max-sm:grid! max-sm:grid-cols-4" aria-label="Interview navigation">
+      <nav className="mt-8 flex min-h-0 flex-1 flex-col gap-1 max-sm:mt-4 max-sm:grid max-sm:grid-cols-4" aria-label="Interview navigation">
         {([
           ['interviewer', 'Jobs & invitations', 'Jobs', Briefcase],
           ['reviewer', 'Interview results', 'Results', ClipboardList],
@@ -175,16 +182,16 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
           key={key}
           aria-label={label}
           aria-current={view === key ? 'page' : undefined}
-          className={`min-h-10 w-full justify-start! gap-2! rounded-lg! border-0! bg-transparent! px-2.5! py-2! text-[14px]! font-medium! tracking-tight text-slate-600! hover:bg-slate-100! workspace-dark:text-slate-300! workspace-dark:hover:bg-slate-800! aria-[current=page]:bg-indigo-50! aria-[current=page]:text-indigo-700! workspace-dark:aria-[current=page]:bg-indigo-950! workspace-dark:aria-[current=page]:text-indigo-200! max-sm:flex-col max-sm:justify-center! max-sm:gap-1! max-sm:px-1! max-sm:text-xs! ${key === 'profile' ? 'sm:mt-auto' : ''}`}
+          className={`min-h-11 w-full min-w-0 justify-start gap-2.5 rounded-lg border-0 bg-transparent px-2 py-2 text-left font-medium tracking-tight text-slate-700 hover:bg-slate-100 aria-[current=page]:bg-indigo-50 aria-[current=page]:text-indigo-700 workspace-dark:bg-transparent workspace-dark:text-slate-300 workspace-dark:hover:bg-slate-800 workspace-dark:aria-[current=page]:bg-indigo-950 workspace-dark:aria-[current=page]:text-indigo-200 sm:text-base 2xl:text-[clamp(1.125rem,1.15vw,1.5rem)] max-sm:flex-col max-sm:justify-center max-sm:gap-1 max-sm:px-1 max-sm:text-xs ${key === 'profile' ? 'sm:mt-auto' : ''}`}
           onClick={() => setView(key)}
         >
           <Icon size={18} className="shrink-0" aria-hidden="true" />
-          <span className="m-0! hidden! whitespace-nowrap text-inherit! sm:inline!">{label}</span>
-          <span className="m-0! inline! text-inherit! sm:hidden!">{shortLabel}</span>
+          <span className="hidden whitespace-nowrap sm:inline">{label}</span>
+          <span className="sm:hidden">{shortLabel}</span>
         </Button>)}
       </nav>
     </aside>
-    <div className={`workspace-main ${sidebarOpen ? '' : 'ml-0! w-full!'}`}><header className="topbar"><div className="flex min-w-0 items-center gap-3">
+    <div className={`min-w-0 flex-1 motion-safe:transition-[margin-left] motion-safe:duration-200 motion-safe:ease-out ${sidebarOpen ? 'sm:ml-[var(--sidebar-width)]' : ''}`}><header className="sticky top-0 z-10 flex h-16 items-center justify-between gap-2 border-b border-solid border-slate-200 bg-white px-4 text-sm text-slate-700 sm:px-6 workspace-dark:border-slate-800 workspace-dark:bg-slate-900 workspace-dark:text-slate-200"><div className="flex min-w-0 items-center gap-3">
       {!sidebarOpen && <Button ref={sidebarToggle} aria-label="Open navigation" aria-controls="interviewer-sidebar" aria-expanded={false} className="size-9 min-h-9 shrink-0 p-0" onClick={() => {
         setSidebarOpen(true);
         requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('#interviewer-sidebar button')?.focus());
@@ -209,7 +216,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
       <div className="stats">{[['Total roles', summary.jobs, 'Job descriptions created'], ['Invitations', summary.sessions, 'Across all your roles'], ['Active sessions', summary.active, 'Ready or in progress'], ['Ready for review', summary.reviewable, 'Submitted, scoring, or completed']].map(([label, value, help]) => <div className="stat" key={label}><span>{label}</span><strong>{loading ? '—' : value}</strong><small>{help}</small></div>)}</div>
       {loading ? <section className="panel empty" role="status">Loading your interviews…</section> : view === 'audit' ? <section className="panel">
         <div className="panel-heading"><div><h2>Audit trail</h2><p>Interview and job activity, newest first</p></div><span className="pill">Evidence log</span></div>
-        <form className="audit-filters" onSubmit={applyAuditFilters} onReset={() => { setAuditForm({ candidate: "", job: "", from: "", until: "" }); void loadAudit({}); }}>
+        <form className="audit-filters px-6 max-sm:px-4" onSubmit={applyAuditFilters} onReset={() => { setAuditForm({ candidate: "", job: "", from: "", until: "" }); void loadAudit({}); }}>
           <label>Candidate<input name="candidate" value={auditForm.candidate} onChange={event => setAuditForm({ ...auditForm, candidate: event.target.value })} placeholder="Name or email" /></label>
           <label>Job<input name="job" value={auditForm.job} onChange={event => setAuditForm({ ...auditForm, job: event.target.value })} placeholder="Title or job ID" /></label>
           <label>From date<input type="date" name="from" value={auditForm.from} onChange={event => setAuditForm({ ...auditForm, from: event.target.value })} /></label>

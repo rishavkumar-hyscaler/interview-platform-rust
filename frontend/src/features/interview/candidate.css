@@ -1,154 +1,87 @@
+@reference "tailwindcss";
 .candidate-access {
-  padding: clamp(16px, 4vw, 40px);
+  @apply [padding:clamp(16px,_4vw,_40px)];
 }
-
 .candidate-access .candidate-card {
-  width: 660px;
-  max-width: 100%;
-  box-sizing: border-box;
-  padding: clamp(20px, 5vw, 36px);
+  @apply [width:660px] max-w-full box-border [padding:clamp(20px,_5vw,_36px)];
 }
-
 .candidate-card h1 {
-  overflow-wrap: anywhere;
+  @apply [overflow-wrap:anywhere];
 }
-
 .candidate-facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 20px 0;
+  @apply flex flex-wrap [gap:8px] [margin:20px_0];
 }
-
 .candidate-facts span {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: #eef3eb;
-  color: #30462c;
-  font-size: 14px;
+  @apply inline-flex items-center [gap:8px] [padding:8px_12px] [border-radius:8px] [background:#eef3eb] [color:#30462c] [font-size:14px];
 }
-
 .candidate-check,
 .candidate-instructions {
-  margin-top: 20px;
+  @apply [margin-top:20px];
 }
-
 .candidate-check h2,
 .candidate-instructions h2 {
-  font-size: 17px;
-  margin: 0 0 8px;
+  @apply [font-size:17px] [margin:0_0_8px];
 }
-
 .candidate-check ul {
-  list-style: none;
-  padding: 0;
-  margin: 14px 0;
-  border: 1px solid #dce4d7;
-  border-radius: 10px;
+  @apply [list-style:none] p-0 [margin:14px_0] [border:1px_solid_#dce4d7] [border-radius:10px];
 }
-
 .candidate-check li {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  @apply grid [grid-template-columns:auto_minmax(0,_1fr)_auto] items-center [gap:10px] [padding:10px_12px];
 }
-
 .candidate-check li + li {
-  border-top: 1px solid #dce4d7;
+  @apply [border-top:1px_solid_#dce4d7];
 }
-
 .candidate-check li small {
-  display: block;
-  margin-top: 2px;
-  color: #4a5562;
-  text-transform: capitalize;
+  @apply block [margin-top:2px] [color:#4a5562] [text-transform:capitalize];
 }
-
 .candidate-check li small[data-ready="true"] {
-  color: #315b36;
+  @apply [color:#315b36];
 }
-
 .candidate-check details,
 .candidate-instructions ul {
-  font-size: 14px;
-  line-height: 1.55;
+  @apply [font-size:14px] [line-height:1.55];
 }
-
 .candidate-check summary {
-  cursor: pointer;
+  @apply cursor-pointer;
 }
-
 .candidate-instructions ul {
-  padding-left: 20px;
+  @apply [padding-left:20px];
 }
-
 .candidate-instructions li + li {
-  margin-top: 5px;
+  @apply [margin-top:5px];
 }
-
 .candidate-start {
-  margin-top: 18px;
+  @apply [margin-top:18px];
 }
-
 .candidate-start > .button {
-  width: 100%;
+  @apply w-full;
 }
-
 .candidate-card .success svg {
-  vertical-align: middle;
-  margin-right: 4px;
+  @apply [vertical-align:middle] [margin-right:4px];
 }
-
 .candidate-progress {
-  margin-left: auto;
-  display: grid;
-  gap: 4px;
+  @apply [margin-left:auto] grid [gap:4px];
 }
-
 .candidate-progress progress {
-  width: 100%;
-  height: 5px;
-  accent-color: #55764e;
+  @apply w-full [height:5px] [accent-color:#55764e];
 }
-
 @media (max-width: 420px) {
   .candidate-check li {
-    grid-template-columns: auto minmax(0, 1fr);
+    @apply [grid-template-columns:auto_minmax(0,_1fr)];
   }
-
   .candidate-check li button {
-    grid-column: 2;
-    justify-self: start;
+    @apply [grid-column:2] [justify-self:start];
   }
 }
-
 .candidate-monitoring {
-  align-self: stretch;
-  border-top: 1px solid #dce4d7;
-  padding-top: 8px;
-  font-size: 13px;
-  color: #475569;
+  @apply [align-self:stretch] [border-top:1px_solid_#dce4d7] [padding-top:8px] [font-size:13px] [color:#475569];
 }
-
 .candidate-monitoring summary {
-  cursor: pointer;
-  width: fit-content;
-  margin-inline: auto;
-  padding: 4px;
+  @apply cursor-pointer [width:fit-content] [margin-inline:auto] [padding:4px];
 }
-
 .candidate-monitoring p {
-  margin: 8px 0;
-  line-height: 1.5;
+  @apply [margin:8px_0] [line-height:1.5];
 }
-
 .candidate-monitoring-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  @apply flex flex-wrap [gap:8px];
 }

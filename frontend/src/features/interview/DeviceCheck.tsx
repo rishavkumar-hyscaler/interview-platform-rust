@@ -1,3 +1,4 @@
+import { Button } from '../../components/ui/button';
 import { Camera, Mic, Monitor } from 'lucide-react';
 import type { InterviewDevices } from './useInterviewDevices';
 import type { ScreenEvidence } from './useScreenEvidence';
@@ -16,7 +17,7 @@ export function DeviceCheck({ devices, screen }: { devices: InterviewDevices; sc
       {checks.map(({ label, icon: Icon, status, ready, busy, action, request }) => <li key={label}>
         <Icon size={20} aria-hidden="true" />
         <div><strong>{label}</strong><small data-ready={ready}>{status.replaceAll('_', ' ')}</small></div>
-        {(!ready || label === 'Screen sharing') && <button type="button" className="button secondary" disabled={busy} onClick={() => void request()}>{action}</button>}
+        {(!ready || label === 'Screen sharing') && <Button className="w-fit max-w-full" disabled={busy} onClick={() => void request()}>{action}</Button>}
       </li>)}
     </ul>
     {devices.error && <p role="status" className="configuration-note">{devices.error}</p>}
