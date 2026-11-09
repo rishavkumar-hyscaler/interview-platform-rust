@@ -67,6 +67,8 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
   const [jobs, setJobs] = useState<Page<Job>>({ items: [], next_cursor: null });
   const [sessions, setSessions] = useState<Page<Interview>>({ items: [], next_cursor: null });
   const [audit, setAudit] = useState<Page<Audit>>({ items: [], next_cursor: null });
+  const [auditCursors, setAuditCursors] = useState<string[]>([]);
+  const auditScroll = useRef<HTMLDivElement>(null);
   const [auditForm, setAuditForm] = useState({ candidate: "", job: "", from: "", until: "" });
   const [auditFilters, setAuditFilters] = useState<AuditFilters>({});
   const [summary, setSummary] = useState<Summary>({ jobs: 0, sessions: 0, active: 0, reviewable: 0 });
@@ -119,8 +121,24 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
       const page = await api.audit(undefined, undefined, filters);
       setAudit(page);
       setAuditFilters(filters);
+      setAuditCursors([]);
+      auditScroll.current?.scrollTo(0, 0);
     });
   }
+  async function changeAuditPage(direction: 'previous' | 'next') {
+    const cursor = audit.next_cursor;
+    if (direction === 'next' && !cursor) return;
+    const cursors = direction === 'next' && cursor
+      ? [...auditCursors, cursor]
+      : auditCursors.slice(0, -1);
+    await run(async () => {
+      const page = await api.audit(undefined, cursors.at(-1), auditFilters);
+      setAudit(page);
+      setAuditCursors(cursors);
+      auditScroll.current?.scrollTo(0, 0);
+    });
+  }
+
   async function loadMoreJobs() {
     if (!jobs.next_cursor) return;
     const next = await api.jobs(jobs.next_cursor);
@@ -129,6 +147,8 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
   async function refresh() {
     const [j, s, a, counts] = await Promise.all([api.jobs(), api.sessions(), api.audit(undefined, undefined, auditFilters), api.summary()]);
     setJobs(j); setSessions(s); setAudit(a); setSummary(counts);
+    setAuditCursors([]);
+    auditScroll.current?.scrollTo(0, 0);
   }
   async function run(action: () => Promise<void>) {
     setBusy(true); setError('');
@@ -178,7 +198,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
     catch { setCopyFeedback('Select the link above and copy it manually.'); }
   }
   const visible = sessions.items.filter(s => (filter === 'all' || s.state === filter) && `${s.candidate_name} ${s.candidate_email} ${s.job_title} ${s.job_code}`.toLowerCase().includes(search.toLowerCase()));
-  return <div className="interviewer-workspace flex min-h-screen [--sidebar-width:clamp(248px,18vw,350px)] bg-slate-50 text-slate-900 max-sm:block workspace-dark:bg-slate-950 workspace-dark:text-slate-100" data-theme={theme}>
+  return <div className="interviewer-workspace flex min-h-screen [--sidebar-width:clamp(248px,18vw,350px)] bg-slate-50 text-slate-900 max-sm:flex-col workspace-dark:bg-slate-950 workspace-dark:text-slate-100" data-theme={theme}>
     <aside
       id="interviewer-sidebar"
       inert={!sidebarOpen}
@@ -188,7 +208,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
         : 'max-sm:max-h-0 max-sm:px-4 max-sm:py-0 max-sm:opacity-0 sm:-translate-x-full'}`}
     >
       <div className="flex items-center justify-between gap-2">
-        <a className="flex min-w-0 items-center gap-2 text-xl font-semibold tracking-tight" href="#" onClick={() => setView('interviewer')}><span className="grid size-8 shrink-0 place-items-center rounded-xl bg-indigo-600 text-xl text-white italic">i</span><span className="uppercase text-indigo-600 workspace-dark:text-indigo-400">Interview</span><span className="text-indigo-500"> / </span></a>
+        <a className="flex min-w-0 items-center gap-2 text-xl font-semibold tracking-tight" href="#" onClick={() => setView('interviewer')}><span className="grid size-8 shrink-0 place-items-center rounded-xl bg-indigo-600 text-xl text-white italic">i</span><span className="font-display text-xl font-semibold tracking-tight uppercase text-indigo-600 workspace-dark:text-indigo-400">Interview</span><span className="text-indigo-500"> / </span></a>
         <Button aria-label="Close navigation" className="size-8 min-h-8 shrink-0 border-0 bg-transparent p-0" onClick={() => {
           setSidebarOpen(false);
           requestAnimationFrame(() => sidebarToggle.current?.focus());
@@ -204,7 +224,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
           key={key}
           aria-label={label}
           aria-current={view === key ? 'page' : undefined}
-          className={`group/rolling min-h-11 w-full sm:min-h-9 min-w-0 justify-start gap-2.5 rounded-lg border-0 bg-transparent px-0 py-0.5 text-left font-semibold tracking-[-0.045em] text-slate-700 hover:bg-transparent aria-[current=page]:font-semibold aria-[current=page]:text-slate-950 workspace-dark:bg-transparent workspace-dark:text-slate-300 workspace-dark:hover:bg-transparent workspace-dark:aria-[current=page]:text-white sm:text-xl 2xl:text-2xl max-sm:flex-col max-sm:justify-center max-sm:gap-1 max-sm:px-1 max-sm:text-sm ${key === 'profile' ? 'sm:mt-auto' : ''}`}
+          className={`group/rolling min-h-11 w-full sm:min-h-9 min-w-0 justify-start gap-2.5 rounded-lg border-0 bg-transparent px-0 py-0.5 text-left font-semibold tracking-tight text-slate-700 hover:bg-transparent aria-[current=page]:font-semibold aria-[current=page]:text-slate-950 workspace-dark:bg-transparent workspace-dark:text-slate-300 workspace-dark:hover:bg-transparent workspace-dark:aria-[current=page]:text-white sm:text-xl 2xl:text-2xl max-sm:flex-col max-sm:justify-center max-sm:gap-1 max-sm:px-1 max-sm:text-sm ${key === 'profile' ? 'sm:mt-auto' : ''}`}
           onClick={() => setView(key)}
         >
           <RollingText text={label} className="hidden sm:inline-flex" />
@@ -212,7 +232,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
         </Button>)}
       </nav>
     </aside>
-    <div className={`min-w-0 flex-1 motion-safe:transition-[margin-left] motion-safe:duration-200 motion-safe:ease-out ${sidebarOpen ? 'sm:ml-[var(--sidebar-width)]' : ''}`}><header className="sticky top-0 z-10 flex h-16 items-center justify-between gap-2 border-b border-solid border-slate-200 bg-white px-4 text-sm text-slate-700 sm:px-6 workspace-dark:border-slate-800 workspace-dark:bg-slate-900 workspace-dark:text-slate-200"><div className="flex min-w-0 items-center gap-3">
+    <div className={`flex min-w-0 flex-1 flex-col motion-safe:transition-[margin-left] motion-safe:duration-200 motion-safe:ease-out ${sidebarOpen ? 'sm:ml-[var(--sidebar-width)]' : ''}`}><header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-solid border-slate-200 bg-white px-4 text-sm text-slate-700 sm:px-6 workspace-dark:border-slate-800 workspace-dark:bg-slate-900 workspace-dark:text-slate-200"><div className="flex min-w-0 items-center gap-3">
       {!sidebarOpen && <Button ref={sidebarToggle} aria-label="Open navigation" aria-controls="interviewer-sidebar" aria-expanded={false} className="size-9 min-h-9 shrink-0 p-0" onClick={() => {
         setSidebarOpen(true);
         requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('#interviewer-sidebar button')?.focus());
@@ -232,11 +252,11 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
             <Button onClick={() => { accountMenu.current?.hidePopover(); onLogout(); }}>Sign out</Button>
           </div>
         </div></div></header>
-      <main className="dashboard">{view === 'profile' ? <InterviewerProfile account={account} onLogout={onLogout} /> : <><div className="page-heading"><div><p className="eyebrow">{view === 'reviewer' ? 'CANDIDATE ASSESSMENT' : view === 'audit' ? 'INTERVIEW HISTORY' : 'INTERVIEW OPERATIONS'}</p><h1>{view === 'reviewer' ? 'Interview results' : view === 'audit' ? 'Audit trail' : 'Jobs & invitations'}</h1><p className="muted">{view === 'reviewer' ? 'Inspect interview status, job requirements, and recorded activity.' : view === 'audit' ? 'Trace interview actions back to their time, actor, and session.' : 'Create a role, invite candidates, and keep interviews moving.'}</p></div><div className="actions"><button className="button secondary" disabled={busy || loading} onClick={() => void run(refresh)}>↻ Refresh</button>{view === 'interviewer' && <button className="button" disabled={busy || loading} onClick={() => openModal('job')}>+ Create job</button>}</div></div>
+      <main className="dashboard flex w-full flex-1 flex-col">{view === 'profile' ? <InterviewerProfile account={account} onLogout={onLogout} /> : <><div className="page-heading"><div><p className="eyebrow">{view === 'reviewer' ? 'CANDIDATE ASSESSMENT' : view === 'audit' ? 'INTERVIEW HISTORY' : 'INTERVIEW OPERATIONS'}</p><h1 className="font-display">{view === 'reviewer' ? 'Interview results' : view === 'audit' ? 'Audit trail' : 'Jobs & invitations'}</h1><p className="muted">{view === 'reviewer' ? 'Inspect interview status, job requirements, and recorded activity.' : view === 'audit' ? 'Trace interview actions back to their time, actor, and session.' : 'Create a role, invite candidates, and keep interviews moving.'}</p></div><div className="actions"><button className="button secondary" disabled={busy || loading} onClick={() => void run(refresh)}>↻ Refresh</button>{view === 'interviewer' && <button className="button" disabled={busy || loading} onClick={() => openModal('job')}>+ Create job</button>}</div></div>
         {error && <div className="error" role="alert">{error}</div>}
         {view === 'reviewer' && <div className="stats">{[['Total roles', summary.jobs, 'Job descriptions created'], ['Invitations', summary.sessions, 'Across all your roles'], ['Active sessions', summary.active, 'Ready or in progress'], ['Ready for review', summary.reviewable, 'Submitted, scoring, or completed']].map(([label, value, help]) => <div className="stat" key={label}><span>{label}</span><strong>{loading ? '—' : value}</strong><small>{help}</small></div>)}</div>}
         {loading ? <section className="panel empty" role="status">Loading your interviews…</section> : view === 'audit' ? <section className="panel">
-          <div className="panel-heading"><div><h2>Audit trail</h2><p>Interview and job activity, newest first</p></div><span className="pill">Evidence log</span></div>
+          <div className="panel-heading"><div><h2>Audit trail</h2><p>Interview and job activity, newest first. Dates filter when each event occurred.</p></div><span className="pill">Evidence log</span></div>
           <form className="audit-filters px-6 max-sm:px-4" onSubmit={applyAuditFilters} onReset={() => { setAuditForm({ candidate: "", job: "", from: "", until: "" }); void loadAudit({}); }}>
             <label>Candidate<input name="candidate" value={auditForm.candidate} onChange={event => setAuditForm({ ...auditForm, candidate: event.target.value })} placeholder="Name or email" /></label>
             <label>Job<input name="job" value={auditForm.job} onChange={event => setAuditForm({ ...auditForm, job: event.target.value })} placeholder="Title or job ID" /></label>
@@ -247,13 +267,26 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
               <button type="reset" className="button" disabled={busy}>Clear</button>
             </div>
           </form>
-          <div className="audit-scroll" role="region" aria-label="Audit events" tabIndex={0}>
-            <Timeline events={audit.items} emptyMessage="No audit events match these filters." />
+          <div ref={auditScroll} className="audit-scroll" role="region" aria-label="Audit events" tabIndex={0}>
+            {audit.items.length === 0 && (auditFilters.from || auditFilters.until) ? (
+              <div className="empty compact">
+                <p>No audit events match the selected dates and search filters.</p>
+                <Button disabled={busy} onClick={() => {
+                  setAuditForm(form => ({ ...form, from: '', until: '' }));
+                  const filters: AuditFilters = {};
+                  if (auditFilters.candidate) filters.candidate = auditFilters.candidate;
+                  if (auditFilters.job) filters.job = auditFilters.job;
+                  void loadAudit(filters);
+                }}>Search all dates</Button>
+              </div>
+            ) : <Timeline events={audit.items} emptyMessage="No audit events match these filters." />}
           </div>
-          {audit.next_cursor && <button className="load-more" disabled={busy} onClick={() => void run(async () => {
-            const next = await api.audit(undefined, audit.next_cursor!, auditFilters);
-            setAudit({ items: [...audit.items, ...next.items], next_cursor: next.next_cursor });
-          })}>Load older events ↓</button>}
+          {(auditCursors.length > 0 || audit.next_cursor) && <nav aria-label="Audit pagination"
+            className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 sm:px-6 workspace-dark:border-slate-700">
+            <Button disabled={busy || auditCursors.length === 0} onClick={() => void changeAuditPage('previous')}>← Previous</Button>
+            <span className="text-sm tabular-nums" aria-live="polite">Page {auditCursors.length + 1}</span>
+            <Button disabled={busy || !audit.next_cursor} onClick={() => void changeAuditPage('next')}>Next →</Button>
+          </nav>}
         </section> : <>
           {view === 'interviewer' && <section className="panel"><div className="panel-heading"><div><h2>Your roles</h2><p>Each interview starts with a clear job description.</p></div><span className="pill">{summary.jobs} total</span></div>{jobs.items.length ? <div className="job-grid">{jobs.items.map(job => <article className="job-card [&>.job-meta]:mb-0! [&>.job-meta]:pb-3!" key={job.id}><div className="flex items-start justify-between gap-3">
             <div className="min-w-0 [&>h3]:mt-0">
@@ -279,7 +312,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
             </article>)}</div>
             {jobs.next_cursor && <button className="load-more" disabled={busy} onClick={() => void run(loadMoreJobs)}>Load more roles ↓</button>}
           </section>}</>}
-      </>}<footer>INTERVIEW PLATFORM <span>Structured interviews · Evidence-grounded review</span></footer></main></div>
+      </>}<footer className="mt-auto">INTERVIEW PLATFORM <span>Structured interviews · Evidence-grounded review</span></footer></main></div>
     {analyticsJob && <Dialog title="analytics-title" onClose={() => setAnalyticsJobId(null)}>
       <section className="modal detail-modal w-[min(1200px,calc(100vw-2rem))]!">
         <header className="flex items-start justify-between gap-4">

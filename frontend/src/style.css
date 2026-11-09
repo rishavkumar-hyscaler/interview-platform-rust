@@ -27,7 +27,7 @@ a {
   @apply [color:inherit] [text-decoration:none];
 }
 h1,h2,h3 {
-  @apply [letter-spacing:-.035em];
+  @apply tracking-tight;
 }
 h1 {
   @apply text-[2rem] leading-tight mt-2 mb-3 font-semibold;
@@ -57,7 +57,7 @@ code {
   @apply [background:#fff] [width:230px] fixed [inset:0_auto_0_0] [border-right:1px_solid_#e7e9ed] [padding:33px_22px] flex flex-col [z-index:5];
 }
 .logo {
-  @apply flex items-center [gap:8px] text-xl font-semibold [letter-spacing:-1px] [color:#202936];
+  @apply flex items-center [gap:8px] text-xl font-semibold tracking-tight [color:#202936];
 }
 .logo-mark {
   @apply inline-grid [place-items:center] [font-style:italic] [background:var(--color-indigo-600)] [color:white] [width:29px] [height:32px] [border-radius:8px] text-2xl;
@@ -351,7 +351,7 @@ summary {
   @apply [margin-top:70px];
 }
 .access-intro h1 {
-  @apply text-[2rem] [line-height:1.2] [letter-spacing:-.05em];
+  @apply text-[2rem] leading-tight tracking-tight;
 }
 .access-intro em {
   @apply [font-style:normal] [color:#475569];

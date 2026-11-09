@@ -5,6 +5,7 @@
 @source "./**/*.tsx";
 @source "../../components/ui/**/*.tsx";
 @theme {
+  --font-display: Sequel, "Sequel Sans", var(--font-sans);
   --animate-accordion-down: accordion-down 220ms ease-out;
   --animate-accordion-up: accordion-up 180ms ease-out;
   @keyframes accordion-down {
@@ -295,6 +296,12 @@
 }
 .interviewer-workspace .job-card {
   @apply flex min-w-0 flex-col rounded-xl border-slate-200 p-6 transition-shadow hover:shadow-md;
+}
+.interviewer-workspace :is(.stat,.job-card) {
+  @apply bg-linear-to-br from-indigo-50/70 via-white to-white;
+}
+.interviewer-workspace[data-theme="dark"] :is(.stat,.job-card) {
+  @apply bg-linear-to-br from-indigo-950/55 via-transparent to-transparent;
 }
 .interviewer-workspace .job-icon {
   @apply size-10 rounded-xl bg-indigo-50 text-indigo-600;

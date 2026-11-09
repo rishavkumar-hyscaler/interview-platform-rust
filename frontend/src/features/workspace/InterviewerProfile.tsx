@@ -29,7 +29,7 @@ export function InterviewerProfile({ account, onLogout }: { account: ReturnType<
   return <div className="mx-auto grid max-w-3xl gap-6">
     <header>
       <p className="m-0 text-xs font-semibold tracking-widest text-indigo-700 uppercase workspace-dark:text-indigo-300">Account</p>
-      <h1 className="my-2 text-[2rem]">Profile</h1>
+      <h1 className="my-2 font-display text-[2rem]">Profile</h1>
       <p className="m-0 text-sm text-slate-600 workspace-dark:text-slate-300">View your signed-in interviewer account.</p>
     </header>
 
