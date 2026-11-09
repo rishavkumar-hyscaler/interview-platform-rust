@@ -1,5 +1,8 @@
 use crate::{
-    Result, error::bad, infrastructure::interviewer_transaction, models::audit::AuditEvent,
+    Result,
+    error::bad,
+    infrastructure::interviewer_transaction,
+    models::audit::{AuditEvent, AuditFilters},
     repositories::audit_repository,
 };
 use sqlx::PgPool;
@@ -14,12 +17,21 @@ pub(crate) async fn list(
     entity: Option<Uuid>,
     cursor: Option<Uuid>,
     limit: i64,
+    filters: &AuditFilters,
 ) -> Result<AuditPage> {
     if !(1..=100).contains(&limit) {
         return Err(bad("Limit must be between 1 and 100"));
     }
+    if filters
+        .from
+        .zip(filters.until)
+        .is_some_and(|(from, until)| from >= until)
+    {
+        return Err(bad("Start date must be on or before the end date"));
+    }
     let mut tx = interviewer_transaction(pool, owner).await?;
-    let mut items = audit_repository::list(&mut tx, owner, entity, cursor, limit + 1).await?;
+    let mut items =
+        audit_repository::list(&mut tx, owner, entity, cursor, limit + 1, filters).await?;
     tx.commit().await?;
     let more = items.len() > limit as usize;
     items.truncate(limit as usize);

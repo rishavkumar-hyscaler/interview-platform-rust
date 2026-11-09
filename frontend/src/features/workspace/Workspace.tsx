@@ -11,22 +11,22 @@ import { ReviewAssistant } from './ReviewAssistant';
 import { Assessment } from './Assessment';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { QuestionPreparation } from './QuestionPreparation';
-import { invitationIsActive, workspaceApi, type Audit, type Interview, type Job, type Page, type Summary } from './api';
+import { invitationIsActive, workspaceApi, type Audit, type AuditFilters, type Interview, type Job, type Page, type Summary } from './api';
 
 type View = 'interviewer' | 'reviewer' | 'audit';
 const message = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please retry.';
 const date = (value: string | null) => value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 export function Status({ state }: { state: string }) { return <span className={`status status-${state}`}>{state.replaceAll('_', ' ')}</span>; }
-function Timeline({ events }: { events: Audit[] }) {
-  if (!events.length) return <div className="empty compact">No audit events for this session yet.</div>;
+function Timeline({ events, emptyMessage = "No audit events for this session yet." }: { events: Audit[]; emptyMessage?: string }) {
+  if (!events.length) return <div className="empty compact">{emptyMessage}</div>;
   return <ol className="timeline">{events.map(event => {
     const { title, performedBy, details } = auditPresentation(event);
     return <li key={event.id}>
       <span className="timeline-dot" />
       <div className="audit-event-content">
         <strong>{title}</strong>
-        <p>{date(event.created_at)} · {performedBy}</p>
-        {(event.job_title || event.job_code) && <p className="audit-context">{event.job_title}{event.job_code && <> · Job ID: {event.job_code}</>}</p>}
+        <p><time dateTime={event.created_at}>{date(event.created_at)}</time> · {performedBy}</p>
+        {(event.job_title || event.job_code) && <p className="audit-context">Job: {event.job_title}{event.job_code && <> · Job ID: {event.job_code}</>}</p>}
         {event.candidate_name && <p>Candidate: {event.candidate_name}{event.candidate_email && <> · {event.candidate_email}</>}</p>}
         {details.length > 0 && <p>{details.join(' · ')}</p>}
         <ExpandableSection className="audit-technical" label="Technical details">
@@ -51,6 +51,8 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
   const [jobs, setJobs] = useState<Page<Job>>({ items: [], next_cursor: null });
   const [sessions, setSessions] = useState<Page<Interview>>({ items: [], next_cursor: null });
   const [audit, setAudit] = useState<Page<Audit>>({ items: [], next_cursor: null });
+  const [auditForm, setAuditForm] = useState({ candidate: "", job: "", from: "", until: "" });
+  const [auditFilters, setAuditFilters] = useState<AuditFilters>({});
   const [summary, setSummary] = useState<Summary>({ jobs: 0, sessions: 0, active: 0, reviewable: 0 });
   const [selected, setSelected] = useState<Interview | null>(null);
   const [events, setEvents] = useState<Page<Audit>>({ items: [], next_cursor: null });
@@ -75,8 +77,32 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
     }).catch(error => { if (active) setError(message(error)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [api]);
+  function applyAuditFilters(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const filters: AuditFilters = {};
+    for (const key of ['candidate', 'job'] as const) {
+      const value = String(form.get(key) ?? '').trim();
+      if (value) filters[key] = value;
+    }
+    for (const key of ['from', 'until'] as const) {
+      const value = String(form.get(key) ?? '');
+      if (!value) continue;
+      const day = new Date(`${value}T00:00:00`);
+      if (key === 'until') day.setDate(day.getDate() + 1);
+      filters[key] = String(day.getTime() / 1000);
+    }
+    void loadAudit(filters);
+  }
+  async function loadAudit(filters: AuditFilters) {
+    await run(async () => {
+      const page = await api.audit(undefined, undefined, filters);
+      setAudit(page);
+      setAuditFilters(filters);
+    });
+  }
   async function refresh() {
-    const [j, s, a, counts] = await Promise.all([api.jobs(), api.sessions(), api.audit(), api.summary()]);
+    const [j, s, a, counts] = await Promise.all([api.jobs(), api.sessions(), api.audit(undefined, undefined, auditFilters), api.summary()]);
     setJobs(j); setSessions(s); setAudit(a); setSummary(counts);
   }
   async function run(action: () => Promise<void>) {
@@ -132,7 +158,26 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
       <main className="dashboard"><div className="page-heading"><div><p className="eyebrow">{view === 'reviewer' ? 'CANDIDATE ASSESSMENT' : view === 'audit' ? 'INTERVIEW HISTORY' : 'INTERVIEW OPERATIONS'}</p><h1>{view === 'reviewer' ? 'Interview results' : view === 'audit' ? 'Audit trail' : 'Jobs & invitations'}</h1><p className="muted">{view === 'reviewer' ? 'Inspect interview status, job requirements, and recorded activity.' : view === 'audit' ? 'Trace interview actions back to their time, actor, and session.' : 'Create a role, invite candidates, and keep interviews moving.'}</p></div><div className="actions"><button className="button secondary" disabled={busy || loading} onClick={() => void run(refresh)}>↻ Refresh</button>{view === 'interviewer' && <button className="button" disabled={busy || loading} onClick={() => openModal('job')}>+ Create job</button>}</div></div>
       {error && <div className="error" role="alert">{error}</div>}
       <div className="stats">{[['Total roles', summary.jobs, 'Job descriptions created'], ['Invitations', summary.sessions, 'Across all your roles'], ['Active sessions', summary.active, 'Ready or in progress'], ['Ready for review', summary.reviewable, 'Submitted, scoring, or completed']].map(([label, value, help]) => <div className="stat" key={label}><span>{label}</span><strong>{loading ? '—' : value}</strong><small>{help}</small></div>)}</div>
-      {loading ? <section className="panel empty" role="status">Loading your interviews…</section> : view === 'audit' ? <section className="panel"><div className="panel-heading"><div><h2>Audit trail</h2><p>Append-only records of interview activity</p></div><span className="pill">Evidence log</span></div><div className="audit-scroll" role="region" aria-label="Audit events" tabIndex={0}><Timeline events={audit.items} /></div>{audit.next_cursor && <button className="load-more" disabled={busy} onClick={() => void run(async () => { const next = await api.audit(undefined, audit.next_cursor!); setAudit({ items: [...audit.items, ...next.items], next_cursor: next.next_cursor }); })}>Load older events ↓</button>}</section> : <>
+      {loading ? <section className="panel empty" role="status">Loading your interviews…</section> : view === 'audit' ? <section className="panel">
+        <div className="panel-heading"><div><h2>Audit trail</h2><p>Interview and job activity, newest first</p></div><span className="pill">Evidence log</span></div>
+        <form className="audit-filters" onSubmit={applyAuditFilters} onReset={() => { setAuditForm({ candidate: "", job: "", from: "", until: "" }); void loadAudit({}); }}>
+          <label>Candidate<input name="candidate" value={auditForm.candidate} onChange={event => setAuditForm({ ...auditForm, candidate: event.target.value })} placeholder="Name or email" /></label>
+          <label>Job<input name="job" value={auditForm.job} onChange={event => setAuditForm({ ...auditForm, job: event.target.value })} placeholder="Title or job ID" /></label>
+          <label>From date<input type="date" name="from" value={auditForm.from} onChange={event => setAuditForm({ ...auditForm, from: event.target.value })} /></label>
+          <label>To date<input type="date" name="until" value={auditForm.until} onChange={event => setAuditForm({ ...auditForm, until: event.target.value })} /></label>
+          <div className="audit-filter-actions">
+            <button type="submit" className="button primary" disabled={busy}>Apply filters</button>
+            <button type="reset" className="button" disabled={busy}>Clear</button>
+          </div>
+        </form>
+        <div className="audit-scroll" role="region" aria-label="Audit events" tabIndex={0}>
+          <Timeline events={audit.items} emptyMessage="No audit events match these filters." />
+        </div>
+        {audit.next_cursor && <button className="load-more" disabled={busy} onClick={() => void run(async () => {
+          const next = await api.audit(undefined, audit.next_cursor!, auditFilters);
+          setAudit({ items: [...audit.items, ...next.items], next_cursor: next.next_cursor });
+        })}>Load older events ↓</button>}
+      </section> : <>
       {view === 'interviewer' && <section className="panel"><div className="panel-heading"><div><h2>Your roles</h2><p>Each interview starts with a clear job description.</p></div><span className="pill">{summary.jobs} total</span></div>{jobs.items.length ? <div className="job-grid">{jobs.items.map(job => <article className="job-card" key={job.id}><div className="job-icon">↗</div><h3>{job.title}</h3><p className="job-code">Job ID: <strong>{job.job_code}</strong></p><p className="job-description">{job.description}</p><div className="job-meta"><span>Job description</span><span>{job.session_count} invitation{job.session_count !== 1 ? 's' : ''}</span></div><ExpandableSection label={<>Read job description</>}><p className="preserve">{job.description}</p></ExpandableSection><JobQuestionSets key={`${job.id}:${job.session_count}`} job={job.id} token={token} onReadyChange={updateReady} /><Analytics job={job.id} token={token} /><button className="text-button accent" disabled={!readyDurations[job.id]?.length} onClick={() => openModal('invite', job.id)}>Invite a candidate →</button>{!readyDurations[job.id]?.length && <small className="muted">Invitations unlock when a question set is complete.</small>}</article>)}</div> : <div className="empty"><div className="empty-icon">▧</div><h3>Your first interview starts here</h3><p>Add a job description to create your first role.</p><button className="button" onClick={() => openModal('job')}>+ Create your first job</button></div>}{jobs.next_cursor && <button className="load-more" disabled={busy} onClick={() => void run(async () => { const next = await api.jobs(jobs.next_cursor!); setJobs({ items: [...jobs.items, ...next.items], next_cursor: next.next_cursor }); })}>Load more roles ↓</button>}</section>}
       <section className="panel"><div className="panel-heading"><div><h2>{view === 'reviewer' ? 'Candidate review queue' : 'Interview sessions'}</h2><p>{view === 'reviewer' ? 'Open a candidate to inspect their session and evidence.' : 'Follow every invitation from preparation to completion.'}</p></div><button className="button secondary" disabled={!jobs.items.some(job => readyDurations[job.id]?.length)} onClick={() => openModal('invite')}>+ Invite candidate</button></div><div className="table-toolbar"><input aria-label="Search loaded sessions" placeholder="Search candidates, roles or Job IDs…" value={search} onChange={e => setSearch(e.target.value)} /><select aria-label="Filter session status" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">All statuses</option>{['invited', 'ready', 'in_progress', 'submitted', 'scoring', 'completed', 'expired'].map(s => <option value={s} key={s}>{s.replaceAll('_', ' ')}</option>)}</select></div>
       {visible.length ? <div className="table-scroll"><table><thead><tr><th>Candidate</th><th>Role</th><th>Status</th><th>Duration</th><th>Invited</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{visible.map(s => <tr key={s.id}><td><strong>{s.candidate_name}</strong><small>{s.candidate_email}</small></td><td>{s.job_title}<small>Job ID: {s.job_code}</small></td><td><Status state={s.state} /></td><td>{s.duration_minutes} min</td><td>{date(s.created_at)}</td><td><button className="text-button accent" disabled={busy} onClick={() => inspect(s.id)}>View →</button></td></tr>)}</tbody></table></div> : <div className="empty compact"><h3>{sessions.items.length ? 'No matching sessions' : 'No candidates yet'}</h3><p>{sessions.items.length ? 'Try another search or status.' : 'Invite a candidate once a question set is ready. Their progress and results will appear here.'}</p></div>}

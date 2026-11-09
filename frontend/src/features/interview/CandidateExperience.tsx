@@ -1,3 +1,5 @@
+import { CheckCircle2, Clock, ListChecks } from 'lucide-react';
+import './candidate.css';
 import { DeviceCheck } from './DeviceCheck';
 import { useObservations } from './proctoring/observations';
 import { useInterviewDevices } from './useInterviewDevices';
@@ -50,16 +52,29 @@ function CandidateSessionView({ token }: { token: string }) {
   if (session?.state === 'in_progress') return <InterviewRoom token={token} initial={session} onSession={setSession} devices={devices} screen={screen} observations={observations} />;
   const finished = !!session && ['submitted', 'scoring', 'completed'].includes(session.state);
   const drafts = session ? pendingDrafts(session.id) : [];
-  return <main className="access-page"><section className="access-card candidate-card"><p className="eyebrow">{finished ? 'INTERVIEW SUBMITTED' : 'INTERVIEWEE ACCESS'}</p><h1>{session?.job_title ?? 'Your next opportunity.'}</h1>
+  return <main className="access-page candidate-access"><section className="access-card candidate-card"><p className="eyebrow">{finished ? 'INTERVIEW SUBMITTED' : session?.state === 'expired' ? 'INVITATION EXPIRED' : 'CANDIDATE INTERVIEW'}</p><h1>{session?.job_title ?? 'Your interview invitation'}</h1>
     {error && <p className="error" role="alert">{error}</p>}
     {busy && !session && <p role="status">Opening your invitation…</p>}
     {session && <>
-      {finished ? <><p className="success" role="status">Your saved answers have been submitted.</p><p>{session.answer_count} of {session.question_count} questions answered.</p><p className="muted">Your interviewer can now review the responses. You can close this page.</p><UnsubmittedRecordings session={session.id} />{drafts.length > 0 && <details className="unsubmitted-drafts"><summary>Local drafts that may not have reached the server</summary><p>These drafts are retained on this device for your records. They are not part of the submitted answers.</p>{drafts.map(draft => <pre key={draft.question}>{draft.content}</pre>)}</details>}</> : session.state === 'expired' ? <p>This invitation has expired. Please contact your interviewer.</p> : <>
-        <p>{session.duration_minutes} minutes · {session.question_count} prepared questions</p><DeviceCheck devices={devices} screen={screen} />
-        <ul className="interview-instructions"><li>Fullscreen is required throughout the interview. Allow camera and microphone access using the device controls.</li><li>Answer one question at a time. You may return to earlier questions.</li><li>Your answers save automatically. Wait for “All changes saved” before closing the tab.</li><li>The timer starts when you click Start interview and continues through refreshes and disconnections.</li><li>At the deadline, the server submits your saved answers.</li></ul>
-        {session.state === 'invited' ? <button className="button" disabled={busy} onClick={() => void transition('ready')}>{busy ? 'Accepting…' : 'Accept invitation'}</button> : (session.questions_ready ?? session.question_count > 0) ? <button className="button" disabled={busy || devices.busy || !screen.shared} onClick={() => void transition('start')}>{busy ? 'Starting…' : 'Enter fullscreen & start →'}</button> : <div className="configuration-note" role="status"><strong>Invitation accepted.</strong><p>{session.generation_status === 'failed' ? 'Question preparation needs attention from your interviewer. Please contact them.' : session.generation_status === 'pending' || session.generation_status === 'running' ? 'Your questions are being prepared. This page updates automatically.' : 'Waiting for a prepared question set. Please contact your interviewer if none is available.'}</p></div>}
+      {finished ? <><p className="success" role="status"><CheckCircle2 size={18} aria-hidden="true" /> Your saved answers have been submitted.</p><p>{session.answer_count} of {session.question_count} questions answered.</p><p className="muted">Your interviewer can now review the responses. You can close this page.</p><UnsubmittedRecordings session={session.id} />{drafts.length > 0 && <details className="unsubmitted-drafts"><summary>Local drafts that may not have reached the server</summary><p>These drafts are retained on this device for your records. They are not part of the submitted answers.</p>{drafts.map(draft => <pre key={draft.question}>{draft.content}</pre>)}</details>}</> : session.state === 'expired' ? <p>This invitation has expired. Please contact your interviewer.</p> : <>
+        <div className="candidate-facts">
+          <span><Clock size={18} aria-hidden="true" /> {session.duration_minutes} minutes</span>
+          <span><ListChecks size={18} aria-hidden="true" /> {session.question_count} questions</span>
+        </div>
+        <DeviceCheck devices={devices} screen={screen} />
+        <section className="candidate-instructions">
+          <h2>Before you start</h2>
+          <ul>
+            <li>Stay in fullscreen during the interview. You can revisit earlier questions.</li>
+            <li>Answers save automatically. Check for “All changes saved” before closing the tab.</li>
+            <li>The timer keeps running through refreshes and disconnections. Saved answers are submitted when time runs out.</li>
+          </ul>
+        </section>
+        <div className="candidate-start">
+        {session.state === 'invited' ? <button className="button" disabled={busy} onClick={() => void transition('ready')}>{busy ? 'Accepting…' : 'Accept invitation'}</button> : (session.questions_ready ?? session.question_count > 0) ? <button className="button" disabled={busy || devices.busy || !screen.shared} onClick={() => void transition('start')}>{busy ? 'Starting…' : 'Start interview in fullscreen'}</button> : <div className="configuration-note" role="status"><strong>Invitation accepted.</strong><p>{session.generation_status === 'failed' ? 'Question preparation needs attention from your interviewer. Please contact them.' : session.generation_status === 'pending' || session.generation_status === 'running' ? 'Your questions are being prepared. This page updates automatically.' : 'Waiting for a prepared question set. Please contact your interviewer if none is available.'}</p></div>}
+        </div>
       </>}
     </>}
-    {error && <button className="text-button" onClick={() => setAttempt(value => value + 1)}>Retry connection</button>}
+    {error && <button className="text-button" disabled={busy} onClick={() => { setBusy(true); setAttempt(value => value + 1); }}>Retry connection</button>}
   </section></main>;
 }

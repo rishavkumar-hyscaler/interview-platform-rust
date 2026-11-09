@@ -243,3 +243,21 @@ dialog.interviewer-workspace { min-height: 0; }
   .interviewer-workspace .stat { @apply p-4; }
   .interviewer-workspace .modal { @apply p-5; }
 }
+
+.interviewer-workspace .audit-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+.interviewer-workspace .audit-filters label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.interviewer-workspace .audit-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

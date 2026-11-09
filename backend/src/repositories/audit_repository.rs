@@ -1,5 +1,8 @@
 //! Durable events; no request parsing or API serialization.
-use crate::{Result, models::audit::AuditEvent};
+use crate::{
+    Result,
+    models::audit::{AuditEvent, AuditFilters},
+};
 use serde_json::Value;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
@@ -44,22 +47,10 @@ pub(crate) async fn list(
     entity: Option<Uuid>,
     cursor: Option<Uuid>,
     limit: i64,
+    filters: &AuditFilters,
 ) -> Result<Vec<AuditEvent>> {
     Ok(sqlx::query_as(
         r#"
-        WITH page AS (
-            SELECT *
-            FROM audit_events
-            WHERE interviewer_id = $1
-              AND ($2::uuid IS NULL OR entity_id = $2)
-              AND ($3::uuid IS NULL OR (created_at, id) < (
-                  SELECT created_at, id
-                  FROM audit_events
-                  WHERE id = $3 AND interviewer_id = $1
-              ))
-            ORDER BY created_at DESC, id DESC
-            LIMIT $4
-        )
         SELECT a.id,
             a.interviewer_id,
             a.actor_id,
@@ -73,7 +64,7 @@ pub(crate) async fn list(
             a.action,
             a.metadata,
             to_jsonb(a.created_at) #>> '{}' AS created_at
-        FROM page a
+        FROM audit_events a
         LEFT JOIN users u ON u.id = a.actor_id AND u.id = a.interviewer_id
         LEFT JOIN interview_sessions s
             ON s.id = a.entity_id AND s.interviewer_id = a.interviewer_id
@@ -86,13 +77,45 @@ pub(crate) async fn list(
             ON q.id::text = a.metadata ->> 'question_id'
             AND q.interviewer_id = a.interviewer_id
             AND q.set_id = coalesce(s.question_set_id, qs.id)
+        WHERE a.interviewer_id = $1
+          AND ($2::uuid IS NULL OR a.entity_id = $2)
+          AND ($3::uuid IS NULL OR (a.created_at, a.id) < (
+              SELECT created_at, id
+              FROM audit_events
+              WHERE id = $3 AND interviewer_id = $1
+          ))
+          AND ($5::text IS NULL
+              OR strpos(lower(s.candidate_name), lower($5)) > 0
+              OR strpos(lower(s.candidate_email), lower($5)) > 0)
+          AND ($6::text IS NULL
+              OR strpos(lower(j.title), lower($6)) > 0
+              OR strpos(lower(j.job_code), lower($6)) > 0)
+          AND ($7::bigint IS NULL OR a.created_at >= to_timestamp($7::bigint))
+          AND ($8::bigint IS NULL OR a.created_at < to_timestamp($8::bigint))
         ORDER BY a.created_at DESC, a.id DESC
+        LIMIT $4
         "#,
     )
     .bind(owner)
     .bind(entity)
     .bind(cursor)
     .bind(limit)
+    .bind(
+        filters
+            .candidate
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    )
+    .bind(
+        filters
+            .job
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    )
+    .bind(filters.from)
+    .bind(filters.until)
     .fetch_all(&mut **tx)
     .await?)
 }

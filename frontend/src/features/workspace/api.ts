@@ -3,6 +3,7 @@ export type Page<T> = { items: T[]; next_cursor: string | null };
 export type Job = { id: string; job_code: string; title: string; description: string; created_at: string; session_count: number; question_set_count: number; preparation_duration_minutes: number };
 export type Interview = { id: string; job_id: string; job_title: string; job_code: string; candidate_name: string; candidate_email: string; state: string; duration_minutes: number; created_at: string; expires_at: string; started_at: string | null; deadline_at: string | null; submitted_at: string | null; description?: string; question_count?: number; answer_count?: number; invitation_recoverable?: boolean; invitation_active?: boolean };
 export type Audit = { actor_email?: string | null; candidate_name?: string | null; candidate_email?: string | null; job_title?: string | null; job_code?: string | null; question_position?: number | null; id: string; action: string; entity_id: string | null; actor_id: string | null; created_at: string; metadata: Record<string, unknown> };
+export type AuditFilters = Partial<Record<"candidate" | "job" | "from" | "until", string>>;
 export type Summary = { jobs: number; sessions: number; active: number; reviewable: number };
 export function workspaceApi(token: string) {
   const base = '/api/v1';
@@ -15,7 +16,7 @@ export function workspaceApi(token: string) {
     detail: (id: string) => get<Interview>(`/sessions/${id}`),
     generation: (id: string, signal?: AbortSignal) => request<Generation>(`${base}/sessions/${id}/generation`, { signal }, token),
     invitation: (id: string) => post<{ invitation_token: string; expires_at: string; replaced_legacy_link: boolean }>(`/sessions/${id}/invitation`, {}),
-    audit: (entity?: string, cursor?: string) => get<Page<Audit>>(`/audit?${new URLSearchParams({ ...(entity ? { entity_id: entity } : {}), ...(cursor ? { cursor } : {}) })}`),
+    audit: (entity?: string, cursor?: string, filters: AuditFilters = {}) => get<Page<Audit>>(`/audit?${new URLSearchParams({ ...filters, ...(entity ? { entity_id: entity } : {}), ...(cursor ? { cursor } : {}) })}`),
     questionSets: (id: string, signal?: AbortSignal) => request<JobPool>(`${base}/jobs/${id}/question-sets`, { signal }, token),
     retryQuestionSets: (id: string) => post<{ status: string }>(`/jobs/${id}/question-sets`, {}),
     createJob: (data: { question_set_count: number; preparation_duration_minutes: number; job_code: string; title: string; description: string; request_key: string }) => post<Job>('/jobs', data),

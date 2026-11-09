@@ -16,3 +16,11 @@ pub(crate) struct AuditEvent {
     pub metadata: Value,
     pub created_at: String,
 }
+
+#[derive(serde::Deserialize)]
+pub(crate) struct AuditFilters {
+    pub candidate: Option<String>,
+    pub job: Option<String>,
+    pub from: Option<i64>,
+    pub until: Option<i64>,
+}

@@ -5,6 +5,7 @@ import { captureScreenFrame } from './proctoring/screenFrame';
 import type { BrowserObservation, Observations } from './proctoring/observations';
 const flags = new Set(['fullscreen_entered','fullscreen_exited','focus_lost','hidden','paste','copy','context_menu','devtools_suspected','multiple_displays','typing_burst','rapid_answer','camera_disabled','microphone_disabled','screen_share_started','face_missing','multiple_faces','gaze_away','possible_background_speech','speech_detected']);
 export function useScreenEvidence(token:string, session:string|undefined, active:boolean, observations:Observations) {
+  const pickerOpen = useRef(false);
   const stream = useRef<MediaStream|null>(null);
   const video = useRef<HTMLVideoElement|null>(null);
   const queue = useRef<ReturnType<typeof evidenceQueue>|null>(null);
@@ -29,8 +30,12 @@ export function useScreenEvidence(token:string, session:string|undefined, active
     setLiveStream(null);setShared(false);setStatus('Screen sharing stopped');
   },[]);
   const request = useCallback(async()=>{
-    setBusy(true);setError('');observations.record('screen_share_requested');
+    if (pickerOpen.current) return;
+    pickerOpen.current = true;
+    setBusy(true);
+    setError('');
     try {
+      observations.record('screen_share_requested');
       if(!navigator.mediaDevices?.getDisplayMedia)throw new Error('Screen sharing requires a supported desktop browser on localhost or HTTPS.');
       const acquired=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false});
       if(!alive.current){acquired.getTracks().forEach(track=>track.stop());return;}
@@ -49,7 +54,10 @@ export function useScreenEvidence(token:string, session:string|undefined, active
       const denied=failure instanceof DOMException && failure.name==='NotAllowedError';
       observations.record(denied?'screen_share_denied':'screen_share_unavailable');
       setError(denied?'Screen sharing was denied or cancelled. Share a screen to enable screenshot evidence.':failure instanceof Error?failure.message:'Unable to share screen.');
-    } finally{if(alive.current)setBusy(false);}
+    } finally {
+      pickerOpen.current = false;
+      if (alive.current) setBusy(false);
+    }
   },[observations.record,stop]);
   useEffect(()=>{
     async function capture(event:BrowserObservation){

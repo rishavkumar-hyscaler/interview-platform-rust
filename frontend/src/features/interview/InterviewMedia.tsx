@@ -26,8 +26,8 @@ export function InterviewMedia({token,sessionId,devices}:{token:string;sessionId
       // Neither is a permission denial, and neither may overwrite the new preview.
       if(cancelled || !alive.current || (failure instanceof DOMException && failure.name==='AbortError'))return;
       setError(failure instanceof DOMException && failure.name==='NotAllowedError'
-        ? 'Camera playback was blocked. Click Retry camera preview.'
-        : 'Camera preview could not start. Click Retry camera preview.');
+        ? 'Camera playback was blocked.'
+        : 'Camera preview could not start.');
     });
     return()=>{cancelled=true;preview.removeEventListener('playing',playing);preview.srcObject=null;};
     // Microphone revisions must not detach an unchanged camera stream.
@@ -50,5 +50,21 @@ export function InterviewMedia({token,sessionId,devices}:{token:string;sessionId
     });monitor.current=next;
     return()=>{next.stop();monitor.current=null;};
   },[camera,mic,devices.revision,devices.stream,token,sessionId,monitorAttempt]);
-  return <section className="room-media"><div className="camera-preview"><video ref={video} autoPlay muted playsInline hidden={!camera}/>{!camera&&<div><span aria-hidden="true">◎</span><p>Camera {devices.camera}</p></div>}<small>{camera||mic?'Camera/mic enabled':'Browser monitoring continues'}</small></div><div className="media-controls"><button className="button secondary" aria-pressed={camera} disabled={devices.busy} onClick={()=>void devices.toggle('video')}>{camera?'Turn camera off':'Enable camera'}</button><button className="button secondary" aria-pressed={mic} disabled={devices.busy} onClick={()=>void devices.toggle('audio')}>{mic?'Turn mic off':'Enable microphone'}</button>{mic&&<meter min="0" max="100" value={level} aria-label="Microphone input level"/>}</div><small className="muted">Face, eye/head direction and speech checks run locally when devices are enabled. Flagged screen/camera snapshots and 3-second clips are saved for interviewer review. Only flagged evidence is uploaded; speech clips include up to 3 preceding seconds held in memory. No identity or emotion analysis.</small><small role="status">{monitorStatus}</small>{detection&&<small role="status">{detection}</small>}{(camera||mic)&&<button className="text-button" onClick={()=>{automaticRestarts.current=0;setMonitorAttempt(value=>value+1);}}>Restart face/voice checks</button>}{camera&&<button className="text-button" onClick={()=>monitor.current?.recalibrate()}>Recalibrate eye/head direction</button>}{evidenceStatus&&<small role="status">{evidenceStatus}</small>}{devices.error&&<p className="configuration-note" role="status">{devices.error}</p>}{error&&<p className="error" role="alert">{error}{' '}<button className="text-button" onClick={()=>{void video.current?.play().then(()=>setError('')).catch(()=>setError('Turn the camera off and enable it again.'));}}>Retry camera preview</button></p>}</section>;
+  return <section className="room-media"><div className="camera-preview"><video ref={video} autoPlay muted playsInline hidden={!camera}/>{!camera&&<div><span aria-hidden="true">◎</span><p>Camera {devices.camera}</p></div>}<small>{camera||mic?'Camera/mic enabled':'Browser monitoring continues'}</small></div><div className="media-controls"><button className="button secondary" aria-pressed={camera} disabled={devices.busy} onClick={()=>void devices.toggle('video')}>{camera?'Turn camera off':'Enable camera'}</button><button className="button secondary" aria-pressed={mic} disabled={devices.busy} onClick={()=>void devices.toggle('audio')}>{mic?'Turn mic off':'Enable microphone'}</button>{mic&&<meter min="0" max="100" value={level} aria-label="Microphone input level"/>}</div>
+    <details className="candidate-monitoring">
+      <summary>Monitoring details</summary>
+      <p>Face, eye/head direction and speech checks run on this device. Flagged screenshots, camera snapshots and short clips are saved for interviewer review. Speech clips may include up to three preceding seconds.</p>
+      <p role="status">{monitorStatus}</p>
+      {detection && <p>{detection}</p>}
+      {evidenceStatus && <p role="status">{evidenceStatus}</p>}
+      {(camera || mic) && <div className="candidate-monitoring-actions">
+        <button className="button secondary" onClick={() => {
+          automaticRestarts.current = 0;
+          setMonitorAttempt(value => value + 1);
+        }}>Restart face/voice checks</button>
+        {camera && <button className="button secondary" onClick={() => monitor.current?.recalibrate()}>Recalibrate eye/head direction</button>}
+      </div>}
+    </details>
+    {monitorStatus.includes('need attention') && <p className="configuration-note" role="status">Media checks need attention. Open Monitoring details to restart them.</p>}
+    {devices.error&&<p className="configuration-note" role="status">{devices.error}</p>}{error&&<p className="error" role="alert">{error}{' '}<button className="text-button" onClick={()=>{void video.current?.play().then(()=>setError('')).catch(()=>setError('Turn the camera off and enable it again.'));}}>Retry camera preview</button></p>}</section>;
 }

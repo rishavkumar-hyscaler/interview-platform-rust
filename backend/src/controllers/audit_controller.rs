@@ -1,6 +1,7 @@
 use crate::{
     Result, authenticate,
     dto::audit::{AuditEventResponse, AuditPageResponse},
+    models::audit::AuditFilters,
     pagination::Page,
     services::audit_service,
 };
@@ -14,10 +15,12 @@ pub(crate) async fn audit_log(
     State(pool): State<PgPool>,
     headers: HeaderMap,
     Query(page): Query<Page>,
+    Query(filters): Query<AuditFilters>,
 ) -> Result<Json<AuditPageResponse>> {
     let limit = page.limit()?;
     let (owner, _) = authenticate(&pool, &headers).await?;
-    let result = audit_service::list(&pool, owner, page.entity_id, page.cursor, limit).await?;
+    let result =
+        audit_service::list(&pool, owner, page.entity_id, page.cursor, limit, &filters).await?;
     Ok(Json(AuditPageResponse {
         items: result
             .items
