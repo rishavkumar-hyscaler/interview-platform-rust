@@ -1,0 +1,22 @@
+@theme inline {
+  --color-primary: var(--color-indigo-600);
+  --color-primary-hover: var(--color-indigo-700);
+  --color-focus: var(--color-indigo-500);
+  --color-app-background: var(--color-slate-50);
+  --color-app-foreground: var(--color-slate-800);
+  --color-app-muted: var(--color-slate-600);
+  --font-display: Sequel, "Sequel Sans", var(--font-sans);
+
+  --text-page-title: 2rem;
+  --text-page-title--line-height: 2.5rem;
+  --text-section-title: 1.5rem;
+  --text-section-title--line-height: 2rem;
+  --text-subheading: 1.25rem;
+  --text-subheading--line-height: 1.75rem;
+  --text-body: 1rem;
+  --text-body--line-height: 1.5rem;
+  --text-control: 0.875rem;
+  --text-control--line-height: 1.25rem;
+  --text-detail: 0.75rem;
+  --text-detail--line-height: 1rem;
+}

@@ -1,4 +1,5 @@
 @reference "tailwindcss";
+@reference "../../theme.css";
 .candidate-access {
   @apply [padding:clamp(16px,_4vw,_40px)];
 }
@@ -12,7 +13,7 @@
   @apply flex flex-wrap [gap:8px] [margin:20px_0];
 }
 .candidate-facts span {
-  @apply inline-flex items-center [gap:8px] [padding:8px_12px] [border-radius:8px] [background:#f1f5f9] [color:#334155] text-sm;
+  @apply inline-flex items-center [gap:8px] [padding:8px_12px] [border-radius:8px] [background:#f1f5f9] [color:#334155] text-control;
 }
 .candidate-check,
 .candidate-instructions {
@@ -20,7 +21,7 @@
 }
 .candidate-check h2,
 .candidate-instructions h2 {
-  @apply text-base [margin:0_0_8px];
+  @apply text-body [margin:0_0_8px];
 }
 .candidate-check ul {
   @apply [list-style:none] p-0 [margin:14px_0] [border:1px_solid_#e2e8f0] [border-radius:10px];
@@ -39,7 +40,7 @@
 }
 .candidate-check details,
 .candidate-instructions ul {
-  @apply text-sm [line-height:1.55];
+  @apply text-control [line-height:1.55];
 }
 .candidate-check summary {
   @apply cursor-pointer;
@@ -63,7 +64,7 @@
   @apply [margin-left:auto] grid [gap:4px];
 }
 .candidate-progress progress {
-  @apply w-full [height:5px] [accent-color:var(--color-indigo-600)];
+  @apply w-full [height:5px] accent-primary;
 }
 @media (max-width: 420px) {
   .candidate-check li {
@@ -74,7 +75,7 @@
   }
 }
 .candidate-monitoring {
-  @apply [align-self:stretch] [border-top:1px_solid_#e2e8f0] [padding-top:8px] text-sm [color:#475569];
+  @apply [align-self:stretch] [border-top:1px_solid_#e2e8f0] [padding-top:8px] text-control [color:#475569];
 }
 .candidate-monitoring summary {
   @apply cursor-pointer [width:fit-content] [margin-inline:auto] [padding:4px];

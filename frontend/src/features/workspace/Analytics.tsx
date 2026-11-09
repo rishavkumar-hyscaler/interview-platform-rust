@@ -88,7 +88,7 @@ function QuestionBarChart({ groups, title, help, value, format, maximum }: {
       {groups.map((group, index) => {
         const amount = value(group);
         return <li key={group.question_id}>
-          <div className="flex min-h-6 items-center justify-between gap-3 text-sm">
+          <div className="flex min-h-6 items-center justify-between gap-3 text-control">
             <span>{questionLabel(group, index)} <HelpTip text={questionTooltip(group)} /></span>
             <span className="text-right tabular-nums">{amount === null ? 'Unavailable' : format(amount)}</span>
           </div>
@@ -117,7 +117,7 @@ function QuestionCharts({ groups }: { groups: ScoreGroup[] }) {
           const score = group.item_total_correlation != null
             ? Number(group.item_total_correlation) : null;
           return <li key={group.question_id}>
-            <div className="flex min-h-6 items-center justify-between gap-3 text-sm">
+            <div className="flex min-h-6 items-center justify-between gap-3 text-control">
               <span>{questionLabel(group, index)} <HelpTip text={questionTooltip(group)} /></span>
               <span className="text-right tabular-nums">{score?.toFixed(2) ?? (group.comparison_count < 2 ? 'Min. 2 scored attempts required' : 'No score variation')}</span>
             </div>

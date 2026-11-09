@@ -16,7 +16,7 @@ export function AccordionTrigger({ className, children, ...props }: ComponentPro
   return <AccordionPrimitive.Header className="accordion-header flex">
     <AccordionPrimitive.Trigger
       data-slot="accordion-trigger"
-      className={cn('accordion-trigger flex flex-1 items-center justify-between gap-3 rounded-md py-3 text-left text-sm font-medium transition-colors outline-none disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180', className)}
+      className={cn('accordion-trigger flex flex-1 items-center justify-between gap-3 rounded-md py-3 text-left text-control font-medium transition-colors outline-none disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180', className)}
       {...props}
     >
       <span className="min-w-0">{children}</span>
@@ -26,7 +26,7 @@ export function AccordionTrigger({ className, children, ...props }: ComponentPro
 }
 
 export function AccordionContent({ className, children, ...props }: ComponentProps<typeof AccordionPrimitive.Content>) {
-  return <AccordionPrimitive.Content data-slot="accordion-content" className="accordion-content overflow-hidden text-sm motion-safe:data-[state=open]:animate-accordion-down motion-safe:data-[state=closed]:animate-accordion-up" {...props}>
+  return <AccordionPrimitive.Content data-slot="accordion-content" className="accordion-content overflow-hidden text-control motion-safe:data-[state=open]:animate-accordion-down motion-safe:data-[state=closed]:animate-accordion-up" {...props}>
     <div className={cn('pb-3 pt-1', className)}>{children}</div>
   </AccordionPrimitive.Content>;
 }
