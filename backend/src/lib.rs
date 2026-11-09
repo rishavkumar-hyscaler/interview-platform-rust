@@ -17,6 +17,8 @@ pub mod invitations;
 pub(crate) use services::media_service as media;
 mod models;
 mod observability;
+#[cfg(debug_assertions)]
+mod openapi;
 mod pagination;
 pub(crate) use services::proctoring_service as proctoring;
 pub use services::rag;

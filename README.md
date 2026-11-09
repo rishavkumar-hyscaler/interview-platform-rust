@@ -305,6 +305,10 @@ Only route templates and operational identifiers/statuses are logged. Unknown ro
 
 ## API contract
 
+With the backend running through `cargo run`, open [Swagger UI](http://127.0.0.1:8080/docs) or download the [OpenAPI spec](http://127.0.0.1:8080/openapi.json). Both routes are available in debug builds. The UI loads Swagger assets from jsDelivr.
+
+For interviewer endpoints, run the login operation and enter its returned token under **InterviewerToken** in **Authorize**. For candidate endpoints, enter the invitation token under **InvitationToken**. Enter the raw token in either field. Swagger UI adds the bearer prefix.
+
 There are two user types: interviewer and interviewee. There are no organization IDs, memberships, or workspace-selection endpoints. Errors use `{error, code}`. Success responses disable caching.
 
 ### Authentication

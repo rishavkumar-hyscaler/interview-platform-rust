@@ -1,7 +1,7 @@
 //! Browser observation input contract, separate from persisted event values.
 use serde::Deserialize;
 use uuid::Uuid;
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ObservationRequest {
     pub id: Uuid,
@@ -10,7 +10,7 @@ pub(crate) struct ObservationRequest {
     pub count: Option<i32>,
     pub measurements: Option<MeasurementsRequest>,
 }
-#[derive(Deserialize, serde::Serialize)]
+#[derive(Deserialize, serde::Serialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MeasurementsRequest {
     pub duration_ms: u32,
@@ -25,7 +25,7 @@ pub(crate) struct MeasurementsRequest {
     pub head_vertical_offset: Option<f32>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, schemars::JsonSchema)]
 pub(crate) struct AcceptedResponse {
     pub accepted: bool,
 }

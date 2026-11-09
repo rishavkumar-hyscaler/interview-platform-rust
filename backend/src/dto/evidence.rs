@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
 pub(crate) struct EvidenceResponse {
     pub asset_id: Uuid,
     pub event_id: Uuid,

@@ -1,7 +1,7 @@
 use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct AuditEventResponse {
     pub id: Uuid,
     pub interviewer_id: Uuid,
@@ -17,7 +17,7 @@ pub(crate) struct AuditEventResponse {
     pub metadata: Value,
     pub created_at: String,
 }
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct AuditPageResponse {
     pub items: Vec<AuditEventResponse>,
     pub next_cursor: Option<Uuid>,

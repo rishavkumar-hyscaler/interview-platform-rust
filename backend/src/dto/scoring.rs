@@ -1,6 +1,6 @@
 use serde::Serialize;
 use serde_json::Value;
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct AssessmentResponse {
     pub configured: bool,
     pub state: String,
@@ -12,7 +12,7 @@ pub(crate) struct AssessmentResponse {
     pub observations: Vec<Value>,
     pub integrity_notice: &'static str,
 }
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct RetryResponse {
     pub queued: bool,
 }

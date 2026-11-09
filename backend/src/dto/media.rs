@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
 pub(crate) struct RecordingResponse {
     pub recording_id: Uuid,
     pub question_id: Uuid,
@@ -12,7 +12,7 @@ pub(crate) struct RecordingResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub saved_at: Option<String>,
 }
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct RecordingsResponse {
     pub recordings: Vec<RecordingResponse>,
 }

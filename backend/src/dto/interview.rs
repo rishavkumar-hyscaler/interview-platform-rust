@@ -1,7 +1,7 @@
 //! Allowlisted session responses. Never serialize a database row directly.
 use serde::Serialize;
 use uuid::Uuid;
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct SessionResponse {
     pub id: Uuid,
     pub interviewer_id: Uuid,
@@ -18,14 +18,14 @@ pub(crate) struct SessionResponse {
     pub created_at: String,
     pub interviewee_id: Uuid,
 }
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct SessionListItemResponse {
     #[serde(flatten)]
     pub session: SessionResponse,
     pub job_title: String,
     pub job_code: String,
 }
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct SessionDetailResponse {
     #[serde(flatten)]
     pub item: SessionListItemResponse,
@@ -35,12 +35,12 @@ pub(crate) struct SessionDetailResponse {
     pub invitation_recoverable: bool,
     pub invitation_active: bool,
 }
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct SessionListResponse {
     pub items: Vec<SessionListItemResponse>,
     pub next_cursor: Option<Uuid>,
 }
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct SummaryResponse {
     pub jobs: i64,
     pub sessions: i64,

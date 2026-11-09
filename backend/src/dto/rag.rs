@@ -1,5 +1,5 @@
 use serde::Serialize;
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct IndexStatusResponse {
     pub status: String,
     pub attempts: i32,
@@ -13,13 +13,13 @@ pub(crate) struct IndexStatusResponse {
     #[serde(flatten)]
     pub details: Option<IndexJobDetails>,
 }
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct IndexJobDetails {
     pub last_error: Option<String>,
     pub model: Option<String>,
     pub dimensions: Option<i32>,
 }
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct RetryResponse {
     pub status: &'static str,
 }

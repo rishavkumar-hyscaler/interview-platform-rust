@@ -19,7 +19,11 @@ pub fn router(pool: PgPool) -> Router {
     )
 }
 pub fn router_with_ai(pool: PgPool, provider: Option<generation::provider::AiProvider>) -> Router {
-    Router::new()
+    let router = Router::new();
+    #[cfg(debug_assertions)]
+    let router = router.merge(crate::openapi::routes());
+
+    router
         .route(
             "/health/live",
             get(|| async { Json(json!({"status": "ok"})) }),

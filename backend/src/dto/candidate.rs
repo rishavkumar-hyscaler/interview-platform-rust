@@ -1,6 +1,6 @@
 use serde::Serialize;
 use uuid::Uuid;
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct CandidateSessionResponse {
     pub id: Uuid,
     pub role: String,
