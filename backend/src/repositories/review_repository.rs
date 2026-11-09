@@ -239,31 +239,90 @@ pub(crate) async fn job_exists(tx: &mut Transaction<'_, Postgres>, job: Uuid) ->
 }
 pub(crate) async fn analytics(tx: &mut Transaction<'_, Postgres>, job: Uuid) -> Result<Vec<Value>> {
     Ok(sqlx::query_scalar(r#"
-        SELECT jsonb_build_object('kind',
-                q.kind,
-                'difficulty',
-                q.difficulty,
-                'competency_id',
-                q.competency_id,
-                'sample_size',
-                count(*),
-                'mean_points',
-                avg((r ->> 'score')::numeric),
-                'score_stddev',
-                stddev_samp((r ->> 'score')::numeric),
-                'item_total_correlation',
-                corr((r ->> 'score')::double precision,
-                    ((
-                        SELECT sum((p ->> 'score')::double precision)
-                        FROM jsonb_array_elements(a.metadata -> 'questions') p) - (r ->> 'score')::double precision)))
-        FROM session_question_details() q JOIN audit_events a ON a.entity_id = q.session_id
-        AND a.action = 'assessment.completed'
-        CROSS JOIN LATERAL jsonb_array_elements(a.metadata -> 'questions') r
+        WITH numbered_sets AS (
+            SELECT id, status, row_number() OVER (ORDER BY created_at, id) AS set_number
+            FROM question_sets
+            WHERE job_id = $1
+        ),
+        completed AS (
+            SELECT DISTINCT ON (a.entity_id) a.entity_id, a.metadata
+            FROM audit_events a
+            JOIN interview_sessions s ON s.id = a.entity_id
+            WHERE a.action = 'assessment.completed' AND s.job_id = $1
+            ORDER BY a.entity_id, a.created_at DESC, a.id DESC
+        ),
+        scores AS (
+            SELECT
+                entity_id,
+                question ->> 'question_id' AS question_id,
+                (question ->> 'score')::numeric AS points,
+                (question ->> 'max_score')::numeric AS maximum
+            FROM completed
+            CROSS JOIN LATERAL jsonb_array_elements(metadata -> 'questions') question
+        ),
+        comparisons AS (
+            SELECT
+                *,
+                sum(points) OVER (PARTITION BY entity_id) - points AS rest_points,
+                sum(maximum) OVER (PARTITION BY entity_id) - maximum AS rest_maximum
+            FROM scores
+            WHERE points IS NOT NULL AND maximum > 0
+        ),
+        visits AS (
+            SELECT
+                s.id AS session_id,
+                a.metadata ->> 'question_id' AS question_id,
+                a.created_at AS opened_at,
+                lead(a.created_at) OVER (
+                    PARTITION BY s.id ORDER BY a.created_at, a.id
+                ) AS next_opened_at,
+                least(s.submitted_at, s.deadline_at) AS ended_at
+            FROM interview_sessions s
+            JOIN audit_events a ON a.entity_id = s.id
+                AND a.interviewer_id = s.interviewer_id
+            WHERE s.job_id = $1 AND s.submitted_at IS NOT NULL
+                AND a.action = 'question.served'
+        ),
+        time_per_session AS (
+            SELECT question_id, session_id,
+                sum(extract(epoch FROM (least(next_opened_at, ended_at) - opened_at))) AS seconds
+            FROM visits
+            WHERE opened_at < ended_at AND question_id IS NOT NULL
+            GROUP BY question_id, session_id
+        ),
+        question_times AS (
+            SELECT question_id, avg(seconds) AS average_seconds, count(*) AS sample_size
+            FROM time_per_session
+            GROUP BY question_id
+        )
+        SELECT jsonb_build_object(
+            'question_id', q.id,
+            'set_number', qs.set_number,
+            'position', q.position,
+            'prompt', q.prompt,
+            'kind', q.kind,
+            'difficulty', q.difficulty,
+            'competency_id', q.competency_id,
+            'sample_size', count(c.question_id),
+            'attempt_count', coalesce(qt.sample_size, 0),
+            'paired_question_points', avg(10 * c.points / c.maximum) FILTER (WHERE c.rest_maximum > 0),
+            'paired_rest_points', avg(10 * c.rest_points / nullif(c.rest_maximum, 0)),
+            'average_seconds', qt.average_seconds,
+            'timing_count', coalesce(qt.sample_size, 0),
+            'comparison_count', count(*) FILTER (WHERE c.rest_maximum > 0),
+            'mean_points', avg(10 * c.points / c.maximum),
+            'item_total_correlation', corr(
+                (c.points / c.maximum)::double precision,
+                (c.rest_points / nullif(c.rest_maximum, 0))::double precision
+            )
+        )
+        FROM interview_questions q
+        JOIN numbered_sets qs ON qs.id = q.set_id AND qs.status = 'completed'
+        LEFT JOIN comparisons c ON c.question_id = q.id::text
+        LEFT JOIN question_times qt ON qt.question_id = q.id::text
         WHERE q.job_id = $1
-        AND r ->> 'question_id' = q.id::text
-        GROUP BY q.kind,
-            q.difficulty,
-            q.competency_id
+        GROUP BY q.id, qt.average_seconds, qt.sample_size, qs.set_number
+        ORDER BY qs.set_number, q.position, q.id
         "#).bind(job).fetch_all(&mut **tx).await?)
 }
 pub(crate) async fn metrics(tx: &mut Transaction<'_, Postgres>) -> Result<Value> {

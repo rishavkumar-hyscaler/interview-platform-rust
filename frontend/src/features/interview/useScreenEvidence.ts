@@ -71,7 +71,15 @@ export function useScreenEvidence(token:string, session:string|undefined, active
         const destination=queue.current;
         const track=sharedStream.getVideoTracks()[0];
         if(!track)throw new Error('Screen track unavailable');
-        const {blob,captured}=await captureScreenFrame(track,preview);
+        const fullscreenExit = event.kind === 'fullscreen_exited';
+        if (fullscreenExit) {
+          // Give the browser compositor and the interview's fullscreen gate time to update.
+          await new Promise<void>(resolve => window.setTimeout(resolve, 350));
+          if (document.fullscreenElement || document.visibilityState !== 'visible' ||
+              !isActive.current || preview !== video.current || destination !== queue.current) return;
+        }
+        const {blob,captured}=await captureScreenFrame(track,preview,{waitForPresentedFrame:fullscreenExit});
+        if (fullscreenExit && (document.fullscreenElement || document.visibilityState !== 'visible')) return;
         // A permission/source/session change must not attach a frame to the previous event.
         if(!isActive.current || preview!==video.current || sharedStream!==stream.current || destination!==queue.current)return;
         const selected=track.getSettings().displaySurface ?? 'unknown';

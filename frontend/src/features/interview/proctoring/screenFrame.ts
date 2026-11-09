@@ -2,7 +2,7 @@ type FrameCapture = { grabFrame(): Promise<ImageBitmap> };
 type FrameCaptureConstructor = new (track: MediaStreamTrack) => FrameCapture;
 
 /** Never stamp an already-decoded, potentially frozen preview frame as new evidence. */
-export async function captureScreenFrame(track: MediaStreamTrack, preview: HTMLVideoElement): Promise<{ blob: Blob; captured: number }> {
+export async function captureScreenFrame(track: MediaStreamTrack, preview: HTMLVideoElement, { waitForPresentedFrame = false } = {}): Promise<{ blob: Blob; captured: number }> {
   if (track.readyState !== 'live' || track.muted) throw new Error('Screen track is not live');
   const Capture = (window as unknown as { ImageCapture?: FrameCaptureConstructor }).ImageCapture;
   let frame: ImageBitmap | null = null;
@@ -10,7 +10,7 @@ export async function captureScreenFrame(track: MediaStreamTrack, preview: HTMLV
   let timer: ReturnType<typeof setTimeout> | undefined;
   let callback: number | undefined;
   try {
-    const freshFrame = Capture
+    const freshFrame = Capture && !waitForPresentedFrame
       ? new Capture(track).grabFrame().then(bitmap => {
           if (expired) { bitmap.close(); throw new Error('Screen capture expired'); }
           frame = bitmap;

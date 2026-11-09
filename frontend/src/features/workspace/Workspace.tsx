@@ -16,6 +16,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { QuestionPreparation } from './QuestionPreparation';
 import { invitationIsActive, workspaceApi, type Audit, type AuditFilters, type Interview, type Job, type Page, type Summary } from './api';
 
+const reviewSections = [
+  ['overview', 'Job & session'],
+  ['questions', 'Questions & rubrics'],
+  ['assessment', 'Assessment'],
+  ['evidence', 'Evidence & assistant'],
+  ['timeline', 'Session timeline'],
+] as const;
+type ReviewSection = typeof reviewSections[number][0];
+
 type View = 'interviewer' | 'reviewer' | 'audit' | 'profile';
 const message = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please retry.';
 const date = (value: string | null) => value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
@@ -66,6 +75,8 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
   const [modal, setModal] = useState<'job' | 'invite' | null>(null);
   const [inviteJob, setInviteJob] = useState('');
   const [inviteDuration, setInviteDuration] = useState(30);
+  const [analyticsJobId, setAnalyticsJobId] = useState<string | null>(null);
+  const analyticsJob = jobs.items.find(job => job.id === analyticsJobId);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const expandedJob = jobs.items.find(job => job.id === expandedJobId);
   const [readyDurations, setReadyDurations] = useState<Record<string, number[]>>({});
@@ -137,7 +148,10 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
       await refresh();
     });
   }
+  const [reviewSection, setReviewSection] = useState<ReviewSection>('overview');
+
   function inspect(id: string) {
+    setReviewSection('overview');
     setDetailLink(''); setCopyFeedback('');
     void run(async () => {
       const [detail, history] = await Promise.all([api.detail(id), api.audit(id)]);
@@ -174,7 +188,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
         : 'max-sm:max-h-0 max-sm:px-4 max-sm:py-0 max-sm:opacity-0 sm:-translate-x-full'}`}
     >
       <div className="flex items-center justify-between gap-2">
-        <a className="flex min-w-0 items-center gap-2 font-[family-name:Georgia,serif] text-xl font-bold tracking-tight" href="#" onClick={() => setView('interviewer')}><span className="grid size-8 shrink-0 place-items-center rounded-xl bg-indigo-600 font-serif text-xl text-white italic">i</span><span className="uppercase text-indigo-600 workspace-dark:text-indigo-400">Interview</span><span className="text-indigo-500"> / </span></a>
+        <a className="flex min-w-0 items-center gap-2 text-xl font-semibold tracking-tight" href="#" onClick={() => setView('interviewer')}><span className="grid size-8 shrink-0 place-items-center rounded-xl bg-indigo-600 text-xl text-white italic">i</span><span className="uppercase text-indigo-600 workspace-dark:text-indigo-400">Interview</span><span className="text-indigo-500"> / </span></a>
         <Button aria-label="Close navigation" className="size-8 min-h-8 shrink-0 border-0 bg-transparent p-0" onClick={() => {
           setSidebarOpen(false);
           requestAnimationFrame(() => sidebarToggle.current?.focus());
@@ -190,7 +204,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
           key={key}
           aria-label={label}
           aria-current={view === key ? 'page' : undefined}
-          className={`group/rolling min-h-11 w-full sm:min-h-9 min-w-0 justify-start gap-2.5 rounded-lg border-0 bg-transparent px-0 py-0.5 text-left font-[family-name:Manrope,system-ui,sans-serif] font-semibold tracking-[-0.045em] text-slate-700 hover:bg-transparent aria-[current=page]:font-bold aria-[current=page]:text-slate-950 workspace-dark:bg-transparent workspace-dark:text-slate-300 workspace-dark:hover:bg-transparent workspace-dark:aria-[current=page]:text-white sm:text-xl 2xl:text-2xl max-sm:flex-col max-sm:justify-center max-sm:gap-1 max-sm:px-1 max-sm:text-sm ${key === 'profile' ? 'sm:mt-auto' : ''}`}
+          className={`group/rolling min-h-11 w-full sm:min-h-9 min-w-0 justify-start gap-2.5 rounded-lg border-0 bg-transparent px-0 py-0.5 text-left font-semibold tracking-[-0.045em] text-slate-700 hover:bg-transparent aria-[current=page]:font-semibold aria-[current=page]:text-slate-950 workspace-dark:bg-transparent workspace-dark:text-slate-300 workspace-dark:hover:bg-transparent workspace-dark:aria-[current=page]:text-white sm:text-xl 2xl:text-2xl max-sm:flex-col max-sm:justify-center max-sm:gap-1 max-sm:px-1 max-sm:text-sm ${key === 'profile' ? 'sm:mt-auto' : ''}`}
           onClick={() => setView(key)}
         >
           <RollingText text={label} className="hidden sm:inline-flex" />
@@ -253,13 +267,32 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
             {sessions.next_cursor && <button className="load-more" disabled={busy} onClick={() => void run(async () => { const next = await api.sessions(sessions.next_cursor!); setSessions({ items: [...sessions.items, ...next.items], next_cursor: next.next_cursor }); })}>Load more sessions ↓</button>}</section>}{view === 'reviewer' && jobs.items.length > 0 && <section className="panel">
             <div className="panel-heading"><h2>Question-bank analytics</h2></div>
             <div className="job-grid">{jobs.items.map(job => <article className="job-card" key={job.id}>
-              <h3>{job.title}</h3>
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="min-w-0 mt-0!">{job.title}</h3>
+                <Button className="job-icon min-h-0 shrink-0 p-0" aria-label={`Open analytics for ${job.title}`}
+                  aria-haspopup="dialog" onClick={() => setAnalyticsJobId(job.id)}>↗</Button>
+              </div>
               <p className="job-code">Job ID: <strong>{job.job_code}</strong></p>
-              <Analytics job={job.id} token={token} />
+              <p className="job-description">{job.description}</p>
+              <button type="button" className="text-button accent" aria-haspopup="dialog"
+                onClick={() => setAnalyticsJobId(job.id)}>View analytics →</button>
             </article>)}</div>
             {jobs.next_cursor && <button className="load-more" disabled={busy} onClick={() => void run(loadMoreJobs)}>Load more roles ↓</button>}
           </section>}</>}
       </>}<footer>INTERVIEW PLATFORM <span>Structured interviews · Evidence-grounded review</span></footer></main></div>
+    {analyticsJob && <Dialog title="analytics-title" onClose={() => setAnalyticsJobId(null)}>
+      <section className="modal detail-modal w-[min(1200px,calc(100vw-2rem))]!">
+        <header className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="eyebrow">QUESTION PERFORMANCE</p>
+            <h2 id="analytics-title" className="break-words">{analyticsJob.title}</h2>
+            <p className="job-code">Job ID: <strong>{analyticsJob.job_code}</strong></p>
+          </div>
+          <Button className="icon-button shrink-0" aria-label="Close analytics" onClick={() => setAnalyticsJobId(null)}>×</Button>
+        </header>
+        <Analytics job={analyticsJob.id} token={token} />
+      </section>
+    </Dialog>}
     {expandedJob && <Dialog title="job-details-title" onClose={() => setExpandedJobId(null)}>
       <section className="modal detail-modal">
         <div className="panel-heading">
@@ -272,7 +305,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
         </div>
         <div className="my-6">
           <h3>Job description</h3>
-          <p className="preserve break-words">{expandedJob.description}</p>
+          <p className="preserve max-w-prose break-words">{expandedJob.description}</p>
         </div>
         <JobQuestionSets job={expandedJob.id} token={token} onReadyChange={updateReady} />
         <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -285,6 +318,29 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
       </section>
     </Dialog>}
     {modal && <Dialog title="modal-title" onClose={() => setModal(null)} busy={busy}><section className="modal"><div className="panel-heading"><h2 id="modal-title">{modal === 'job' ? 'Create a job' : invitation ? 'Invitation created' : 'Invite a candidate'}</h2><button className="icon-button" aria-label="Close dialog" disabled={busy} onClick={() => setModal(null)}>×</button></div>{error && <p className="error" role="alert">{error}</p>}{invitation ? <><p>Share this private link with the candidate. The link grants access to this session and expires in seven days.</p><label>Candidate invitation link<textarea readOnly rows={4} value={invitation} onFocus={e => e.currentTarget.select()} /></label><p className="muted">This link is saved securely. You can retrieve it again from the session details to share later.</p><button className="button" onClick={() => setModal(null)}>Done</button></> : <form onSubmit={save} onChange={() => setRequestKey(crypto.randomUUID())}>{modal === 'job' ? <><label>Job ID<input name="job_code" required maxLength={64} placeholder="e.g. BE-2026-001" autoComplete="off" aria-describedby="job-code-help" /></label><p id="job-code-help" className="muted">Unique for your account, ignoring letter case. Start with a letter or number; use letters, numbers, hyphens or underscores.</p><label>Job title<input name="title" required maxLength={160} placeholder="e.g. Senior Backend Engineer" /></label><label>Job description<textarea name="description" required minLength={20} maxLength={20000} rows={8} placeholder="Describe the role, responsibilities, and required skills…" /></label><label>Interview duration (minutes)<input name="preparation_duration_minutes" type="number" min={5} max={180} defaultValue={30} required /></label><label>Number of question sets<input name="question_set_count" type="number" min={1} max={5} defaultValue={1} required /></label><p className="muted">Prepare 1–5 unique sets with reference answers. Each new question is scoped to 2–3 minutes; short interviews use fewer questions. More sets use more AI requests. Only this many sets are created and reused across candidates. No automatic replacements.</p></> : <><label>Role<select name="job_id" defaultValue={inviteJob || jobs.items[0]?.id} onChange={event => { setInviteJob(event.target.value); setInviteDuration(readyDurations[event.target.value]?.[0] ?? 30); }} required>{jobs.items.map(job => <option disabled={!readyDurations[job.id]?.length} key={job.id} value={job.id}>{job.job_code} — {job.title}</option>)}</select></label><label>Candidate name<input name="candidate_name" required maxLength={120} autoComplete="name" /></label><label>Candidate email<input name="candidate_email" type="email" required maxLength={254} autoComplete="email" /></label><label>Interview duration (minutes)<input key={inviteJob} name="duration_minutes" type="number" min={5} max={180} value={inviteDuration} onChange={event => setInviteDuration(Number(event.target.value))} required /></label><p className="muted">Create a private link to share manually. Email delivery is not connected yet.</p>{!readyDurations[inviteJob]?.includes(inviteDuration) && <p className="configuration-note">No completed set is available for this duration. Choose a duration with a ready set before inviting.</p>}</>}<button className="button" disabled={busy || (modal === 'invite' && !readyDurations[inviteJob]?.includes(inviteDuration))}>{busy ? 'Saving…' : modal === 'job' ? 'Create job' : 'Create invitation'}</button></form>}</section></Dialog>}
-    {selected && <Dialog title="detail-title" onClose={() => setSelected(null)}><section className="modal detail-modal"><div className="panel-heading"><div><p className="eyebrow">SESSION DETAILS</p><h2 id="detail-title">{selected.candidate_name}</h2><p>{selected.candidate_email}</p></div><button className="icon-button" aria-label="Close session details" onClick={() => setSelected(null)}>×</button></div><Status state={selected.state} /><h3>{selected.job_title}</h3><p className="job-code">Job ID: <strong>{selected.job_code}</strong></p><div className="detail-grid"><div><small>Duration</small><strong>{selected.duration_minutes} minutes</strong></div><div><small>Invitation expires</small><strong>{date(selected.expires_at)}</strong></div><div><small>Started</small><strong>{date(selected.started_at)}</strong></div><div><small>Submitted</small><strong>{date(selected.submitted_at)}</strong></div></div>{error && <p className="error" role="alert">{error}</p>}{invitationIsActive(selected) && <div className="invitation-panel"><h3>Candidate invitation</h3>{selected.invitation_recoverable === false && <p>This older invitation does not have a saved link. Create a replacement to share; the previous link will stop working.</p>}{detailLink ? <><label>Saved invitation link<textarea readOnly rows={3} value={detailLink} onFocus={e => e.currentTarget.select()} /></label><button className="button" onClick={() => void copyInvitation()}>Copy invitation link</button></> : <><p>Retrieve the private link to share with the candidate again. Its original expiry stays the same.</p><button className="button" disabled={busy || (selected.invitation_recoverable === false && selected.state !== 'invited')} onClick={recoverInvitation}>{busy ? 'Retrieving…' : selected.invitation_recoverable === false ? 'Create replacement link' : 'Show invitation link'}</button>{selected.invitation_recoverable === false && selected.state !== 'invited' && <p>This older session is already accepted. Continue using its original link.</p>}</>}{copyFeedback && <p role="status" className="invitation-feedback">{copyFeedback}</p>}</div>}{view === 'reviewer' && <><ExpandableSection label={<>Job requirements</>}><p className="preserve">{selected.description}</p></ExpandableSection>{selected.state === 'in_progress' && <LiveScreenViewer key={`live:${selected.id}`} session={selected.id} token={token} />}<QuestionPreparation key={`questions:${selected.id}`} interview={selected} token={token} /><Assessment session={selected.id} token={token} /><RecordingEvidence session={selected.id} token={token} /><ReviewAssistant key={`review:${selected.id}`} session={selected.id} token={token} /><ExpandableSection className="session-timeline" label={<>Session timeline ({events.items.length}) </>} help="Saved audit history for this session. Expand it and use Load older events to browse earlier activity."><Timeline events={events.items} />{events.next_cursor && <button className="load-more" disabled={busy} onClick={() => void run(async () => { const next = await api.audit(selected.id, events.next_cursor!); setEvents({ items: [...events.items, ...next.items], next_cursor: next.next_cursor }); })}>Load older events ↓</button>}</ExpandableSection><p className="muted">Session ID: <code>{selected.id}</code></p></>}</section></Dialog>}
+    {selected && <Dialog title="detail-title" onClose={() => setSelected(null)}><section className="modal detail-modal flex! h-[88dvh] w-[min(1280px,calc(100vw-2rem))]! flex-col overflow-hidden! p-0!"><div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-6 workspace-dark:border-slate-700"><div className="min-w-0"><p className="eyebrow m-0!">SESSION DETAILS</p><h2 id="detail-title" className="mt-1 truncate text-2xl font-semibold">{selected.candidate_name}</h2><p className="m-0! truncate text-sm text-slate-500 workspace-dark:text-slate-400">{selected.candidate_email}</p></div><button className="icon-button shrink-0" aria-label="Close session details" onClick={() => setSelected(null)}>×</button></div><div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] md:grid-cols-[13rem_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)]">
+      <nav aria-label="Session sections" className="flex min-w-0 gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-3 md:flex-col md:border-r md:border-b-0 workspace-dark:border-slate-700 workspace-dark:bg-slate-900">
+        {reviewSections.map(([id, label]) => <button
+          key={id}
+          type="button"
+          aria-current={reviewSection === id ? 'true' : undefined}
+          onClick={() => { setReviewSection(id); document.getElementById('session-review-content')?.scrollTo(0, 0); }}
+          className="shrink-0 whitespace-nowrap rounded-md border-0 bg-transparent px-3 py-2 text-left text-sm font-medium text-slate-600 hover:bg-slate-100 workspace-dark:text-slate-300 workspace-dark:hover:bg-slate-800 aria-[current=true]:bg-indigo-50 aria-[current=true]:text-indigo-700 workspace-dark:aria-[current=true]:bg-indigo-950 workspace-dark:aria-[current=true]:text-indigo-300"
+        >{label}</button>)}
+      </nav>
+      <div id="session-review-content" role="region" aria-label="Selected session section" tabIndex={0} className="min-h-0 min-w-0 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] p-4 sm:p-6 [&>section>.question-preparation:first-child]:mt-0!">
+      <section hidden={reviewSection !== 'overview'} aria-label="Job and session">
+      <Status state={selected.state} /><h3>{selected.job_title}</h3><p className="job-code">Job ID: <strong>{selected.job_code}</strong></p><div className="detail-grid"><div><small>Duration</small><strong>{selected.duration_minutes} minutes</strong></div><div><small>Invitation expires</small><strong>{date(selected.expires_at)}</strong></div><div><small>Started</small><strong>{date(selected.started_at)}</strong></div><div><small>Submitted</small><strong>{date(selected.submitted_at)}</strong></div></div>{error && <p className="error" role="alert">{error}</p>}{invitationIsActive(selected) && <div className="invitation-panel"><h3>Candidate invitation</h3>{selected.invitation_recoverable === false && <p>This older invitation does not have a saved link. Create a replacement to share; the previous link will stop working.</p>}{detailLink ? <><label>Saved invitation link<textarea readOnly rows={3} value={detailLink} onFocus={e => e.currentTarget.select()} /></label><button className="button" onClick={() => void copyInvitation()}>Copy invitation link</button></> : <><p>Retrieve the private link to share with the candidate again. Its original expiry stays the same.</p><button className="button" disabled={busy || (selected.invitation_recoverable === false && selected.state !== 'invited')} onClick={recoverInvitation}>{busy ? 'Retrieving…' : selected.invitation_recoverable === false ? 'Create replacement link' : 'Show invitation link'}</button>{selected.invitation_recoverable === false && selected.state !== 'invited' && <p>This older session is already accepted. Continue using its original link.</p>}</>}{copyFeedback && <p role="status" className="invitation-feedback">{copyFeedback}</p>}</div>}<ExpandableSection label={<>Job requirements</>}><p className="preserve">{selected.description}</p></ExpandableSection>
+      </section>
+      <section hidden={reviewSection !== 'questions'} aria-label="Questions and rubrics">
+        <QuestionPreparation key={`questions:${selected.id}`} interview={selected} token={token} />
+      </section>
+      <section hidden={reviewSection !== 'assessment'} aria-label="Assessment">
+        <Assessment session={selected.id} token={token} />
+      </section>
+      <section hidden={reviewSection !== 'evidence'} aria-label="Evidence and assistant">
+      {selected.state === 'in_progress' && <LiveScreenViewer key={`live:${selected.id}`} session={selected.id} token={token} />}<RecordingEvidence session={selected.id} token={token} /><ReviewAssistant key={`review:${selected.id}`} session={selected.id} token={token} /></section>
+      <section hidden={reviewSection !== 'timeline'} aria-label="Session timeline">
+      <ExpandableSection className="session-timeline" label={<>Session timeline ({events.items.length}) </>} help="Saved audit history for this session. Expand it and use Load older events to browse earlier activity."><Timeline events={events.items} />{events.next_cursor && <button className="load-more" disabled={busy} onClick={() => void run(async () => { const next = await api.audit(selected.id, events.next_cursor!); setEvents({ items: [...events.items, ...next.items], next_cursor: next.next_cursor }); })}>Load older events ↓</button>}</ExpandableSection><p className="muted">Session ID: <code>{selected.id}</code></p></section></div></div></section></Dialog>}
   </div>;
 }

@@ -168,7 +168,7 @@ pub(crate) async fn analytics(pool: &PgPool, owner: Uuid, job: Uuid) -> Result<V
     let groups = repo::analytics(&mut tx, job).await?;
     tx.commit().await?;
     Ok(
-        json!({"groups":groups,"notice":"Descriptive statistics only. Unique questions and small samples cannot establish discrimination or fairness; validate with sufficient job-relevant outcomes."}),
+        json!({"groups":groups,"notice":"Each question is compared with scores on the rest of the same interview. These descriptive results depend on the candidate sample and the other questions in each set."}),
     )
 }
 pub(crate) async fn metrics(pool: &PgPool, owner: Uuid) -> Result<Value> {
