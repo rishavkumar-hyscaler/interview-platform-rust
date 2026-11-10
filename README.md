@@ -602,7 +602,7 @@ r = Σ[(xᵢ − x̄)(yᵢ − ȳ)] / √(Σ[(xᵢ − x̄)²] × Σ[(yᵢ − �
 
 Here `x̄` and `ȳ` are the averages across comparable interviews. A value closer to +1 means candidates who scored higher on the rest of the interview tended to score higher on this question. Values near zero indicate little linear association. Negative values indicate a reverse pattern.
 
-The calculation requires at least two comparable interviews and variation in both score series. With one pair or a constant score series, the denominator is zero. With exactly two varying pairs, the result is always +1 or −1. The chart plots valid correlations as soon as they exist and labels results below 20 comparable interviews as early results. Separation describes rubric performance within the interview.
+The calculation requires at least two comparable interviews and variation in both score series. With one pair or a constant score series, the denominator is zero. With exactly two varying pairs, the result is always +1 or −1. The chart plots valid correlations as soon as they exist and shows a descriptive label in the question tooltip. Separation describes rubric performance within the interview.
 
 ## Persistent evidence retrieval
 

@@ -5,7 +5,7 @@ const variants = {
   metric: 'stat',
   job: 'job-card group relative gap-3',
   analytics: 'job-card',
-  chart: 'm-0 rounded-lg border border-slate-200 p-3 workspace-dark:border-slate-700',
+  chart: 'chart-card m-0 flex h-72 min-w-0 flex-col rounded-lg border border-slate-200 p-3 workspace-dark:border-slate-700',
 };
 
 export function DashboardCard({ variant, index, children }: {

@@ -39,14 +39,12 @@ const questionTypes: Record<string, string> = {
   scenario: 'Scenario',
 };
 
-const ratingSampleSize = 20;
-const questionPerformanceHelp = `For each candidate, we divide the question score by its maximum and the points on the remaining questions by their combined maximum. The chart shows the Pearson correlation between those two percentages across candidates who received the same question. Ratings appear after ${ratingSampleSize} comparable interviews. These descriptive results depend on the candidate sample and the other questions in each set.`;
+const questionPerformanceHelp = `Pearson correlation compares scores on this question with scores on the rest of the interview. Positive values mean higher scorers on this question tended to score higher on the rest, and lower scorers tended to score lower. Near zero means little linear relationship. Negative values show the reverse pattern.\n\nThe chart can show a value from two comparable interviews if both sets of scores vary.`;
 
 function separation(group: ScoreGroup) {
   if (group.comparison_count === 0) return 'No paired scores yet';
   if (group.comparison_count === 1) return 'Correlation requires at least two comparable interviews';
   if (group.item_total_correlation == null) return 'Scores did not vary enough for correlation';
-  if (group.comparison_count < ratingSampleSize) return 'Early result · small sample';
   if (group.item_total_correlation >= 0.3) return 'Separates stronger and weaker scores';
   if (group.item_total_correlation <= -0.2) return 'Reverse pattern · review question';
   if (Math.abs(group.item_total_correlation) < 0.2) return 'Little separation · review question';
@@ -63,10 +61,9 @@ function questionTooltip(group: ScoreGroup) {
   return [
     group.prompt,
     separation(group),
-    `${group.timing_count} interviews with recorded timing`,
     `${readableLabel(group.competency_id)} · ${questionTypes[group.kind] ?? readableLabel(group.kind)} · ${readableLabel(group.difficulty)}`,
     `${average} · ${group.sample_size} scored responses`,
-    `${group.attempt_count ?? group.timing_count} submitted interviews opened this question · ${group.comparison_count} comparable scores`,
+    `${group.attempt_count ?? group.timing_count} attempts · ${group.comparison_count} comparable interviews`,
   ].join('\n\n');
 }
 
@@ -86,11 +83,11 @@ function QuestionBarChart({ index: cardIndex, groups, title, help, value, format
   maximum: number;
 }) {
   return <DashboardCard variant="chart" index={cardIndex}>
-    <figcaption className="mb-3 flex items-center justify-between gap-2 font-semibold">
+    <figcaption className="mb-3 flex shrink-0 items-center justify-between gap-2 text-control font-medium">
       {title}
       <HelpTip text={help} />
     </figcaption>
-    <ol aria-label={title} tabIndex={0} className="m-0 grid max-h-80 list-none gap-3 overflow-y-auto overscroll-contain p-0 pr-2 [scrollbar-gutter:stable]">
+    <ol aria-label={title} tabIndex={0} className="m-0 grid min-h-0 flex-1 content-start list-none gap-3 overflow-y-auto overscroll-contain p-0 pr-2 [scrollbar-gutter:stable]">
       {groups.map((group, index) => {
         const amount = value(group);
         return <li key={group.question_id}>
@@ -109,33 +106,66 @@ function QuestionBarChart({ index: cardIndex, groups, title, help, value, format
 
 const attempts = (group: ScoreGroup) => group.attempt_count ?? group.timing_count;
 
+function AttemptsChart({ groups }: { groups: ScoreGroup[] }) {
+  const maximum = Math.max(1, ...groups.map(attempts));
+
+  return <DashboardCard variant="chart" index={3}>
+    <figcaption className="mb-3 flex shrink-0 items-center justify-between gap-2 text-control font-medium">
+      Attempts per question
+      <HelpTip text="Counts submitted interviews in which the candidate opened the question. Revisits within the same interview count once." />
+    </figcaption>
+    <ol aria-label="Attempts per question" tabIndex={0}
+      className="m-0 flex min-h-0 flex-1 list-none overflow-auto overscroll-contain p-0 pb-2">
+      {groups.map((group, index) => {
+        const count = attempts(group);
+        return <li key={group.question_id} className="min-w-28 flex-1 text-center text-control">
+          <div className="flex h-40 flex-col items-center justify-end border-b border-slate-300 workspace-dark:border-slate-600">
+            <span className="mb-1 tabular-nums">{count}</span>
+            <div aria-hidden="true" className="w-9 origin-bottom rounded-t-md bg-indigo-500 motion-safe:animate-chart-column"
+              style={{ height: `${75 * count / maximum}%` }} />
+          </div>
+          <div className="mt-2 whitespace-nowrap">
+            {questionLabel(group, index)} <HelpTip text={questionTooltip(group)} />
+          </div>
+        </li>;
+      })}
+    </ol>
+  </DashboardCard>;
+}
+
 function QuestionCharts({ groups }: { groups: ScoreGroup[] }) {
   const maxSeconds = Math.max(1, ...groups.map(group => Number(group.average_seconds ?? 0)));
 
-  return <div className="my-4 grid items-start gap-4 lg:grid-cols-2">
+  return <div className="my-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
     <DashboardCard variant="chart" index={0}>
-      <figcaption className="mb-3 flex items-center justify-between gap-2 font-semibold">
-        Score separation
-        <HelpTip text={`${questionPerformanceHelp} Ratings describe rubric performance. A value closer to +1 means the question better separates candidates who score higher on the rest of the interview from those who score lower. A value near 0 shows little linear separation. Negative values show a reverse pattern.`} />
+      <figcaption className="mb-3 flex shrink-0 items-center justify-between gap-2 text-control font-medium">
+        <span>Score separation <span className="ml-2 text-detail font-normal text-slate-600 workspace-dark:text-slate-400">−1 to +1</span></span>
+        <HelpTip text={questionPerformanceHelp} />
       </figcaption>
-      <ol aria-label="Score separation" tabIndex={0} className="m-0 grid max-h-80 list-none gap-3 overflow-y-auto overscroll-contain p-0 pr-2 [scrollbar-gutter:stable]">
+      <ol aria-label="Score separation" tabIndex={0} className="m-0 flex min-h-0 flex-1 list-none overflow-auto overscroll-contain p-0 pb-2">
         {groups.map((group, index) => {
-          const score = group.item_total_correlation != null
-            ? Number(group.item_total_correlation) : null;
-          return <li key={group.question_id}>
-            <div className="flex min-h-6 items-center justify-between gap-3 text-control">
-              <span>{questionLabel(group, index)} <HelpTip text={questionTooltip(group)} /></span>
-              <span className="text-right tabular-nums">{score?.toFixed(2) ?? (group.comparison_count < 2 ? 'Min. 2 scored attempts required' : 'No score variation')}</span>
+          const score = group.item_total_correlation == null ? null : Number(group.item_total_correlation);
+          return <li key={group.question_id} className="min-w-28 flex-1 text-center text-control">
+            <div className="mb-2 h-5 px-1 text-detail tabular-nums">
+              {score === null ? '—' : `${score > 0 ? '+' : ''}${score.toFixed(2)}`}
             </div>
-            {score !== null && <div aria-hidden="true" className="relative mt-1 h-1.5 rounded bg-slate-200 workspace-dark:bg-slate-700">
-              <span className="absolute inset-y-0 left-1/2 w-px bg-slate-500" />
-              <span className="absolute inset-y-0 rounded bg-indigo-500 motion-safe:animate-chart-bar" style={{
-                transformOrigin: score < 0 ? 'right' : 'left',
-                left: `${50 + Math.min(0, score) * 50}%`,
-                width: `${Math.abs(score) * 50}%`,
-              }} />
+            <div className="relative h-24 border-y border-dashed border-slate-200 workspace-dark:border-slate-700">
+              <div aria-hidden="true" className="absolute inset-x-0 top-1/2 border-t border-slate-300 workspace-dark:border-slate-600" />
+              {score !== null && <div aria-hidden="true"
+                className="absolute left-1/2 w-9 -translate-x-1/2 rounded bg-indigo-500 motion-safe:animate-chart-column"
+                style={{
+                  bottom: score >= 0 ? '50%' : undefined,
+                  top: score < 0 ? '50%' : undefined,
+                  height: `${Math.abs(score) * 50}%`,
+                  transformOrigin: score < 0 ? 'top' : 'bottom',
+                }} />}
+            </div>
+            <div className="mt-3 whitespace-nowrap">
+              {questionLabel(group, index)} <HelpTip text={questionTooltip(group)} />
+            </div>
+            {score === null && <div className="mt-1 px-1 text-detail text-slate-600 workspace-dark:text-slate-400">
+              {group.comparison_count < 2 ? 'Needs 2 comparable interviews' : 'No score variation'}
             </div>}
-            {score === null && <div aria-hidden="true" className="mt-1 h-1.5" />}
           </li>;
         })}
       </ol>
@@ -146,10 +176,39 @@ function QuestionCharts({ groups }: { groups: ScoreGroup[] }) {
     <QuestionBarChart index={2} groups={groups} title="Average rubric score"
       help="Average points earned on the question, scaled to 10. For example, 1.5/10 means candidates earned 15% of the available rubric points on average."
       value={group => group.mean_points} format={value => `${Number(value).toFixed(1)}/10`} maximum={10} />
-    <QuestionBarChart index={3} groups={groups} title="Attempts per question"
-      help="Counts submitted interviews in which the candidate opened the question. Revisits within the same interview count once."
-      value={attempts} format={String} maximum={Math.max(1, ...groups.map(attempts))} />
+    <AttemptsChart groups={groups} />
   </div>;
+}
+
+function FilteredQuestionCharts({ groups }: { groups: ScoreGroup[] }) {
+  const [set, setSet] = useState('');
+  const [question, setQuestion] = useState('');
+  const sets = [...new Set(groups.flatMap(group => group.set_number == null ? [] : [group.set_number]))]
+    .sort((left, right) => left - right);
+  const available = groups.filter(group => !set || String(group.set_number) === set);
+  const visible = available.filter(group => !question || group.question_id === question);
+
+  return <>
+    <div className="mt-4 flex flex-wrap gap-3">
+      <label className="flex items-center gap-2 text-control">
+        Set
+        <select value={set} onChange={event => { setSet(event.target.value); setQuestion(''); }}>
+          <option value="">All sets</option>
+          {sets.map(number => <option key={number} value={number}>Set {number}</option>)}
+        </select>
+      </label>
+      <label className="flex items-center gap-2 text-control">
+        Question
+        <select value={question} onChange={event => setQuestion(event.target.value)}>
+          <option value="">All questions</option>
+          {available.map((group, index) => <option key={group.question_id} value={group.question_id}>
+            {questionLabel(group, index)}
+          </option>)}
+        </select>
+      </label>
+    </div>
+    <QuestionCharts groups={visible} />
+  </>;
 }
 
 export function Analytics({ job, token }: { job: string; token: string }) {
@@ -189,6 +248,6 @@ export function Analytics({ job, token }: { job: string; token: string }) {
         Set {set.set_number} · {setStatus[set.status] ?? readableLabel(set.status)}
       </li>)}
     </ul>}
-    {stats && (groups.length ? <QuestionCharts groups={groups} /> : <p>Question performance will appear when a question set is ready.</p>)}
+    {stats && (groups.length ? <FilteredQuestionCharts groups={groups} /> : <p>Question performance will appear when a question set is ready.</p>)}
   </>;
 }

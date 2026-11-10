@@ -5,7 +5,7 @@ import { InterviewerProfile, useInterviewerAccount } from './InterviewerProfile'
 import { LiveScreenViewer } from '../live-screen/LiveScreenViewer';
 import { auditPresentation } from './auditPresentation';
 import { ExpandableSection } from './ExpandableSection';
-import { ArrowLeft, BriefcaseBusiness, ChartNoAxesColumn, ClipboardList, History, Home, Moon, PanelLeftClose, PanelLeftOpen, Sun, UserRound } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, BriefcaseBusiness, ChartNoAxesColumn, ClipboardList, History, Home, Moon, PanelLeftClose, PanelLeftOpen, Sun, UserRound } from 'lucide-react';
 import { useWorkspaceTheme } from './useWorkspaceTheme';
 import './workspace.css';
 import { JobQuestionSets } from './JobQuestionSets';
@@ -108,6 +108,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [jobFilter, setJobFilter] = useState('');
   const [search, setSearch] = useState('');
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   useEffect(() => {
@@ -259,7 +260,8 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
     try { await navigator.clipboard.writeText(detailLink); setCopyFeedback('Invitation link copied.'); }
     catch { setCopyFeedback('Select the link above and copy it manually.'); }
   }
-  const visible = sessions.items.filter(s => (filter === 'all' || s.state === filter) && `${s.candidate_name} ${s.candidate_email} ${s.job_title} ${s.job_code}`.toLowerCase().includes(search.toLowerCase()));
+  const interviewJobs = new Set(sessions.items.map(session => session.job_code));
+  const visible = sessions.items.filter(s => (!jobFilter || s.job_code === jobFilter) && (filter === 'all' || s.state === filter) && `${s.candidate_name} ${s.candidate_email} ${s.job_title} ${s.job_code}`.toLowerCase().includes(search.toLowerCase()));
   return <div className="interviewer-workspace flex min-h-screen [--sidebar-width:clamp(248px,18vw,350px)] bg-slate-50 text-slate-900 max-sm:flex-col workspace-dark:bg-slate-950 workspace-dark:text-slate-100" data-theme={theme}>
     <aside
       id="interviewer-sidebar"
@@ -373,7 +375,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
               <DashboardCard variant="job" index={index} key={job.id}>
                 <div className="flex items-start justify-between gap-3">
                   <span className="pill max-w-full break-all">{job.job_code}</span>
-                  <span aria-hidden="true" className="job-icon grid shrink-0 place-items-center motion-safe:transition-transform motion-safe:group-hover:translate-x-0.5 motion-safe:group-hover:-translate-y-0.5">↗</span>
+                  <span aria-hidden="true" className="job-icon grid shrink-0 place-items-center motion-safe:transition-transform motion-safe:group-hover:translate-x-0.5 motion-safe:group-hover:-translate-y-0.5"><ArrowUpRight className="size-4" /></span>
                 </div>
                 <h3 className="mt-0! break-words">{job.title}</h3>
                 <div className="mt-auto border-t border-slate-200 pt-3 workspace-dark:border-slate-700">
@@ -387,7 +389,11 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
               </DashboardCard>
             ))}
           </div> : <div className="empty"><div className="empty-icon">▧</div><h3>Your first interview starts here</h3><p>Add a job description to create your first role.</p><button className="button" onClick={() => openModal('job')}>+ Create your first job</button></div>}{jobPagination}</section>}
-          {view === 'reviewer' && <section className="panel" aria-label="Candidate interviews"><div className="table-toolbar"><input aria-label="Search interviews on this page" placeholder="Search this page…" value={search} onChange={e => setSearch(e.target.value)} /><select aria-label="Filter interview status on this page" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">All statuses</option>{['invited', 'ready', 'in_progress', 'submitted', 'scoring', 'completed', 'expired'].map(s => <option value={s} key={s}>{s.replaceAll('_', ' ')}</option>)}</select></div>
+          {view === 'reviewer' && <section className="panel" aria-label="Candidate interviews"><div className="table-toolbar"><input aria-label="Search interviews on this page" placeholder="Search this page…" value={search} onChange={e => setSearch(e.target.value)} /><div className="flex min-w-0 flex-wrap gap-2"><select className="min-w-28 max-w-full cursor-pointer rounded-xl! border-indigo-200! bg-indigo-50! font-medium! text-indigo-900! workspace-dark:border-indigo-800! workspace-dark:bg-indigo-950! workspace-dark:text-indigo-100!" aria-label="Filter interviews by job ID on this page" value={jobFilter} onChange={e => setJobFilter(e.target.value)}>
+              <option value="">All jobs</option>
+              {jobFilter && !interviewJobs.has(jobFilter) && <option value={jobFilter}>{jobFilter}</option>}
+              {[...interviewJobs].sort().map(code => <option key={code} value={code}>{code}</option>)}
+            </select><select aria-label="Filter interview status on this page" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">All statuses</option>{['invited', 'ready', 'in_progress', 'submitted', 'scoring', 'completed', 'expired'].map(s => <option value={s} key={s}>{s.replaceAll('_', ' ')}</option>)}</select></div></div>
             {visible.length ? <div className="table-scroll"><table><thead><tr><th>Candidate</th><th>Role</th><th>Status</th><th>Duration</th><th>Invited</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{visible.map(s => <tr key={s.id}><td><strong>{s.candidate_name}</strong><small>{s.candidate_email}</small></td><td>{s.job_title}<small>Job ID: {s.job_code}</small></td><td><Status state={s.state} /></td><td>{s.duration_minutes} min</td><td>{date(s.created_at)}</td><td><button className="text-button accent" disabled={busy} onClick={() => inspect(s.id)}>View →</button></td></tr>)}</tbody></table></div> : <div className="empty compact"><h3>{sessions.items.length ? 'No matching sessions on this page' : 'No candidates yet'}</h3><p>{sessions.items.length ? 'Try another search or status.' : 'Invite a candidate once a question set is ready. Their progress and results will appear here.'}</p></div>}
             <nav aria-label="Interview pagination"
               className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 sm:px-6 workspace-dark:border-slate-700">
@@ -400,7 +406,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
               <div className="flex items-start justify-between gap-3">
                 <h3 className="min-w-0 break-words mt-0!">{job.title}</h3>
                 <Button className="job-icon min-h-0 shrink-0 p-0" aria-label={`Open analytics for ${job.title}`}
-                  onClick={() => { navigateTo({ job }); window.scrollTo(0, 0); }}>↗</Button>
+                  onClick={() => { navigateTo({ job }); window.scrollTo(0, 0); }}><ArrowUpRight aria-hidden="true" className="size-4" /></Button>
               </div>
               <p className="job-code">Job ID: <strong>{job.job_code}</strong></p>
               <p className="job-description">{job.description}</p>

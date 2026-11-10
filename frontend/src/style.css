@@ -1240,7 +1240,7 @@ dialog.modal-backdrop::backdrop {
   @apply relative inline-flex [vertical-align:middle] [margin-left:4px] [letter-spacing:normal] font-normal;
 }
 .help-tip-trigger {
-  @apply inline-grid [place-items:center] [width:19px] [height:19px] p-0 [border:1px_solid_#94a3b8] [border-radius:50%] [background:#fff] [color:#475569] text-detail [cursor:help];
+  @apply inline-grid [place-items:center] [width:19px] [height:19px] p-0 border border-slate-500 [border-radius:50%] bg-slate-800 text-white font-semibold text-detail [cursor:help];
 }
 .help-tip-trigger:focus-visible {
   @apply [outline:2px_solid_var(--color-indigo-600)] [outline-offset:2px];
