@@ -30,18 +30,45 @@ export function HelpTip({ text }: { text: string }) {
 
   function scheduleHide() {
     window.clearTimeout(hideTimer.current);
-    hideTimer.current = window.setTimeout(() => content.current?.hidePopover(), 150);
+    hideTimer.current = window.setTimeout(
+      () => content.current?.hidePopover(),
+      150,
+    );
   }
 
-  return <span ref={anchor} className="help-tip" onMouseEnter={show} onMouseLeave={scheduleHide}
-    onFocus={show} onBlur={event => {
-      if (!event.currentTarget.contains(event.relatedTarget)) scheduleHide();
-    }}>
-    <button type="button" className="help-tip-trigger" aria-label="More information" aria-describedby={id}
-      onClick={event => { event.stopPropagation(); show(); }}>i</button>
-    <span ref={content} id={id} popover="auto" role="tooltip"
-      onMouseEnter={() => window.clearTimeout(hideTimer.current)}
-      className="help-tip-content fixed inset-auto m-0 w-max max-w-[min(28rem,calc(100vw-24px))] overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-left text-control leading-normal text-white shadow-lg"
-    >{text}</span>
-  </span>;
+  return (
+    <span
+      ref={anchor}
+      className="help-tip"
+      onMouseEnter={show}
+      onMouseLeave={scheduleHide}
+      onFocus={show}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) scheduleHide();
+      }}
+    >
+      <button
+        type="button"
+        className="help-tip-trigger"
+        aria-label="More information"
+        aria-describedby={id}
+        onClick={(event) => {
+          event.stopPropagation();
+          show();
+        }}
+      >
+        i
+      </button>
+      <span
+        ref={content}
+        id={id}
+        popover="auto"
+        role="tooltip"
+        onMouseEnter={() => window.clearTimeout(hideTimer.current)}
+        className="help-tip-content fixed inset-auto m-0 w-max max-w-[min(28rem,calc(100vw-24px))] overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-left text-control leading-normal text-white shadow-lg"
+      >
+        {text}
+      </span>
+    </span>
+  );
 }

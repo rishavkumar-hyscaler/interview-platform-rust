@@ -26,7 +26,9 @@ const titles: Record<string, string> = {
 };
 
 function number(value: unknown): number | null {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? value
+    : null;
 }
 
 export function auditPresentation(event: Audit) {
@@ -36,23 +38,45 @@ export function auditPresentation(event: Audit) {
     ? `Interviewer${event.actor_email ? ` · ${event.actor_email}` : ''}`
     : candidateAction
       ? `Candidate${event.candidate_name ? ` · ${event.candidate_name}` : ''}`
-      : actor === 'worker' ? 'Background worker' : 'System (automatic)';
+      : actor === 'worker'
+        ? 'Background worker'
+        : 'System (automatic)';
   const rawTitle = event.action.replaceAll('.', ' ').replaceAll('_', ' ');
-  const title = titles[event.action] ?? rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1);
-  const result = event.metadata.result && typeof event.metadata.result === 'object'
-    ? event.metadata.result as Record<string, unknown> : {};
-  const position = event.question_position ?? number(event.metadata.position) ?? number(event.metadata.question_position) ?? number(result.position);
+  const title =
+    titles[event.action] ??
+    rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1);
+  const result =
+    event.metadata.result && typeof event.metadata.result === 'object'
+      ? (event.metadata.result as Record<string, unknown>)
+      : {};
+  const position =
+    event.question_position ??
+    number(event.metadata.position) ??
+    number(event.metadata.question_position) ??
+    number(result.position);
   const details: string[] = [];
   if (position) details.push(`Question ${position}`);
-  if (event.action === 'adaptive.selected' && number(event.metadata.next_position)) details.push(`Next: question ${event.metadata.next_position}`);
-  if (event.action === 'question.prepared' && number(event.metadata.total)) details.push(`${event.metadata.total} questions planned`);
-  if (event.action === 'questions.prepared' && number(event.metadata.count)) details.push(`${event.metadata.count} questions ready`);
-  if (event.action === 'answer.saved' && number(event.metadata.revision)) details.push(`Saved revision ${event.metadata.revision}`);
-  if (event.action === 'assessment.question.scored' && typeof result.score === 'number' && typeof result.max_score === 'number') {
+  if (
+    event.action === 'adaptive.selected' &&
+    number(event.metadata.next_position)
+  )
+    details.push(`Next: question ${event.metadata.next_position}`);
+  if (event.action === 'question.prepared' && number(event.metadata.total))
+    details.push(`${event.metadata.total} questions planned`);
+  if (event.action === 'questions.prepared' && number(event.metadata.count))
+    details.push(`${event.metadata.count} questions ready`);
+  if (event.action === 'answer.saved' && number(event.metadata.revision))
+    details.push(`Saved revision ${event.metadata.revision}`);
+  if (
+    event.action === 'assessment.question.scored' &&
+    typeof result.score === 'number' &&
+    typeof result.max_score === 'number'
+  ) {
     details.push(`Provisional score: ${result.score}/${result.max_score}`);
   }
   if (event.action === 'proctor.observed') {
-    if (typeof event.metadata.kind === 'string') details.push(event.metadata.kind.replaceAll('_', ' '));
+    if (typeof event.metadata.kind === 'string')
+      details.push(event.metadata.kind.replaceAll('_', ' '));
     details.push('Observation only; requires human review');
   }
   return { title, performedBy, details };

@@ -6,11 +6,21 @@ export function savedToken(): string | null {
   try {
     const token = sessionStorage.getItem(sessionKey);
     return token && /^[a-f0-9]{64}$/.test(token) ? token : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 export function rememberToken(token: string): void {
-  try { sessionStorage.setItem(sessionKey, token); } catch { /* Storage can be disabled by browser policy. */ }
+  try {
+    sessionStorage.setItem(sessionKey, token);
+  } catch {
+    /* Storage can be disabled by browser policy. */
+  }
 }
 export function forgetToken(): void {
-  try { sessionStorage.removeItem(sessionKey); } catch { /* In-memory logout still works. */ }
+  try {
+    sessionStorage.removeItem(sessionKey);
+  } catch {
+    /* In-memory logout still works. */
+  }
 }

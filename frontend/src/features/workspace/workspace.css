@@ -313,7 +313,7 @@
   @apply bg-radial-[ellipse_at_top_right] from-indigo-500/12 to-transparent;
 }
 .interviewer-workspace .job-icon {
-  @apply size-10 rounded-xl bg-indigo-50 text-primary;
+  @apply size-[38px] rounded-xl bg-indigo-50 text-primary;
 }
 .interviewer-workspace .job-card h3 {
   @apply mb-1 mt-4 text-body leading-snug font-normal text-slate-900;
