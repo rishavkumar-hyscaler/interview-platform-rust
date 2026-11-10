@@ -1,9 +1,11 @@
+import { RefreshButton } from '../../components/ui/refresh-button';
+import { AnimatedCount, DashboardCard } from './DashboardCard';
 import { Button } from '../../components/ui/button';
 import { InterviewerProfile, useInterviewerAccount } from './InterviewerProfile';
 import { LiveScreenViewer } from '../live-screen/LiveScreenViewer';
 import { auditPresentation } from './auditPresentation';
 import { ExpandableSection } from './ExpandableSection';
-import { ArrowLeft, Home, Menu, Moon, Sun, UserRound, X } from 'lucide-react';
+import { ArrowLeft, BriefcaseBusiness, ChartNoAxesColumn, ClipboardList, History, Home, Moon, PanelLeftClose, PanelLeftOpen, Sun, UserRound } from 'lucide-react';
 import { useWorkspaceTheme } from './useWorkspaceTheme';
 import './workspace.css';
 import { JobQuestionSets } from './JobQuestionSets';
@@ -26,7 +28,8 @@ type ReviewSection = typeof reviewSections[number][0];
 
 const JOBS_PER_PAGE = 6;
 
-type View = 'interviewer' | 'reviewer' | 'audit' | 'profile';
+type View = 'interviewer' | 'reviewer' | 'audit' | 'profile' | 'question-bank';
+type WorkspacePage = View | { job: Pick<Job, 'id' | 'title' | 'job_code'> };
 const message = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please retry.';
 const date = (value: string | null) => value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 export function Status({ state }: { state: string }) { return <span className={`status status-${state}`}>{state.replaceAll('_', ' ')}</span>; }
@@ -63,11 +66,12 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
   const { theme, toggleTheme } = useWorkspaceTheme();
   const api = useMemo(() => workspaceApi(token), [token]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const sidebarToggle = useRef<HTMLButtonElement>(null);
-  const [viewHistory, setViewHistory] = useState<View[]>(['interviewer']);
-  const view = viewHistory.at(-1) ?? 'interviewer';
+  const [viewHistory, setViewHistory] = useState<WorkspacePage[]>(['interviewer']);
+  const page = viewHistory.at(-1) ?? 'interviewer';
+  const view = typeof page === 'string' ? page : 'analytics';
+  const analyticsJob = typeof page === 'string' ? null : page.job;
 
-  function navigateTo(next: View) {
+  function navigateTo(next: WorkspacePage) {
     setViewHistory(history => history.at(-1) === next ? history : [...history, next]);
   }
 
@@ -89,9 +93,11 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
   const [modal, setModal] = useState<'job' | 'invite' | null>(null);
   const [inviteJob, setInviteJob] = useState('');
   const [inviteDuration, setInviteDuration] = useState(30);
-  const [analyticsJobId, setAnalyticsJobId] = useState<string | null>(null);
-  const analyticsJob = jobs.items.find(job => job.id === analyticsJobId);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deletingJob, setDeletingJob] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const expandedJob = jobs.items.find(job => job.id === expandedJobId);
   const [readyDurations, setReadyDurations] = useState<Record<string, number[]>>({});
   const updateReady = useCallback((job: string, durations: number[]) => setReadyDurations(previous => ({ ...previous, [job]: durations })), []);
@@ -183,6 +189,21 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
       setSessionCursors(cursors);
     });
   }
+  async function deleteJob(job: Job) {
+    if (deletingJob) return;
+    setDeletingJob(true);
+    setDeleteError('');
+    try {
+      await api.deleteJob(job.id);
+      setExpandedJobId(null);
+      setJobs(page => ({ ...page, items: page.items.filter(item => item.id !== job.id) }));
+      await run(refresh);
+    } catch (failure) {
+      setDeleteError(message(failure));
+    } finally {
+      setDeletingJob(false);
+    }
+  }
   async function refresh() {
     const [j, s, a, counts] = await Promise.all([api.jobs(undefined, JOBS_PER_PAGE), api.sessions(), api.audit(undefined, undefined, auditFilters), api.summary()]);
     setJobCursors([]);
@@ -242,48 +263,48 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
   return <div className="interviewer-workspace flex min-h-screen [--sidebar-width:clamp(248px,18vw,350px)] bg-slate-50 text-slate-900 max-sm:flex-col workspace-dark:bg-slate-950 workspace-dark:text-slate-100" data-theme={theme}>
     <aside
       id="interviewer-sidebar"
-      inert={!sidebarOpen}
-      aria-hidden={!sidebarOpen}
-      className={`flex flex-col overflow-hidden border-indigo-200 bg-indigo-100 sm:fixed sm:inset-y-0 sm:left-0 sm:z-10 sm:w-[var(--sidebar-width)] sm:overflow-y-auto sm:border-r sm:border-solid sm:px-4 sm:py-7 sm:shadow-sm 2xl:px-5 workspace-dark:border-slate-800 workspace-dark:bg-slate-900 motion-safe:transition-[translate,max-height,padding,opacity] motion-safe:duration-200 motion-safe:ease-out ${sidebarOpen
-        ? 'max-sm:max-h-64 max-sm:border-b max-sm:border-solid max-sm:p-4 sm:translate-x-0'
-        : 'max-sm:max-h-0 max-sm:px-4 max-sm:py-0 max-sm:opacity-0 sm:-translate-x-full'}`}
+      className={`flex flex-col overflow-hidden max-sm:border-b max-sm:border-solid max-sm:p-3 border-indigo-200 bg-indigo-100 sm:fixed sm:inset-y-0 sm:left-0 sm:z-10 sm:overflow-y-auto sm:border-r sm:border-solid sm:shadow-sm workspace-dark:border-slate-800 workspace-dark:bg-slate-900 motion-safe:transition-[width,padding] motion-safe:duration-200 motion-safe:ease-out ${sidebarOpen
+        ? 'sm:w-[var(--sidebar-width)] sm:px-4 2xl:px-5'
+        : 'sm:w-18 sm:px-3'}`}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-indigo-200 pb-4 workspace-dark:border-slate-800">
-        <a className="flex min-w-0 items-center gap-2 text-subheading font-semibold tracking-tight" href="#" onClick={event => { event.preventDefault(); navigateTo('interviewer'); }}><span aria-hidden="true" className="logo-mark shrink-0">i</span><span className="font-display text-subheading font-semibold tracking-tight uppercase text-primary workspace-dark:text-indigo-400">Interview</span><span className="text-indigo-500"> / </span></a>
-        <Button aria-label="Close navigation" className="size-8 min-h-8 shrink-0 p-0" onClick={() => {
-          setSidebarOpen(false);
-          requestAnimationFrame(() => sidebarToggle.current?.focus());
-        }}><X size={17} aria-hidden="true" /></Button>
+      <div className={`flex items-center gap-2 border-b border-indigo-200 pb-3 sm:h-16 sm:shrink-0 sm:pb-0 workspace-dark:border-slate-800 ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
+        {sidebarOpen && <a className="flex min-w-0 items-center gap-2 text-subheading font-semibold tracking-tight" href="#" onClick={event => { event.preventDefault(); navigateTo('interviewer'); }}><span aria-hidden="true" className="logo-mark shrink-0">i</span><span className="font-display text-subheading font-semibold tracking-tight uppercase text-primary workspace-dark:text-indigo-400">Interview</span><span className="text-indigo-500"> / </span></a>}
+        <Button aria-label={sidebarOpen ? 'Collapse navigation' : 'Expand navigation'}
+          aria-controls="interview-navigation" aria-expanded={sidebarOpen}
+          className="size-9 min-h-9 shrink-0 p-0" onClick={() => setSidebarOpen(open => !open)}>
+          {sidebarOpen ? <PanelLeftClose size={18} aria-hidden="true" /> : <PanelLeftOpen size={18} aria-hidden="true" />}
+        </Button>
       </div>
-      <nav className="mt-5 flex min-h-0 flex-1 flex-col gap-2 max-sm:mt-3 max-sm:grid max-sm:grid-cols-3" aria-label="Interview navigation">
+      <nav id="interview-navigation" className="mt-5 flex min-h-0 flex-1 flex-col gap-2 max-sm:mt-3 max-sm:grid max-sm:grid-cols-4" aria-label="Interview navigation">
         {([
-          ['interviewer', 'Jobs & invitations', 'Jobs'],
-          ['reviewer', 'Interview results', 'Results'],
-          ['audit', 'Audit trail', 'Audit'],
-        ] as const).map(([key, label, shortLabel]) => <Button
+          ['interviewer', 'Jobs & invitations', 'Jobs', BriefcaseBusiness],
+          ['reviewer', 'Interview results', 'Results', ClipboardList],
+          ['question-bank', 'Question-bank analytics', 'Analytics', ChartNoAxesColumn],
+          ['audit', 'Audit trail', 'Audit', History],
+        ] as const).map(([key, label, shortLabel, Icon]) => <Button
           key={key}
           aria-label={label}
-          aria-current={view === key ? 'page' : undefined}
-          className="min-h-11 w-full min-w-0 justify-start px-3 py-2 text-left text-control aria-[current=page]:ring-1 aria-[current=page]:ring-focus max-sm:justify-center max-sm:px-1"
+          title={sidebarOpen ? undefined : label}
+          aria-current={view === key || (view === 'analytics' && key === 'question-bank') ? 'page' : undefined}
+          className={`min-h-11 w-full min-w-0 py-2 text-control aria-[current=page]:ring-1 aria-[current=page]:ring-focus ${sidebarOpen ? 'px-2 sm:justify-start sm:px-3' : 'justify-center px-0'}`}
           onClick={() => navigateTo(key)}
         >
-          <span className="hidden sm:inline-flex">{label}</span>
-          <span className="sm:hidden">{shortLabel}</span>
+          <Icon size={18} className="shrink-0" aria-hidden="true" />
+          {sidebarOpen && <>
+            <span className="hidden truncate sm:inline">{label}</span>
+            <span className="truncate sm:hidden">{shortLabel}</span>
+          </>}
         </Button>)}
       </nav>
     </aside>
-    <div className={`flex min-w-0 flex-1 flex-col motion-safe:transition-[margin-left] motion-safe:duration-200 motion-safe:ease-out ${sidebarOpen ? 'sm:ml-[var(--sidebar-width)]' : ''}`}><header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-solid border-slate-200 bg-white px-4 text-control text-slate-700 sm:px-6 workspace-dark:border-slate-800 workspace-dark:bg-slate-900 workspace-dark:text-slate-200"><div className="flex min-w-0 items-center gap-3">
-      {!sidebarOpen && <Button ref={sidebarToggle} aria-label="Open navigation" aria-controls="interviewer-sidebar" aria-expanded={false} className="size-9 min-h-9 shrink-0 p-0" onClick={() => {
-        setSidebarOpen(true);
-        requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('#interviewer-sidebar button')?.focus());
-      }}><Menu size={18} aria-hidden="true" /></Button>}
+    <div className={`flex min-w-0 flex-1 flex-col motion-safe:transition-[margin-left] motion-safe:duration-200 motion-safe:ease-out ${sidebarOpen ? 'sm:ml-[var(--sidebar-width)]' : 'sm:ml-18'}`}><header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-solid border-slate-200 bg-white px-4 text-control text-slate-700 sm:px-6 workspace-dark:border-slate-800 workspace-dark:bg-slate-900 workspace-dark:text-slate-200"><div className="flex min-w-0 items-center gap-3">
       <nav aria-label="Workspace navigation" className="flex shrink-0 gap-1">
         <Button type="button" aria-label="Go back" title="Back" disabled={viewHistory.length < 2}
           className="size-9 min-h-9 p-0" onClick={goBack}><ArrowLeft size={18} aria-hidden="true" /></Button>
         <Button type="button" aria-label="Go home" title="Home"
           className="size-9 min-h-9 p-0" onClick={() => navigateTo('interviewer')}><Home size={18} aria-hidden="true" /></Button>
       </nav>
-      <span className="hidden truncate sm:inline">Interviews <span className="muted">/ {view === 'profile' ? 'Profile' : view === 'audit' ? 'Audit trail' : view === 'reviewer' ? 'Interview results' : 'Jobs & invitations'}</span></span></div><div className="flex shrink-0 items-center gap-2 sm:gap-4"><button type="button" role="switch" aria-label="Dark mode" aria-checked={theme === 'dark'} onClick={toggleTheme} className="group inline-flex min-h-10 items-center gap-2 rounded-lg border-0 bg-transparent px-2 text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 workspace-dark:text-slate-300">
+      <span className="hidden truncate sm:inline">Interviews <span className="muted">/ {view === 'analytics' || view === 'question-bank' ? 'Question-bank analytics' : view === 'profile' ? 'Profile' : view === 'audit' ? 'Audit trail' : view === 'reviewer' ? 'Interview results' : 'Jobs & invitations'}</span></span></div><div className="flex shrink-0 items-center gap-2 sm:gap-4"><button type="button" role="switch" aria-label="Dark mode" aria-checked={theme === 'dark'} onClick={toggleTheme} className="group inline-flex min-h-10 items-center gap-2 rounded-lg border-0 bg-transparent px-2 text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 workspace-dark:text-slate-300">
         <Sun size={16} aria-hidden="true" />
         <span aria-hidden="true" className="relative h-5 w-9 rounded-full bg-slate-400 transition-colors group-aria-checked:bg-primary motion-reduce:transition-none">
           <span className="absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow-sm transition-transform group-aria-checked:translate-x-4 motion-reduce:transition-none" />
@@ -298,9 +319,23 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
             <Button onClick={() => { accountMenu.current?.hidePopover(); onLogout(); }}>Sign out</Button>
           </div>
         </div></div></header>
-      <main className="dashboard flex w-full flex-1 flex-col">{view === 'profile' ? <InterviewerProfile account={account} onLogout={onLogout} /> : <><div className="page-heading"><div><h1 className="font-display">{view === 'reviewer' ? 'Interview results' : view === 'audit' ? 'Audit trail' : 'Jobs & invitations'}</h1></div><div className="actions"><button className="button secondary" disabled={busy || loading} onClick={() => void run(refresh)}>↻ Refresh</button>{view === 'interviewer' && <button className="button" disabled={busy || loading} onClick={() => openModal('job')}>+ Create job</button>}</div></div>
+      <main className="dashboard flex w-full flex-1 flex-col">{view === 'profile' ? <InterviewerProfile account={account} onLogout={onLogout} /> : analyticsJob ? <section aria-labelledby="analytics-title">
+        <header className="page-heading">
+          <div className="min-w-0">
+            <h1 id="analytics-title" className="font-display">Question-bank analytics</h1>
+            <p className="mb-0 break-words text-control">{analyticsJob.title} · {analyticsJob.job_code}</p>
+          </div>
+        </header>
+        <Analytics key={analyticsJob.id} job={analyticsJob.id} token={token} />
+      </section> : <><div className="page-heading"><div><h1 className="font-display">{view === 'question-bank' ? 'Question-bank analytics' : view === 'reviewer' ? 'Interview results' : view === 'audit' ? 'Audit trail' : 'Jobs & invitations'}</h1></div><div className="actions"><RefreshButton pending={refreshing} disabled={busy || loading} onClick={() => {
+          setRefreshing(true);
+          setError('');
+          void refresh()
+            .catch(failure => setError(message(failure)))
+            .finally(() => setRefreshing(false));
+        }}>Refresh</RefreshButton>{view === 'interviewer' && <button className="button" disabled={busy || loading} onClick={() => openModal('job')}>+ Create job</button>}</div></div>
         {error && <div className="error" role="alert">{error}</div>}
-        {view === 'reviewer' && <div className="stats">{[['Total roles', summary.jobs, 'Job descriptions created'], ['Invitations', summary.sessions, 'Across all your roles'], ['Active sessions', summary.active, 'Ready or in progress'], ['Ready for review', summary.reviewable, 'Submitted, scoring, or completed']].map(([label, value, help]) => <div className="stat" key={label}><span>{label}</span><strong>{loading ? '—' : value}</strong><small>{help}</small></div>)}</div>}
+        {view === 'reviewer' && <div className="stats">{[['Total roles', summary.jobs, 'Job descriptions created'], ['Invitations', summary.sessions, 'Across all your roles'], ['Active sessions', summary.active, 'Ready or in progress'], ['Ready for review', summary.reviewable, 'Submitted, scoring, or completed']].map(([label, value, help], index) => <DashboardCard variant="metric" index={index} key={label}><span>{label}</span><AnimatedCount value={loading ? null : Number(value)} /><small>{help}</small></DashboardCard>)}</div>}
         {loading ? <section className="panel empty" role="status">Loading your interviews…</section> : view === 'audit' ? <section className="panel pt-6" aria-label="Audit events">
           <form className="audit-filters px-6 max-sm:px-4" onSubmit={applyAuditFilters} onReset={() => { setAuditForm({ candidate: "", job: "", from: "", until: "" }); void loadAudit({}); }}>
             <label>Candidate<input name="candidate" value={auditForm.candidate} onChange={event => setAuditForm({ ...auditForm, candidate: event.target.value })} placeholder="Name or email" /></label>
@@ -334,8 +369,8 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
           </nav>
         </section> : <>
           {view === 'interviewer' && <section className="panel" aria-label="Your roles">{jobs.items.length ? <div className="job-grid items-stretch! pt-6">
-            {jobs.items.map(job => (
-              <article key={job.id} className="job-card group relative gap-3 hover:border-indigo-400! focus-within:border-indigo-400! motion-safe:transition-[transform,box-shadow,border-color]! motion-safe:hover:-translate-y-1">
+            {jobs.items.map((job, index) => (
+              <DashboardCard variant="job" index={index} key={job.id}>
                 <div className="flex items-start justify-between gap-3">
                   <span className="pill max-w-full break-all">{job.job_code}</span>
                   <span aria-hidden="true" className="job-icon grid shrink-0 place-items-center motion-safe:transition-transform motion-safe:group-hover:translate-x-0.5 motion-safe:group-hover:-translate-y-0.5">↗</span>
@@ -348,8 +383,8 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
                 </div>
                 <button type="button" className="absolute inset-0 cursor-pointer rounded-xl border-0 bg-transparent p-0 hover:bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
                   aria-label={`Open job details for ${job.job_code}: ${job.title}`} aria-haspopup="dialog"
-                  onClick={() => setExpandedJobId(job.id)} />
-              </article>
+                  onClick={() => { setConfirmDelete(false); setDeleteError(''); setExpandedJobId(job.id); }} />
+              </DashboardCard>
             ))}
           </div> : <div className="empty"><div className="empty-icon">▧</div><h3>Your first interview starts here</h3><p>Add a job description to create your first role.</p><button className="button" onClick={() => openModal('job')}>+ Create your first job</button></div>}{jobPagination}</section>}
           {view === 'reviewer' && <section className="panel" aria-label="Candidate interviews"><div className="table-toolbar"><input aria-label="Search interviews on this page" placeholder="Search this page…" value={search} onChange={e => setSearch(e.target.value)} /><select aria-label="Filter interview status on this page" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">All statuses</option>{['invited', 'ready', 'in_progress', 'submitted', 'scoring', 'completed', 'expired'].map(s => <option value={s} key={s}>{s.replaceAll('_', ' ')}</option>)}</select></div>
@@ -359,36 +394,21 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
               <Button disabled={busy || sessionCursors.length === 0} onClick={() => void changeSessionPage('previous')}>← Previous</Button>
               <span className="text-control tabular-nums" aria-live="polite">Page {sessionCursors.length + 1} · {summary.sessions} {summary.sessions === 1 ? 'interview' : 'interviews'} total</span>
               <Button disabled={busy || !sessions.next_cursor} onClick={() => void changeSessionPage('next')}>Next →</Button>
-            </nav></section>}{view === 'reviewer' && jobs.items.length > 0 && <section className="panel">
-            <div className="panel-heading"><h2>Question-bank analytics</h2></div>
-            <div className="job-grid items-stretch!">{jobs.items.map(job => <article className="job-card" key={job.id}>
+            </nav></section>}{view === 'question-bank' && <section className="panel" aria-label="Jobs for analytics">
+            {jobs.items.length === 0 && <p className="empty">Create a job to see question-bank analytics here.</p>}
+            <div className="job-grid items-stretch! pt-6">{jobs.items.map((job, index) => <DashboardCard variant="analytics" index={index} key={job.id}>
               <div className="flex items-start justify-between gap-3">
                 <h3 className="min-w-0 break-words mt-0!">{job.title}</h3>
                 <Button className="job-icon min-h-0 shrink-0 p-0" aria-label={`Open analytics for ${job.title}`}
-                  aria-haspopup="dialog" onClick={() => setAnalyticsJobId(job.id)}>↗</Button>
+                  onClick={() => { navigateTo({ job }); window.scrollTo(0, 0); }}>↗</Button>
               </div>
               <p className="job-code">Job ID: <strong>{job.job_code}</strong></p>
               <p className="job-description">{job.description}</p>
-              <button type="button" className="text-button accent" aria-haspopup="dialog"
-                onClick={() => setAnalyticsJobId(job.id)}>View analytics →</button>
-            </article>)}</div>
+            </DashboardCard>)}</div>
             {jobPagination}
           </section>}</>}
       </>}<footer className="mt-auto">INTERVIEW PLATFORM <span>Structured interviews · Evidence-grounded review</span></footer></main></div>
-    {analyticsJob && <Dialog title="analytics-title" onClose={() => setAnalyticsJobId(null)}>
-      <section className="modal detail-modal w-[min(1200px,calc(100vw-2rem))]!">
-        <header className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="eyebrow">QUESTION PERFORMANCE</p>
-            <h2 id="analytics-title" className="break-words">{analyticsJob.title}</h2>
-            <p className="job-code">Job ID: <strong>{analyticsJob.job_code}</strong></p>
-          </div>
-          <Button className="icon-button shrink-0" aria-label="Close analytics" onClick={() => setAnalyticsJobId(null)}>×</Button>
-        </header>
-        <Analytics job={analyticsJob.id} token={token} />
-      </section>
-    </Dialog>}
-    {expandedJob && <Dialog title="job-details-title" onClose={() => setExpandedJobId(null)}>
+    {expandedJob && <Dialog title="job-details-title" busy={deletingJob} onClose={() => setExpandedJobId(null)}>
       <section className="modal detail-modal">
         <div className="panel-heading">
           <div className="min-w-0">
@@ -396,23 +416,39 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
             <h2 id="job-details-title" className="break-words">{expandedJob.title}</h2>
             <p>Job ID {expandedJob.job_code} · {expandedJob.session_count} {expandedJob.session_count === 1 ? 'invitation' : 'invitations'}</p>
           </div>
-          <Button type="button" className="icon-button shrink-0" aria-label="Close job details" onClick={() => setExpandedJobId(null)}>×</Button>
+          <Button type="button" className="icon-button shrink-0" aria-label="Close job details" disabled={deletingJob} onClick={() => setExpandedJobId(null)}>×</Button>
         </div>
         <div className="my-6">
           <h3>Job description</h3>
           <p className="preserve max-w-prose break-words">{expandedJob.description}</p>
         </div>
         <JobQuestionSets job={expandedJob.id} token={token} onReadyChange={updateReady} />
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <Button disabled={!readyDurations[expandedJob.id]?.length} onClick={() => {
-            setExpandedJobId(null);
-            openModal('invite', expandedJob.id);
-          }}>Invite a candidate</Button>
-          {!readyDurations[expandedJob.id]?.length && <small className="muted">Invitations unlock when a question set is complete.</small>}
+        <div className="mt-6 flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <Button disabled={!readyDurations[expandedJob.id]?.length} onClick={() => {
+              setExpandedJobId(null);
+              openModal('invite', expandedJob.id);
+            }}>Invite a candidate</Button>
+            {!readyDurations[expandedJob.id]?.length && <small className="muted">Invitations unlock when a question set is complete.</small>}
+          </div>
+          <Button className="shrink-0 text-rose-700 workspace-dark:text-rose-300" aria-haspopup="dialog"
+            onClick={() => { setDeleteError(''); setConfirmDelete(true); }}>Delete job</Button>
         </div>
       </section>
     </Dialog>}
-    {modal && <Dialog title="modal-title" onClose={() => setModal(null)} busy={busy}><section className="modal"><div className="panel-heading"><h2 id="modal-title">{modal === 'job' ? 'Create a job' : invitation ? 'Invitation created' : 'Invite a candidate'}</h2><button className="icon-button" aria-label="Close dialog" disabled={busy} onClick={() => setModal(null)}>×</button></div>{error && <p className="error" role="alert">{error}</p>}{invitation ? <><p>Share this private link with the candidate. The link grants access to this session and expires in seven days.</p><label>Candidate invitation link<textarea readOnly rows={4} value={invitation} onFocus={e => e.currentTarget.select()} /></label><p className="muted">This link is saved securely. You can retrieve it again from the session details to share later.</p><button className="button" onClick={() => setModal(null)}>Done</button></> : <form onSubmit={save} onChange={() => setRequestKey(crypto.randomUUID())}>{modal === 'job' ? <><label>Job ID<input name="job_code" required maxLength={64} placeholder="e.g. BE-2026-001" autoComplete="off" aria-describedby="job-code-help" /></label><p id="job-code-help" className="muted">Unique for your account, ignoring letter case. Start with a letter or number; use letters, numbers, hyphens or underscores.</p><label>Job title<input name="title" required maxLength={160} placeholder="e.g. Senior Backend Engineer" /></label><label>Job description<textarea name="description" required minLength={20} maxLength={20000} rows={8} placeholder="Describe the role, responsibilities, and required skills…" /></label><label>Interview duration (minutes)<input name="preparation_duration_minutes" type="number" min={5} max={180} defaultValue={30} required /></label><label>Number of question sets<input name="question_set_count" type="number" min={1} max={5} defaultValue={1} required /></label><p className="muted">Prepare 1–5 unique sets with reference answers. Each new question is scoped to 2–3 minutes; short interviews use fewer questions. More sets use more AI requests. Only this many sets are created and reused across candidates. No automatic replacements.</p></> : <><label>Role<select name="job_id" defaultValue={inviteJob || jobs.items[0]?.id} onChange={event => { setInviteJob(event.target.value); setInviteDuration(readyDurations[event.target.value]?.[0] ?? 30); }} required>{jobs.items.map(job => <option disabled={!readyDurations[job.id]?.length} key={job.id} value={job.id}>{job.job_code} — {job.title}</option>)}</select></label><label>Candidate name<input name="candidate_name" required maxLength={120} autoComplete="name" /></label><label>Candidate email<input name="candidate_email" type="email" required maxLength={254} autoComplete="email" /></label><label>Interview duration (minutes)<input key={inviteJob} name="duration_minutes" type="number" min={5} max={180} value={inviteDuration} onChange={event => setInviteDuration(Number(event.target.value))} required /></label><p className="muted">Create a private link to share manually. Email delivery is not connected yet.</p>{!readyDurations[inviteJob]?.includes(inviteDuration) && <p className="configuration-note">No completed set is available for this duration. Choose a duration with a ready set before inviting.</p>}</>}<button className="button" disabled={busy || (modal === 'invite' && !readyDurations[inviteJob]?.includes(inviteDuration))}>{busy ? 'Saving…' : modal === 'job' ? 'Create job' : 'Create invitation'}</button></form>}</section></Dialog>}
+    {expandedJob && confirmDelete && <Dialog title="delete-job-title" busy={deletingJob} onClose={() => setConfirmDelete(false)}>
+      <section className="modal w-[min(28rem,calc(100vw-2rem))]!">
+        <h2 id="delete-job-title">Permanently delete {expandedJob.job_code}?</h2>
+        <p>This deletes the job, question sets, invitations, interviews, answers, scores, and related audit and proctoring evidence. This action cannot be undone.</p>
+        {deleteError && <p role="alert" className="error">{deleteError}</p>}
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <Button autoFocus disabled={deletingJob} onClick={() => setConfirmDelete(false)}>Cancel</Button>
+          <Button disabled={deletingJob} className="border-rose-300 bg-rose-100 text-rose-950 hover:bg-rose-200 workspace-dark:border-rose-800 workspace-dark:bg-rose-900 workspace-dark:text-rose-100"
+            onClick={() => void deleteJob(expandedJob)}>{deletingJob ? 'Deleting…' : 'Delete permanently'}</Button>
+        </div>
+      </section>
+    </Dialog>}
+    {modal && <Dialog title="modal-title" onClose={() => setModal(null)} busy={busy}><section className="modal"><div className="panel-heading"><h2 id="modal-title">{modal === 'job' ? 'Create a job' : invitation ? 'Invitation created' : 'Invite a candidate'}</h2><button className="icon-button" aria-label="Close dialog" disabled={busy} onClick={() => setModal(null)}>×</button></div>{error && <p className="error" role="alert">{error}</p>}{invitation ? <><p>Share this private link with the candidate. The link grants access to this session and expires in seven days.</p><label>Candidate invitation link<textarea readOnly rows={4} value={invitation} onFocus={e => e.currentTarget.select()} /></label><p className="muted">This link is saved securely. You can retrieve it again from the session details to share later.</p><button className="button" onClick={() => setModal(null)}>Done</button></> : <form onSubmit={save} onChange={() => setRequestKey(crypto.randomUUID())}>{modal === 'job' ? <><label>Job ID<input name="job_code" required maxLength={64} placeholder="e.g. BE-2026-001" autoComplete="off" aria-describedby="job-code-help" /></label><p id="job-code-help" className="muted">Unique for your account, ignoring letter case. Start with a letter or number; use letters, numbers, hyphens or underscores.</p><label>Job title<input name="title" required maxLength={160} placeholder="e.g. Senior Backend Engineer" /></label><label>Job description<textarea name="description" required minLength={20} maxLength={20000} rows={8} placeholder="Describe the role, responsibilities, and required skills…" /></label><label>Interview duration (minutes)<input name="preparation_duration_minutes" type="number" min={5} max={180} defaultValue={30} required /></label><label>Number of question sets<input name="question_set_count" type="number" min={1} max={5} defaultValue={1} required /></label><p className="muted">Prepare 1–5 unique sets with reference answers. Each new question is scoped to 2–3 minutes; short interviews use fewer questions. More sets use more AI requests. Only this many sets are created and reused across candidates. No automatic replacements.</p></> : <><label>Role<select name="job_id" defaultValue={inviteJob || jobs.items[0]?.id} onChange={event => { setInviteJob(event.target.value); setInviteDuration(readyDurations[event.target.value]?.[0] ?? 30); }} required>{jobs.items.map(job => <option disabled={!readyDurations[job.id]?.length} key={job.id} value={job.id}>{job.job_code} — {job.title}</option>)}</select></label><label>Candidate name<input name="candidate_name" required maxLength={120} autoComplete="name" /></label><label>Candidate email<input name="candidate_email" type="email" required maxLength={254} autoComplete="email" /></label><label>Interview duration (minutes)<input key={inviteJob} name="duration_minutes" type="number" min={5} max={180} value={inviteDuration} onChange={event => setInviteDuration(Number(event.target.value))} required /></label><p className="muted">Create a private link to share manually. Email delivery is not connected yet.</p>{!readyDurations[inviteJob]?.includes(inviteDuration) && <p className="configuration-note">No completed set is available for this duration. Choose a duration with a ready set before inviting.</p>}</>}<button className="button" disabled={busy || refreshing || (modal === 'invite' && !readyDurations[inviteJob]?.includes(inviteDuration))}>{busy ? 'Saving…' : modal === 'job' ? 'Create job' : 'Create invitation'}</button></form>}</section></Dialog>}
     {selected && <Dialog title="detail-title" onClose={() => setSelected(null)}><section className="modal detail-modal flex! h-[88dvh] w-[min(1280px,calc(100vw-2rem))]! flex-col overflow-hidden! p-0!"><div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-6 workspace-dark:border-slate-700"><div className="min-w-0"><p className="eyebrow m-0!">SESSION DETAILS</p><h2 id="detail-title" className="mt-1 truncate text-section-title font-semibold">{selected.candidate_name}</h2><p className="m-0! truncate text-control text-slate-500 workspace-dark:text-slate-400">{selected.candidate_email}</p></div><button className="icon-button shrink-0" aria-label="Close session details" onClick={() => setSelected(null)}>×</button></div><div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] md:grid-cols-[13rem_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)]">
       <nav aria-label="Session sections" className="flex min-w-0 gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-3 md:flex-col md:border-r md:border-b-0 workspace-dark:border-slate-700 workspace-dark:bg-slate-900">
         {reviewSections.map(([id, label]) => <button

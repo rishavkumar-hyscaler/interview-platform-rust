@@ -4,7 +4,7 @@ use crate::controllers::interview_controller::{list_sessions, session_detail, su
 use crate::controllers::invitation_controller::{invite, retrieve_invitation};
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use sqlx::PgPool;
 pub fn routes() -> Router<PgPool> {
@@ -22,6 +22,10 @@ pub fn routes() -> Router<PgPool> {
             "/api/v1/jobs",
             get(crate::controllers::job_controller::list_jobs)
                 .post(crate::controllers::job_controller::create_job),
+        )
+        .route(
+            "/api/v1/jobs/{job}",
+            delete(crate::controllers::job_controller::delete_job),
         )
         .route("/api/v1/jobs/{job}/invitations", post(invite))
         .route("/api/v1/sessions", get(list_sessions))

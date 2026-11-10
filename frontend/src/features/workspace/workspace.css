@@ -6,6 +6,24 @@
 @source "./**/*.tsx";
 @source "../../components/ui/**/*.tsx";
 @theme {
+  --animate-chart-bar: chart-bar-in 460ms ease-out var(--card-delay, 0ms) backwards;
+  @keyframes chart-bar-in {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+  }
+
+  --animate-dashboard-card: dashboard-card-in 300ms ease-out var(--card-delay, 0ms) backwards;
+  @keyframes dashboard-card-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
   --animate-accordion-down: accordion-down 220ms ease-out;
   --animate-accordion-up: accordion-up 180ms ease-out;
   @keyframes accordion-down {
@@ -256,7 +274,7 @@
   @apply text-control font-medium text-slate-500;
 }
 .interviewer-workspace .stat strong {
-  @apply my-3 text-page-title font-semibold leading-tight tracking-tight text-slate-900;
+  @apply my-2 text-section-title font-semibold tracking-tight text-slate-900;
 }
 .interviewer-workspace .stat small {
   @apply text-detail text-slate-500;
@@ -292,7 +310,7 @@
   @apply size-10 rounded-xl bg-indigo-50 text-primary;
 }
 .interviewer-workspace .job-card h3 {
-  @apply mb-1 mt-4 text-subheading font-semibold leading-snug text-slate-900;
+  @apply mb-1 mt-4 text-body font-semibold text-slate-900;
 }
 .interviewer-workspace .job-code {
   @apply my-2 text-detail text-slate-500;
@@ -301,7 +319,7 @@
   @apply font-semibold text-slate-700;
 }
 .interviewer-workspace .job-description {
-  @apply my-2 text-body leading-6 text-slate-500;
+  @apply my-2 text-control text-slate-500;
 }
 .interviewer-workspace .job-meta {
   @apply mb-3 flex-wrap border-slate-100 text-detail text-slate-500;

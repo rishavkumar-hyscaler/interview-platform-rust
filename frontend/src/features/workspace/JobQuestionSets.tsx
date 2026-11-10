@@ -1,3 +1,4 @@
+import { RefreshButton } from '../../components/ui/refresh-button';
 import { ExpandableSection } from './ExpandableSection';
 import { useEffect, useMemo, useState } from 'react';
 import { workspaceApi, type JobPool, type PreparationFailure } from './api';
@@ -15,7 +16,12 @@ export function JobQuestionSets({ job, token, onReadyChange, summaryOnly = false
   const [pool, setPool] = useState<JobPool | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  function reload() {
+    setRefreshing(true);
+    setRefresh(value => value + 1);
+  }
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -32,6 +38,8 @@ export function JobQuestionSets({ job, token, onReadyChange, summaryOnly = false
       } catch (failure) {
         if (active) onReadyChange?.(job, []);
         if (active) setError(failure instanceof Error ? failure.message : 'Unable to load question sets.');
+      } finally {
+        if (active) setRefreshing(false);
       }
     }
     void load();
@@ -53,15 +61,15 @@ export function JobQuestionSets({ job, token, onReadyChange, summaryOnly = false
     }),
   ].join(' · ') : 'loading…';
   if (summaryOnly) {
-    return <span className="text-control text-slate-600 workspace-dark:text-slate-300">
+    return <span className="text-detail text-slate-600 workspace-dark:text-slate-300">
       Question sets · {error ? 'Status unavailable' : counts}
     </span>;
   }
   return <ExpandableSection className="job-question-sets" label={<>Question sets · {counts}</>}>
 
-    {error && <p className="error" role="alert">{error} <button className="text-button" onClick={() => setRefresh(value => value + 1)}>Reload</button></p>}
+    {error && <p className="error" role="alert">{error} <RefreshButton pending={refreshing} disabled={busy} onClick={reload}>Reload</RefreshButton></p>}
     {pool && <>
-      <button className="text-button" onClick={() => setRefresh(value => value + 1)}>Refresh sets</button>
+      <RefreshButton pending={refreshing} disabled={busy} onClick={reload}>Refresh sets</RefreshButton>
       <p>Configured for {pool.target} sets for {pool.duration_minutes}-minute interviews. Each question is validated and saved before the next begins. Prepared sets are reused across candidates, with separate answers for each candidate. No automatic replacements.</p>
       {!pool.configured && <p className="configuration-note">AI is not configured. Queued sets will wait until the generation and embedding services are available.</p>}
       <div className="question-set-list">

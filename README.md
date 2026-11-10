@@ -622,7 +622,7 @@ RLS enforces interviewer ownership. Retrieval additionally accepts only this ses
 
 ### Development schema
 
-There is one migration: `202611040001_initial_schema.sql`, including the RAG tables, indexes and queue triggers. Initialize a fresh database with `cargo run -- --migrate` from `backend/`.
+The baseline migration `202611040001_initial_schema.sql` includes the RAG tables, indexes and queue triggers. The job deletion migration grants the application role permission to delete job data. Apply pending migrations with `cargo run -- --migrate` from `backend/`.
 
 ### Focused verification
 

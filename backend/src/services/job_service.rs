@@ -153,3 +153,15 @@ mod tests {
         assert!(normalize_job_code(&"A".repeat(65)).is_err());
     }
 }
+
+pub(crate) async fn delete(pool: &PgPool, owner: Uuid, job: Uuid) -> Result<()> {
+    let mut tx = interviewer_transaction(pool, owner).await?;
+    let sessions = job_repository::delete(&mut tx, owner, job).await?;
+    tx.commit().await?;
+
+    for session in sessions {
+        super::media_service::remove_session_media(owner, session).await;
+    }
+
+    Ok(())
+}

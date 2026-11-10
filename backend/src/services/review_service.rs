@@ -166,9 +166,10 @@ pub(crate) async fn analytics(pool: &PgPool, owner: Uuid, job: Uuid) -> Result<V
         return Err(ApiError(StatusCode::NOT_FOUND, "Job not found"));
     }
     let groups = repo::analytics(&mut tx, job).await?;
+    let sets = repo::analytics_sets(&mut tx, job).await?;
     tx.commit().await?;
     Ok(
-        json!({"groups":groups,"notice":"Each question is compared with scores on the rest of the same interview. These descriptive results depend on the candidate sample and the other questions in each set."}),
+        json!({"groups":groups,"sets":sets,"notice":"Each question is compared with scores on the rest of the same interview. These descriptive results depend on the candidate sample and the other questions in each set."}),
     )
 }
 pub(crate) async fn metrics(pool: &PgPool, owner: Uuid) -> Result<Value> {

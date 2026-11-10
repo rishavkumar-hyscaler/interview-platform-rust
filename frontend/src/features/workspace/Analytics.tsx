@@ -1,3 +1,4 @@
+import { DashboardCard } from './DashboardCard';
 import { useEffect, useState } from 'react';
 import { request } from '../../api';
 import { HelpTip } from './HelpTip';
@@ -19,7 +20,11 @@ type ScoreGroup = {
   item_total_correlation: number | null;
 };
 
-type Stats = { groups: ScoreGroup[] };
+type Stats = { groups: ScoreGroup[]; sets?: { set_number: number; status: string }[] };
+
+const setStatus: Record<string, string> = {
+  completed: 'Ready', pending: 'Queued', running: 'Preparing', failed: 'Preparation failed',
+};
 
 function readableLabel(value: string) {
   return value.replace(/[_-]+/g, ' ').replace(/\b\w+/g, word => {
@@ -71,7 +76,8 @@ function questionLabel(group: ScoreGroup, index: number) {
     : `Q${index + 1}`;
 }
 
-function QuestionBarChart({ groups, title, help, value, format, maximum }: {
+function QuestionBarChart({ index: cardIndex, groups, title, help, value, format, maximum }: {
+  index: number;
   groups: ScoreGroup[];
   title: string;
   help: string;
@@ -79,12 +85,12 @@ function QuestionBarChart({ groups, title, help, value, format, maximum }: {
   format: (value: number) => string;
   maximum: number;
 }) {
-  return <figure className="m-0 rounded-lg border border-slate-200 p-3 workspace-dark:border-slate-700">
+  return <DashboardCard variant="chart" index={cardIndex}>
     <figcaption className="mb-3 flex items-center justify-between gap-2 font-semibold">
       {title}
       <HelpTip text={help} />
     </figcaption>
-    <ol className="m-0 grid list-none gap-3 p-0">
+    <ol aria-label={title} tabIndex={0} className="m-0 grid max-h-80 list-none gap-3 overflow-y-auto overscroll-contain p-0 pr-2 [scrollbar-gutter:stable]">
       {groups.map((group, index) => {
         const amount = value(group);
         return <li key={group.question_id}>
@@ -93,12 +99,12 @@ function QuestionBarChart({ groups, title, help, value, format, maximum }: {
             <span className="text-right tabular-nums">{amount === null ? 'Unavailable' : format(amount)}</span>
           </div>
           <div aria-hidden="true" className="mt-1 h-1.5 overflow-hidden rounded bg-slate-200 workspace-dark:bg-slate-700">
-            {amount !== null && <div className="h-full rounded bg-indigo-500" style={{ width: `${100 * amount / maximum}%` }} />}
+            {amount !== null && <div className="h-full origin-left rounded bg-indigo-500 motion-safe:animate-chart-bar" style={{ width: `${100 * amount / maximum}%` }} />}
           </div>
         </li>;
       })}
     </ol>
-  </figure>;
+  </DashboardCard>;
 }
 
 const attempts = (group: ScoreGroup) => group.attempt_count ?? group.timing_count;
@@ -107,12 +113,12 @@ function QuestionCharts({ groups }: { groups: ScoreGroup[] }) {
   const maxSeconds = Math.max(1, ...groups.map(group => Number(group.average_seconds ?? 0)));
 
   return <div className="my-4 grid items-start gap-4 lg:grid-cols-2">
-    <figure className="m-0 rounded-lg border border-slate-200 p-3 workspace-dark:border-slate-700">
+    <DashboardCard variant="chart" index={0}>
       <figcaption className="mb-3 flex items-center justify-between gap-2 font-semibold">
         Score separation
         <HelpTip text={`${questionPerformanceHelp} Ratings describe rubric performance. A value closer to +1 means the question better separates candidates who score higher on the rest of the interview from those who score lower. A value near 0 shows little linear separation. Negative values show a reverse pattern.`} />
       </figcaption>
-      <ol className="m-0 grid list-none gap-3 p-0">
+      <ol aria-label="Score separation" tabIndex={0} className="m-0 grid max-h-80 list-none gap-3 overflow-y-auto overscroll-contain p-0 pr-2 [scrollbar-gutter:stable]">
         {groups.map((group, index) => {
           const score = group.item_total_correlation != null
             ? Number(group.item_total_correlation) : null;
@@ -123,7 +129,8 @@ function QuestionCharts({ groups }: { groups: ScoreGroup[] }) {
             </div>
             {score !== null && <div aria-hidden="true" className="relative mt-1 h-1.5 rounded bg-slate-200 workspace-dark:bg-slate-700">
               <span className="absolute inset-y-0 left-1/2 w-px bg-slate-500" />
-              <span className="absolute inset-y-0 rounded bg-indigo-500" style={{
+              <span className="absolute inset-y-0 rounded bg-indigo-500 motion-safe:animate-chart-bar" style={{
+                transformOrigin: score < 0 ? 'right' : 'left',
                 left: `${50 + Math.min(0, score) * 50}%`,
                 width: `${Math.abs(score) * 50}%`,
               }} />
@@ -132,14 +139,14 @@ function QuestionCharts({ groups }: { groups: ScoreGroup[] }) {
           </li>;
         })}
       </ol>
-    </figure>
-    <QuestionBarChart groups={groups} title="Average time per question"
+    </DashboardCard>
+    <QuestionBarChart index={1} groups={groups} title="Average time per question"
       help="Time from opening a question to switching questions, submitting, or reaching the deadline. Includes revisits and idle time."
       value={group => group.average_seconds} format={duration} maximum={maxSeconds} />
-    <QuestionBarChart groups={groups} title="Average rubric score"
+    <QuestionBarChart index={2} groups={groups} title="Average rubric score"
       help="Average points earned on the question, scaled to 10. For example, 1.5/10 means candidates earned 15% of the available rubric points on average."
       value={group => group.mean_points} format={value => `${Number(value).toFixed(1)}/10`} maximum={10} />
-    <QuestionBarChart groups={groups} title="Attempts per question"
+    <QuestionBarChart index={3} groups={groups} title="Attempts per question"
       help="Counts submitted interviews in which the candidate opened the question. Revisits within the same interview count once."
       value={attempts} format={String} maximum={Math.max(1, ...groups.map(attempts))} />
   </div>;
@@ -177,6 +184,11 @@ export function Analytics({ job, token }: { job: string; token: string }) {
       <p>{error}</p>
       <button type="button" className="text-button" onClick={() => { setError(''); setAttempt(value => value + 1); }}>Retry</button>
     </div>}
+    {!!stats?.sets?.length && <ul aria-label="Question set status" className="my-3 flex list-none flex-wrap gap-2 p-0">
+      {stats.sets.map(set => <li key={set.set_number} className="pill">
+        Set {set.set_number} · {setStatus[set.status] ?? readableLabel(set.status)}
+      </li>)}
+    </ul>}
     {stats && (groups.length ? <QuestionCharts groups={groups} /> : <p>Question performance will appear when a question set is ready.</p>)}
   </>;
 }

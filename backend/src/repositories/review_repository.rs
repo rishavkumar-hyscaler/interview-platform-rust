@@ -237,6 +237,26 @@ pub(crate) async fn job_exists(tx: &mut Transaction<'_, Postgres>, job: Uuid) ->
             .await?,
     )
 }
+pub(crate) async fn analytics_sets(
+    tx: &mut Transaction<'_, Postgres>,
+    job: Uuid,
+) -> Result<Vec<Value>> {
+    Ok(sqlx::query_scalar(
+        r#"
+        SELECT jsonb_build_object(
+            'set_number', row_number() OVER (ORDER BY created_at, id),
+            'status', status
+        )
+        FROM question_sets
+        WHERE job_id = $1
+        ORDER BY created_at, id
+        "#,
+    )
+    .bind(job)
+    .fetch_all(&mut **tx)
+    .await?)
+}
+
 pub(crate) async fn analytics(tx: &mut Transaction<'_, Postgres>, job: Uuid) -> Result<Vec<Value>> {
     Ok(sqlx::query_scalar(r#"
         WITH numbered_sets AS (

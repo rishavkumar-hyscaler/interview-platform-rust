@@ -41,11 +41,19 @@ async fn main() -> anyhow::Result<()> {
     };
     let origins = origins
         .split(',')
-        .map(|origin| origin.trim().parse::<axum::http::HeaderValue>())
+        .map(|origin| {
+            origin
+                .trim()
+                .parse::<axum::http::HeaderValue>()
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let cors = tower_http::cors::CorsLayer::new()
         .allow_origin(origins)
-        .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::DELETE,
+        ])
         .allow_headers([
             axum::http::header::AUTHORIZATION,
             axum::http::header::CONTENT_TYPE,

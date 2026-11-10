@@ -72,3 +72,13 @@ fn response(job: Job) -> JobResponse {
         question_set_count: job.question_set_count,
     }
 }
+
+pub(crate) async fn delete_job(
+    State(pool): State<PgPool>,
+    headers: HeaderMap,
+    axum::extract::Path(job): axum::extract::Path<uuid::Uuid>,
+) -> Result<StatusCode> {
+    let (interviewer, _) = authenticate(&pool, &headers).await?;
+    job_service::delete(&pool, interviewer, job).await?;
+    Ok(StatusCode::NO_CONTENT)
+}

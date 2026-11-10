@@ -20,6 +20,7 @@ export function workspaceApi(token: string) {
     audit: (entity?: string, cursor?: string, filters: AuditFilters = {}) => get<AuditPage>(`/audit?${new URLSearchParams({ ...filters, ...(entity ? { entity_id: entity } : {}), ...(cursor ? { cursor } : {}) })}`),
     questionSets: (id: string, signal?: AbortSignal) => request<JobPool>(`${base}/jobs/${id}/question-sets`, { signal }, token),
     retryQuestionSets: (id: string) => post<{ status: string }>(`/jobs/${id}/question-sets`, {}),
+    deleteJob: (id: string) => request<void>(`${base}/jobs/${id}`, { method: 'DELETE' }, token),
     createJob: (data: { question_set_count: number; preparation_duration_minutes: number; job_code: string; title: string; description: string; request_key: string }) => post<Job>('/jobs', data),
     invite: (job: string, data: { candidate_name: string; candidate_email: string; duration_minutes: number; request_key: string }) => post<{ session: Interview; invitation_token: string | null }>(`/jobs/${job}/invitations`, data),
   };

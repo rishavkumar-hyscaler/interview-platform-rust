@@ -266,3 +266,16 @@ mod tests {
         );
     }
 }
+
+pub(crate) async fn remove_session_media(owner: Uuid, session: Uuid) {
+    let directory = root()
+        .join(owner.to_string())
+        .join(session.to_string());
+    match tokio::fs::remove_dir_all(directory).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            tracing::error!(%session, %error, "Job deletion could not remove session media")
+        }
+    }
+}

@@ -109,3 +109,71 @@ pub(crate) async fn list(
     .fetch_all(&mut **tx)
     .await?)
 }
+
+pub(crate) async fn delete(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    owner: Uuid,
+    job: Uuid,
+) -> Result<Vec<Uuid>> {
+    let locked_job: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM jobs WHERE interviewer_id = $1 AND id = $2 FOR UPDATE")
+            .bind(owner)
+            .bind(job)
+            .fetch_optional(&mut **tx)
+            .await?;
+    if locked_job.is_none() {
+        return Ok(Vec::new());
+    }
+
+    let sessions: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM interview_sessions WHERE interviewer_id = $1 AND job_id = $2 FOR UPDATE",
+    )
+    .bind(owner)
+    .bind(job)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM audit_events
+        WHERE interviewer_id = $1
+          AND (
+            entity_id = $2 OR entity_id = ANY($3)
+            OR entity_id IN (
+                SELECT id FROM question_sets WHERE interviewer_id = $1 AND job_id = $2
+            )
+          )
+        "#,
+    )
+    .bind(owner)
+    .bind(job)
+    .bind(&sessions)
+    .execute(&mut **tx)
+    .await?;
+
+    for query in [
+        "DELETE FROM auth_sessions WHERE interviewer_id = $1 AND interview_session_id = ANY($2)",
+        "DELETE FROM interview_answers WHERE interviewer_id = $1 AND session_id = ANY($2)",
+    ] {
+        sqlx::query(query)
+            .bind(owner)
+            .bind(&sessions)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    for query in [
+        "DELETE FROM interview_sessions WHERE interviewer_id = $1 AND job_id = $2",
+        "DELETE FROM interview_questions WHERE interviewer_id = $1 AND job_id = $2",
+        "DELETE FROM question_sets WHERE interviewer_id = $1 AND job_id = $2",
+        "DELETE FROM jobs WHERE interviewer_id = $1 AND id = $2",
+    ] {
+        sqlx::query(query)
+            .bind(owner)
+            .bind(job)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    Ok(sessions)
+}
