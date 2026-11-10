@@ -1,3 +1,5 @@
+import { Button } from '../../components/ui/button';
+import { Select } from '../../components/ui/select';
 import { DashboardCard } from './DashboardCard';
 import { useEffect, useState } from 'react';
 import { request } from '../../api';
@@ -194,31 +196,31 @@ function FilteredQuestionCharts({ groups }: { groups: ScoreGroup[] }) {
   if (sort === 'score') visible.sort((left, right) => (right.mean_points ?? -1) - (left.mean_points ?? -1));
 
   return <>
-    <div className="mt-4 flex flex-wrap gap-3">
+    <div className="mt-4 flex flex-wrap justify-end gap-3">
       <label className="flex items-center gap-2 text-control">
         Set
-        <select value={set} onChange={event => { setSet(event.target.value); setQuestion(''); }}>
+        <Select value={set} onChange={event => { setSet(event.target.value); setQuestion(''); }}>
           <option value="">All sets</option>
           {sets.map(number => <option key={number} value={number}>Set {number}</option>)}
-        </select>
+        </Select>
       </label>
       <label className="flex items-center gap-2 text-control">
         Question
-        <select value={question} onChange={event => setQuestion(event.target.value)}>
+        <Select value={question} onChange={event => setQuestion(event.target.value)}>
           <option value="">All questions</option>
           {available.map((group, index) => <option key={group.question_id} value={group.question_id}>
             {questionLabel(group, index)}
           </option>)}
-        </select>
+        </Select>
       </label>
-      <label className="flex items-center gap-2 text-control">
+      <label className="flex items-center gap-2 whitespace-nowrap text-control">
         Sort by
-        <select value={sort} onChange={event => setSort(event.target.value)}>
+        <Select value={sort} onChange={event => setSort(event.target.value)}>
           <option value="question">Set and question</option>
           <option value="attempts">Most attempts</option>
           <option value="time">Longest average time</option>
           <option value="score">Highest average score</option>
-        </select>
+        </Select>
       </label>
     </div>
     <QuestionCharts groups={visible} />
@@ -255,7 +257,7 @@ export function Analytics({ job, token }: { job: string; token: string }) {
     {loading && <p role="status">Loading question performance…</p>}
     {error && <div role="alert" className="error">
       <p>{error}</p>
-      <button type="button" className="text-button" onClick={() => { setError(''); setAttempt(value => value + 1); }}>Retry</button>
+      <Button type="button" variant="text" onClick={() => { setError(''); setAttempt(value => value + 1); }}>Retry</Button>
     </div>}
     {!!stats?.sets?.length && <ul aria-label="Question set status" className="my-3 flex list-none flex-wrap gap-2 p-0">
       {stats.sets.map(set => <li key={set.set_number} className="pill">

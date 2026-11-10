@@ -1,3 +1,4 @@
+import { Button } from '../../components/ui/button';
 import { ExpandableSection } from './ExpandableSection';
 import { useEffect, useMemo, useState } from 'react';
 import { workspaceApi, type Generation, type Interview } from './api';
@@ -27,7 +28,7 @@ export function QuestionPreparation({ interview, token }: { interview: Interview
   const pending = generation?.status === 'pending' || generation?.status === 'running';
   return <section className="question-preparation" aria-label="Interview question preparation">
     <div className="preparation-heading"><h3>Interview questions & rubrics</h3>{generation && <span className={`status status-${generation.status}`}>{generation.status.replaceAll('_', ' ')}</span>}</div>
-    {error && <p className="error" role="alert">{error}<button className="text-button" onClick={() => setRefresh(value => value + 1)}>Retry loading</button></p>}
+    {error && <p className="error" role="alert">{error}<Button variant="text" onClick={() => setRefresh(value => value + 1)}>Retry loading</Button></p>}
     {!generation && !error && <p role="status">Loading preparation status…</p>}
     {generation && <>
       {!generation.configured && generation.status !== 'completed' && <p className="configuration-note">AI setup is needed before questions can be prepared. The generation and embedding services must be configured first.</p>}

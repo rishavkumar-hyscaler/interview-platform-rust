@@ -1,3 +1,4 @@
+import { Button } from './components/ui/button';
 import { StrictMode, useEffect, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ApiError, request } from './api';
@@ -84,13 +85,13 @@ function App() {
       {restoring ? <p role="status">Checking your connection…</p> : <>
         <p role="alert" className="error">{error}</p>
         <div className="grid gap-2">
-          <button className="button" onClick={() => setRestoreAttempt(value => value + 1)}>Retry connection</button>
-          <button className="text-button w-full" onClick={() => {
+          <Button variant="standard" onClick={() => setRestoreAttempt(value => value + 1)}>Retry connection</Button>
+          <Button variant="text" className="w-full" onClick={() => {
             forgetToken();
             setSession(null);
             setRestoreFailed(false);
             setError('');
-          }}>Sign in with another account</button>
+          }}>Sign in with another account</Button>
         </div>
       </>}
     </section>
@@ -98,7 +99,7 @@ function App() {
   if (session) return <><Workspace token={session.token} onLogout={() => void logout()} />{error && <p className="toast error" role="alert">{error}</p>}</>;
   return <main className="access-page"><div className="access-intro"><a className="logo" href="#"><span className="logo-mark">i</span> interview /</a><p className="eyebrow">BETTER SIGNAL. BETTER HIRING.</p><h1>Great interviews.<br /><em>Grounded in evidence.</em></h1><p>Bring structure to your hiring process, from the first job description to the final review.</p><div className="access-features"><span>01 <strong>Define the role</strong></span><span>02 <strong>Invite your candidates</strong></span><span>03 <strong>Review with context</strong></span></div></div>
     <section className="access-card" aria-label="Interviewer access"><p className="eyebrow">INTERVIEWER</p><h2>{register ? 'Create an interviewer account' : 'Welcome back'}</h2><p className="muted">Sign in to set up interviews and review candidate evidence.</p>{error && <p role="alert" className="error">{error}</p>}
-      <form onSubmit={submit}><label>Email<input name="email" type="email" required maxLength={254} autoComplete="username" placeholder="you@company.com" /></label><label>Password<input name="password" type="password" required minLength={12} maxLength={128} autoComplete={register ? 'new-password' : 'current-password'} /></label><button className="button" disabled={busy}>{busy ? 'Please wait…' : register ? 'Create account →' : 'Sign in →'}</button><button type="button" className="text-button" disabled={busy} onClick={() => { setRegister(!register); setError(''); }}>{register ? 'Already have an account? Sign in' : 'New here? Create an interviewer account'}</button></form>
+      <form onSubmit={submit}><label>Email<input name="email" type="email" required maxLength={254} autoComplete="username" placeholder="you@company.com" /></label><label>Password<input name="password" type="password" required minLength={12} maxLength={128} autoComplete={register ? 'new-password' : 'current-password'} /></label><Button type="submit" variant="standard" disabled={busy}>{busy ? 'Please wait…' : register ? 'Create account →' : 'Sign in →'}</Button><Button type="button" variant="text" disabled={busy} onClick={() => { setRegister(!register); setError(''); }}>{register ? 'Already have an account? Sign in' : 'New here? Create an interviewer account'}</Button></form>
     </section></main>;
 }
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);

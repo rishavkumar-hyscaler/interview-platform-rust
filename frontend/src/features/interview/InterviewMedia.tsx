@@ -1,3 +1,4 @@
+import { Button } from '../../components/ui/button';
 import { evidenceQueue } from './proctoring/evidence';
 import { useEffect, useRef, useState } from 'react';
 import { startMediaMonitor } from './proctoring/monitor';
@@ -50,7 +51,7 @@ export function InterviewMedia({token,sessionId,devices}:{token:string;sessionId
     });monitor.current=next;
     return()=>{next.stop();monitor.current=null;};
   },[camera,mic,devices.revision,devices.stream,token,sessionId,monitorAttempt]);
-  return <section className="room-media"><div className="camera-preview"><video ref={video} autoPlay muted playsInline hidden={!camera}/>{!camera&&<div><span aria-hidden="true">◎</span><p>Camera {devices.camera}</p></div>}<small>{camera||mic?'Camera/mic enabled':'Browser monitoring continues'}</small></div><div className="media-controls"><button className="button secondary" aria-pressed={camera} disabled={devices.busy} onClick={()=>void devices.toggle('video')}>{camera?'Turn camera off':'Enable camera'}</button><button className="button secondary" aria-pressed={mic} disabled={devices.busy} onClick={()=>void devices.toggle('audio')}>{mic?'Turn mic off':'Enable microphone'}</button>{mic&&<meter min="0" max="100" value={level} aria-label="Microphone input level"/>}</div>
+  return <section className="room-media"><div className="camera-preview"><video ref={video} autoPlay muted playsInline hidden={!camera}/>{!camera&&<div><span aria-hidden="true">◎</span><p>Camera {devices.camera}</p></div>}<small>{camera||mic?'Camera/mic enabled':'Browser monitoring continues'}</small></div><div className="media-controls"><Button variant="secondary" aria-pressed={camera} disabled={devices.busy} onClick={()=>void devices.toggle('video')}>{camera?'Turn camera off':'Enable camera'}</Button><Button variant="secondary" aria-pressed={mic} disabled={devices.busy} onClick={()=>void devices.toggle('audio')}>{mic?'Turn mic off':'Enable microphone'}</Button>{mic&&<meter min="0" max="100" value={level} aria-label="Microphone input level"/>}</div>
     <details className="candidate-monitoring">
       <summary>Monitoring details</summary>
       <p>Face, eye/head direction and speech checks run on this device. Flagged screenshots, camera snapshots and short clips are saved for interviewer review. Speech clips may include up to three preceding seconds.</p>
@@ -58,13 +59,13 @@ export function InterviewMedia({token,sessionId,devices}:{token:string;sessionId
       {detection && <p>{detection}</p>}
       {evidenceStatus && <p role="status">{evidenceStatus}</p>}
       {(camera || mic) && <div className="candidate-monitoring-actions">
-        <button className="button secondary" onClick={() => {
+        <Button variant="secondary" onClick={() => {
           automaticRestarts.current = 0;
           setMonitorAttempt(value => value + 1);
-        }}>Restart face/voice checks</button>
-        {camera && <button className="button secondary" onClick={() => monitor.current?.recalibrate()}>Recalibrate eye/head direction</button>}
+        }}>Restart face/voice checks</Button>
+        {camera && <Button variant="secondary" onClick={() => monitor.current?.recalibrate()}>Recalibrate eye/head direction</Button>}
       </div>}
     </details>
     {monitorStatus.includes('need attention') && <p className="configuration-note" role="status">Media checks need attention. Open Monitoring details to restart them.</p>}
-    {devices.error&&<p className="configuration-note" role="status">{devices.error}</p>}{error&&<p className="error" role="alert">{error}{' '}<button className="text-button" onClick={()=>{void video.current?.play().then(()=>setError('')).catch(()=>setError('Turn the camera off and enable it again.'));}}>Retry camera preview</button></p>}</section>;
+    {devices.error&&<p className="configuration-note" role="status">{devices.error}</p>}{error&&<p className="error" role="alert">{error}{' '}<Button variant="text" onClick={()=>{void video.current?.play().then(()=>setError('')).catch(()=>setError('Turn the camera off and enable it again.'));}}>Retry camera preview</Button></p>}</section>;
 }

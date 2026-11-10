@@ -355,13 +355,22 @@
   @apply relative max-w-full overflow-x-auto;
 }
 .interviewer-workspace th {
-  @apply border-slate-100 bg-slate-50 px-6 py-3 text-detail font-medium uppercase tracking-wide text-slate-500;
+  @apply border-slate-200 bg-slate-50 p-[0.5rem_1rem] text-control font-normal text-slate-600;
 }
 .interviewer-workspace td {
-  @apply border-slate-100 px-6 py-4 text-control text-slate-600;
+  @apply border-slate-100 p-[0.5rem_1rem] text-control leading-5 text-slate-700;
 }
 .interviewer-workspace td strong {
-  @apply font-semibold text-slate-800;
+  @apply font-medium text-slate-900;
+}
+.interviewer-workspace td small {
+  @apply mt-0.5 text-detail leading-4;
+}
+.interviewer-workspace td .text-button {
+  @apply min-h-7 px-2.5 py-1 text-detail;
+}
+.interviewer-workspace td .status {
+  @apply rounded-md px-2 py-0.5;
 }
 .interviewer-workspace tbody tr {
   @apply transition-colors hover:bg-indigo-50/40;

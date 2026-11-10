@@ -1,3 +1,4 @@
+import { Button } from './ui/button';
 import { HelpTip } from '../features/workspace/HelpTip';
 import { loggedFetch } from '../transport';
 import { useEffect, useState } from 'react';
@@ -12,7 +13,7 @@ function Playback({ recording, session, token, candidate }: { recording: Recordi
     catch (error) { setError(error instanceof Error ? error.message : 'Unable to play recording'); }
     finally { setBusy(false); }
   }
-  return <article className="recording-evidence"><p><strong>{recording.mime.startsWith('video/') ? 'Video' : 'Audio'} answer</strong> · {new Date(recording.saved_at).toLocaleString()} · {(recording.bytes / 1048576).toFixed(1)} MB</p><small>Question ID: {recording.question_id}</small>{url ? recording.mime.startsWith('video/') ? <video controls src={url} /> : <audio controls src={url} /> : <button className="button secondary" disabled={busy} onClick={() => void load()}>{busy ? 'Loading…' : 'Load private recording'}</button>}{error && <p role="alert" className="error">{error}</p>}</article>;
+  return <article className="recording-evidence"><p><strong>{recording.mime.startsWith('video/') ? 'Video' : 'Audio'} answer</strong> · {new Date(recording.saved_at).toLocaleString()} · {(recording.bytes / 1048576).toFixed(1)} MB</p><small>Question ID: {recording.question_id}</small>{url ? recording.mime.startsWith('video/') ? <video controls src={url} /> : <audio controls src={url} /> : <Button variant="secondary" disabled={busy} onClick={() => void load()}>{busy ? 'Loading…' : 'Load private recording'}</Button>}{error && <p role="alert" className="error">{error}</p>}</article>;
 }
 export function RecordingAttachments({ session, token, question, candidate = false, refresh = 0, onPresence }: { onPresence?: (present: boolean) => void; session: string; token: string; question?: string; candidate?: boolean; refresh?: number }) {
   const [items, setItems] = useState<Recording[]>([]); const [error, setError] = useState('');

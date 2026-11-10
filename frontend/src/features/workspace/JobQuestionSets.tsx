@@ -1,3 +1,4 @@
+import { Button } from '../../components/ui/button';
 import { RefreshButton } from '../../components/ui/refresh-button';
 import { ExpandableSection } from './ExpandableSection';
 import { useEffect, useMemo, useState } from 'react';
@@ -88,7 +89,7 @@ export function JobQuestionSets({ job, token, onReadyChange, summaryOnly = false
         </div>
       </ExpandableSection>)}
       </div>
-      {unused.some(set => set.status === 'failed') && <button className="button" disabled={busy || !pool.configured} onClick={() => void retry()}>{busy ? 'Queueing…' : 'Retry failed sets manually'}</button>}
+      {unused.some(set => set.status === 'failed') && <Button variant="standard" disabled={busy || !pool.configured} onClick={() => void retry()}>{busy ? 'Queueing…' : 'Retry failed sets manually'}</Button>}
       <p className="muted">Reference answers are visible only to the interviewer. A different invitation duration is prepared separately.</p>
     </>}
   </ExpandableSection>;

@@ -1,3 +1,4 @@
+import { Button } from '../../components/ui/button';
 import { CheckCircle2, Clock, ListChecks } from 'lucide-react';
 import './candidate.css';
 import { DeviceCheck } from './DeviceCheck';
@@ -72,10 +73,10 @@ function CandidateSessionView({ token }: { token: string }) {
           </ul>
         </section>
         <div className="candidate-start">
-        {session.state === 'invited' ? <button className="button" disabled={busy} onClick={() => void transition('ready')}>{busy ? 'Accepting…' : 'Accept invitation'}</button> : (session.questions_ready ?? session.question_count > 0) ? <button className="button" disabled={busy || devices.busy || !screen.shared} onClick={() => void transition('start')}>{busy ? 'Starting…' : 'Start interview in fullscreen'}</button> : <div className="configuration-note" role="status"><strong>Invitation accepted.</strong><p>{session.generation_status === 'failed' ? 'Question preparation needs attention from your interviewer. Please contact them.' : session.generation_status === 'pending' || session.generation_status === 'running' ? 'Your questions are being prepared. This page updates automatically.' : 'Waiting for a prepared question set. Please contact your interviewer if none is available.'}</p></div>}
+        {session.state === 'invited' ? <Button variant="standard" disabled={busy} onClick={() => void transition('ready')}>{busy ? 'Accepting…' : 'Accept invitation'}</Button> : (session.questions_ready ?? session.question_count > 0) ? <Button variant="standard" disabled={busy || devices.busy || !screen.shared} onClick={() => void transition('start')}>{busy ? 'Starting…' : 'Start interview in fullscreen'}</Button> : <div className="configuration-note" role="status"><strong>Invitation accepted.</strong><p>{session.generation_status === 'failed' ? 'Question preparation needs attention from your interviewer. Please contact them.' : session.generation_status === 'pending' || session.generation_status === 'running' ? 'Your questions are being prepared. This page updates automatically.' : 'Waiting for a prepared question set. Please contact your interviewer if none is available.'}</p></div>}
         </div>
       </>}
     </>}
-    {error && <button className="text-button" disabled={busy} onClick={() => { setBusy(true); setAttempt(value => value + 1); }}>Retry connection</button>}
+    {error && <Button variant="text" disabled={busy} onClick={() => { setBusy(true); setAttempt(value => value + 1); }}>Retry connection</Button>}
   </section></main>;
 }

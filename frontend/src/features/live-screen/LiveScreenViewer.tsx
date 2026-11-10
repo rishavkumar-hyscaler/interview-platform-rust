@@ -1,3 +1,4 @@
+import { Button } from '../../components/ui/button';
 import { useEffect, useRef, useState } from 'react';
 import { gather, hasViewer, signal } from './signaling';
 
@@ -63,9 +64,9 @@ export function LiveScreenViewer({ session, token }: { session: string; token: s
   return <section className="invitation-panel">
     <h3>Live view</h3>
     <p>View the shared screen and the candidate’s camera when enabled. The candidate sees a live-view notice. Microphone audio is excluded.</p>
-    <button className="button secondary" onClick={() => { setStatus(''); setWatching(value => !value); }}>
+    <Button variant="secondary" onClick={() => { setStatus(''); setWatching(value => !value); }}>
       {watching ? 'Stop live view' : 'Start live view'}
-    </button>
+    </Button>
     {status && <p role="status">{status}</p>}
     {watching && <div className="mt-3 grid gap-4">
       <div>
