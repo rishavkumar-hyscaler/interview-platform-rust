@@ -474,11 +474,11 @@ dialog.interviewer-workspace {
   }
 }
 .interviewer-workspace .audit-filters {
-  @apply grid [grid-template-columns:repeat(auto-fit,_minmax(min(100%,_170px),_1fr))] [gap:12px] [align-items:end] [margin-bottom:16px];
+  @apply grid [grid-template-columns:repeat(auto-fit,_minmax(min(100%,_220px),_1fr))] [gap:12px] [align-items:end] [margin-bottom:16px];
 }
 .interviewer-workspace .audit-filters label {
   @apply grid [gap:6px] min-w-0;
 }
 .interviewer-workspace .audit-filter-actions {
-  @apply flex flex-wrap [gap:8px];
+  @apply flex items-center gap-2 whitespace-nowrap;
 }

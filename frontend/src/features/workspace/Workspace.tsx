@@ -70,7 +70,7 @@ function AuditTable({ events }: { events: Audit[] }) {
         const timestamp = new Date(event.created_at);
         return <tr key={event.id} className="align-top">
           <td>
-            <strong>{title}</strong>
+            <strong className="font-normal!">{title}</strong>
             {details.length > 0 && <small>{details.join(' · ')}</small>}
           </td>
           <td>{performedBy}</td>

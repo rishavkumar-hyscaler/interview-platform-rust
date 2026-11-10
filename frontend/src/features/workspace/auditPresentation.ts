@@ -21,6 +21,8 @@ const titles: Record<string, string> = {
   'adaptive.selected': 'Next question selected',
   'proctor.observed': 'Browser activity recorded',
   'invitation.link_retrieved': 'Invitation link retrieved',
+  'reviewer.message': 'Interviewer asked the assistant',
+  'rag.completed': 'Interview evidence ready to search',
 };
 
 function number(value: unknown): number | null {
