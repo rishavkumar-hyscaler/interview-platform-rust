@@ -8,16 +8,18 @@ const variants = {
   chart: 'chart-card m-0 flex h-72 min-w-0 flex-col rounded-lg border border-slate-200 p-3 workspace-dark:border-slate-700',
 };
 
-export function DashboardCard({ variant, index, children }: {
+export function DashboardCard({ variant, index, children, className }: {
   variant: keyof typeof variants;
   index: number;
   children: ReactNode;
+  className?: string;
 }) {
   const Element = variant === 'chart' ? 'figure' : 'article';
   return <Element
     className={cn(
       'motion-safe:animate-dashboard-card',
       variants[variant],
+      className,
       (variant === 'job' || variant === 'analytics') && 'hover:border-indigo-400! focus-within:border-indigo-400! motion-safe:transition-[translate,box-shadow,border-color]! motion-safe:hover:-translate-y-1',
     )}
     style={{ '--card-delay': `${Math.min(index, 5) * 55}ms` } as CSSProperties}

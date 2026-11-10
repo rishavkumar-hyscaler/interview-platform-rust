@@ -41,7 +41,7 @@ export function HelpTip({ text }: { text: string }) {
       onClick={event => { event.stopPropagation(); show(); }}>i</button>
     <span ref={content} id={id} popover="auto" role="tooltip"
       onMouseEnter={() => window.clearTimeout(hideTimer.current)}
-      className="help-tip-content fixed inset-auto m-0 w-[min(28rem,calc(100vw-24px))] overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-left text-control leading-normal text-white shadow-lg"
+      className="help-tip-content fixed inset-auto m-0 w-max max-w-[min(28rem,calc(100vw-24px))] overflow-y-auto overscroll-contain whitespace-pre-wrap break-words rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-left text-control leading-normal text-white shadow-lg"
     >{text}</span>
   </span>;
 }

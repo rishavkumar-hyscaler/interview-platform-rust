@@ -1,3 +1,5 @@
+import { HelpTip } from './HelpTip';
+import { MetricTrend } from './MetricTrend';
 import { Select } from '../../components/ui/select';
 import { Pagination } from '../../components/ui/pagination';
 import { RefreshButton } from '../../components/ui/refresh-button';
@@ -375,7 +377,20 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
             .finally(() => setRefreshing(false));
         }}>Refresh</RefreshButton>{view === 'interviewer' && <Button variant="standard" disabled={busy || loading} onClick={() => openModal('job')}>+ Create job</Button>}</div></div>
         {error && <div className="error" role="alert">{error}</div>}
-        {view === 'reviewer' && <div className="stats">{[['Total roles', summary.jobs, 'Job descriptions created'], ['Invitations', summary.sessions, 'Across all your roles'], ['Active sessions', summary.active, 'Ready or in progress'], ['Ready for review', summary.reviewable, 'Submitted, scoring, or completed']].map(([label, value, help], index) => <DashboardCard variant="metric" index={index} key={label}><span>{label}</span><AnimatedCount value={loading ? null : Number(value)} /><small>{help}</small></DashboardCard>)}</div>}
+        {view === 'reviewer' && <div className="stats">
+          {([
+            ['Total roles', summary.jobs, 'Job descriptions created', summary.daily_roles, 'Roles created'],
+            ['Invitations', summary.sessions, 'Across all your roles', summary.daily_invitations, 'Invitations sent'],
+            ['Active sessions', summary.active, 'Ready or in progress. The trend shows interviews started each day.', summary.daily_starts, 'Interviews started'],
+            ['Ready for review', summary.reviewable, 'Submitted, scoring, or completed. The trend shows interviews submitted each day.', summary.daily_submissions, 'Interviews submitted'],
+          ] as const).map(([label, value, help, counts, trendLabel], index) =>
+            <DashboardCard variant="metric" index={index} key={label}>
+              <span className="flex items-center justify-between gap-2">{label}<HelpTip text={help} /></span>
+              <AnimatedCount value={loading ? null : value} />
+              <MetricTrend counts={counts} endDate={summary.activity_end_date} label={trendLabel} />
+            </DashboardCard>
+          )}
+        </div>}
         {loading ? <section className="panel empty" role="status">Loading your interviews…</section> : view === 'audit' ? <section className="panel pt-6" aria-label="Audit events">
           <form className="audit-filters px-6 max-sm:px-4" onSubmit={applyAuditFilters} onReset={() => { setAuditForm({ candidate: "", job: "", from: "", until: "" }); void loadAudit({}); }}>
             <label>Candidate<input name="candidate" value={auditForm.candidate} onChange={event => setAuditForm({ ...auditForm, candidate: event.target.value })} placeholder="Name or email" /></label>

@@ -57,6 +57,11 @@ pub(crate) async fn summary(
         sessions: result.sessions,
         active: result.active,
         reviewable: result.reviewable,
+        daily_submissions: result.daily_submissions,
+        daily_roles: result.daily_roles,
+        daily_invitations: result.daily_invitations,
+        daily_starts: result.daily_starts,
+        activity_end_date: result.activity_end_date,
     }))
 }
 pub(crate) fn response(session: Session) -> SessionResponse {

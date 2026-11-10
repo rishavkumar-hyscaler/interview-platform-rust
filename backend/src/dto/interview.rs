@@ -46,4 +46,9 @@ pub(crate) struct SummaryResponse {
     pub sessions: i64,
     pub active: i64,
     pub reviewable: i64,
+    pub daily_submissions: Vec<i64>,
+    pub daily_roles: Vec<i64>,
+    pub daily_invitations: Vec<i64>,
+    pub daily_starts: Vec<i64>,
+    pub activity_end_date: String,
 }

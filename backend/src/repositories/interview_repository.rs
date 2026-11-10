@@ -130,7 +130,68 @@ pub(crate) async fn summary(tx: &mut Transaction<'_, Postgres>) -> Result<Summar
             count(*) FILTER (
             WHERE state IN ('submitted',
                     'scoring',
-                    'completed')) AS reviewable
+                    'completed')) AS reviewable,
+            to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS activity_end_date,
+            ARRAY(
+                SELECT count(recent.submitted_at)
+                FROM generate_series(6, 0, -1) AS days(days_ago)
+                LEFT JOIN interview_sessions AS recent
+                  ON recent.submitted_at >= (
+                      ((now() AT TIME ZONE 'UTC')::date - days.days_ago)::timestamp
+                      AT TIME ZONE 'UTC'
+                  )
+                 AND recent.submitted_at < (
+                      ((now() AT TIME ZONE 'UTC')::date - days.days_ago + 1)::timestamp
+                      AT TIME ZONE 'UTC'
+                  )
+                GROUP BY days.days_ago
+                ORDER BY days.days_ago DESC
+            ) AS daily_submissions,
+            ARRAY(
+                SELECT count(recent.created_at)
+                FROM generate_series(6, 0, -1) AS days(days_ago)
+                LEFT JOIN jobs AS recent
+                  ON recent.created_at >= (
+                      ((now() AT TIME ZONE 'UTC')::date - days.days_ago)::timestamp
+                      AT TIME ZONE 'UTC'
+                  )
+                 AND recent.created_at < (
+                      ((now() AT TIME ZONE 'UTC')::date - days.days_ago + 1)::timestamp
+                      AT TIME ZONE 'UTC'
+                  )
+                GROUP BY days.days_ago
+                ORDER BY days.days_ago DESC
+            ) AS daily_roles,
+            ARRAY(
+                SELECT count(recent.created_at)
+                FROM generate_series(6, 0, -1) AS days(days_ago)
+                LEFT JOIN interview_sessions AS recent
+                  ON recent.created_at >= (
+                      ((now() AT TIME ZONE 'UTC')::date - days.days_ago)::timestamp
+                      AT TIME ZONE 'UTC'
+                  )
+                 AND recent.created_at < (
+                      ((now() AT TIME ZONE 'UTC')::date - days.days_ago + 1)::timestamp
+                      AT TIME ZONE 'UTC'
+                  )
+                GROUP BY days.days_ago
+                ORDER BY days.days_ago DESC
+            ) AS daily_invitations,
+            ARRAY(
+                SELECT count(recent.started_at)
+                FROM generate_series(6, 0, -1) AS days(days_ago)
+                LEFT JOIN interview_sessions AS recent
+                  ON recent.started_at >= (
+                      ((now() AT TIME ZONE 'UTC')::date - days.days_ago)::timestamp
+                      AT TIME ZONE 'UTC'
+                  )
+                 AND recent.started_at < (
+                      ((now() AT TIME ZONE 'UTC')::date - days.days_ago + 1)::timestamp
+                      AT TIME ZONE 'UTC'
+                  )
+                GROUP BY days.days_ago
+                ORDER BY days.days_ago DESC
+            ) AS daily_starts
         FROM interview_sessions
         "#,
     )

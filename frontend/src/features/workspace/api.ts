@@ -5,7 +5,7 @@ export type Interview = { id: string; job_id: string; job_title: string; job_cod
 export type Audit = { actor_email?: string | null; candidate_name?: string | null; candidate_email?: string | null; job_title?: string | null; job_code?: string | null; question_position?: number | null; id: string; action: string; entity_id: string | null; actor_id: string | null; created_at: string; metadata: Record<string, unknown> };
 export type AuditPage = Page<Audit> & { total?: number };
 export type AuditFilters = Partial<Record<"candidate" | "job" | "from" | "until", string>>;
-export type Summary = { jobs: number; sessions: number; active: number; reviewable: number };
+export type Summary = { jobs: number; sessions: number; active: number; reviewable: number; daily_submissions?: number[]; daily_roles?: number[]; daily_invitations?: number[]; daily_starts?: number[]; activity_end_date?: string };
 export function workspaceApi(token: string) {
   const base = '/api/v1';
   const get = <T,>(path: string) => request<T>(`${base}${path}`, {}, token);
