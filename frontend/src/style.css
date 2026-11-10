@@ -1,7 +1,7 @@
 @reference "tailwindcss";
 @reference "./theme.css";
 :root {
-  @apply font-sans [scrollbar-color:var(--color-slate-400)_transparent] text-app-foreground bg-app-background [font-synthesis:none] font-normal;
+  @apply font-app [scrollbar-color:var(--color-slate-400)_transparent] text-app-foreground bg-app-background [font-synthesis:none] font-normal;
 }
 * {
   @apply box-border [scrollbar-width:thin];
@@ -33,13 +33,13 @@ h1,h2,h3 {
   @apply tracking-tight;
 }
 h1 {
-  @apply text-page-title leading-tight mt-2 mb-3 font-semibold;
+  @apply text-page-title leading-tight mt-2 mb-3 font-normal;
 }
 h2 {
-  @apply text-subheading font-semibold leading-tight mb-2;
+  @apply text-subheading font-normal leading-tight mb-2;
 }
 h3 {
-  @apply text-body font-semibold leading-tight;
+  @apply text-body font-normal leading-tight;
 }
 p {
   @apply leading-normal;

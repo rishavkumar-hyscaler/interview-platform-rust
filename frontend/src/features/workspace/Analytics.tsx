@@ -183,10 +183,15 @@ function QuestionCharts({ groups }: { groups: ScoreGroup[] }) {
 function FilteredQuestionCharts({ groups }: { groups: ScoreGroup[] }) {
   const [set, setSet] = useState('');
   const [question, setQuestion] = useState('');
+  const [sort, setSort] = useState('question');
   const sets = [...new Set(groups.flatMap(group => group.set_number == null ? [] : [group.set_number]))]
     .sort((left, right) => left - right);
   const available = groups.filter(group => !set || String(group.set_number) === set);
   const visible = available.filter(group => !question || group.question_id === question);
+
+  if (sort === 'attempts') visible.sort((left, right) => attempts(right) - attempts(left));
+  if (sort === 'time') visible.sort((left, right) => (right.average_seconds ?? -1) - (left.average_seconds ?? -1));
+  if (sort === 'score') visible.sort((left, right) => (right.mean_points ?? -1) - (left.mean_points ?? -1));
 
   return <>
     <div className="mt-4 flex flex-wrap gap-3">
@@ -204,6 +209,15 @@ function FilteredQuestionCharts({ groups }: { groups: ScoreGroup[] }) {
           {available.map((group, index) => <option key={group.question_id} value={group.question_id}>
             {questionLabel(group, index)}
           </option>)}
+        </select>
+      </label>
+      <label className="flex items-center gap-2 text-control">
+        Sort by
+        <select value={sort} onChange={event => setSort(event.target.value)}>
+          <option value="question">Set and question</option>
+          <option value="attempts">Most attempts</option>
+          <option value="time">Longest average time</option>
+          <option value="score">Highest average score</option>
         </select>
       </label>
     </div>

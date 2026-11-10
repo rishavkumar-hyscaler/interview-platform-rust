@@ -37,9 +37,9 @@ pub(crate) async fn annotate(
     }
     let mut tx = interviewer_transaction(pool, owner).await?;
     exists(&mut tx, session).await?;
-    let found = repo::observation_exists(&mut tx, input.event_id, session).await?;
+    let found = repo::observation_with_media_exists(&mut tx, input.event_id, session).await?;
     if !found {
-        return Err(ApiError(StatusCode::NOT_FOUND, "Observation not found"));
+        return Err(ApiError(StatusCode::NOT_FOUND, "Observation with saved media not found"));
     }
     audit(
         &mut tx,
@@ -108,7 +108,9 @@ pub(crate) async fn integrity(pool: &PgPool, owner: Uuid, session: Uuid) -> Resu
     let weights = weights();
     let mut score = 0u64;
     for e in &events {
-        if e["annotation"]["decision"] != "dismissed" {
+        if e["annotation"]["decision"] != "dismissed"
+            && e["attachments"].as_array().is_some_and(|media| !media.is_empty())
+        {
             score += weights[e["evidence"]["kind"]
                 .as_str()
                 .unwrap_or("")]

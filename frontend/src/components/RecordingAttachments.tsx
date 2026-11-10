@@ -1,3 +1,4 @@
+import { HelpTip } from '../features/workspace/HelpTip';
 import { loggedFetch } from '../transport';
 import { useEffect, useState } from 'react';
 import { request } from '../api';
@@ -17,5 +18,5 @@ export function RecordingAttachments({ session, token, question, candidate = fal
   const [items, setItems] = useState<Recording[]>([]); const [error, setError] = useState('');
   useEffect(() => { const controller = new AbortController(); void request<{ recordings: Recording[] }>(`${candidate ? '/api/v1/candidate' : `/api/v1/sessions/${session}`}/recordings`, { signal: controller.signal }, token).then(value => { const items = value.recordings.filter(item => !question || item.question_id === question); setItems(items); onPresence?.(items.length > 0); }).catch(() => { if (!controller.signal.aborted) setError('Unable to load recordings. Refresh to retry.'); }); return () => controller.abort(); }, [session, token, question, candidate, refresh]);
   if (candidate && !items.length && !error) return null;
-  return <section className={candidate ? 'recording-attachments' : 'question-preparation'}><h3>Recorded answers</h3>{!candidate && <p className="muted">Media supplements the written answer. Media-only responses require human review and are not assigned a zero AI score.</p>}{items.map(item => <Playback key={item.recording_id} recording={item} session={session} token={token} candidate={candidate} />)}{!items.length && !error && <p>No recordings uploaded.</p>}{error && <p role="alert" className="error">{error}</p>}</section>;
+  return <section className={candidate ? 'recording-attachments' : 'question-preparation'}><h3 className={candidate ? undefined : "flex items-center justify-between gap-2"}>Recorded answers {!candidate && <HelpTip text="Media supplements the written answer. Media-only responses require human review and are not assigned a zero AI score." />}</h3>{items.map(item => <Playback key={item.recording_id} recording={item} session={session} token={token} candidate={candidate} />)}{!items.length && !error && <p>No recordings uploaded.</p>}{error && <p role="alert" className="error">{error}</p>}</section>;
 }

@@ -1,3 +1,4 @@
+import { Pagination } from '../../components/ui/pagination';
 import { RefreshButton } from '../../components/ui/refresh-button';
 import { AnimatedCount, DashboardCard } from './DashboardCard';
 import { Button } from '../../components/ui/button';
@@ -45,16 +46,46 @@ function Timeline({ events, emptyMessage = "No audit events for this session yet
         {(event.job_title || event.job_code) && <p className="audit-context">Job: {event.job_title}{event.job_code && <> · Job ID: {event.job_code}</>}</p>}
         {event.candidate_name && <p>Candidate: {event.candidate_name}{event.candidate_email && <> · {event.candidate_email}</>}</p>}
         {details.length > 0 && <p>{details.join(' · ')}</p>}
-        <ExpandableSection className="audit-technical" label="Technical details">
-          <p>Event ID: <code>{event.id}</code></p>
-          {event.entity_id && <p>Related record ID: <code>{event.entity_id}</code></p>}
-          {event.actor_id && <p>Actor ID: <code>{event.actor_id}</code></p>}
-          <p>Action: <code>{event.action}</code></p>
-        </ExpandableSection>
       </div>
     </li>;
   })}</ol>;
 }
+function AuditTable({ events }: { events: Audit[] }) {
+  if (!events.length) return <div className="empty compact">No audit events match these filters.</div>;
+  return <div className="table-scroll">
+    <table className="min-w-[44rem]">
+      <thead><tr>
+        <th scope="col">Event</th>
+        <th scope="col">Performed by</th>
+        <th scope="col">Job ID</th>
+        <th scope="col">Job title</th>
+        <th scope="col">Candidate</th>
+        <th scope="col">Timestamp</th>
+      </tr></thead>
+      <tbody>{events.map(event => {
+        const { title, performedBy, details } = auditPresentation(event);
+        const timestamp = new Date(event.created_at);
+        return <tr key={event.id} className="align-top">
+          <td>
+            <strong>{title}</strong>
+            {details.length > 0 && <small>{details.join(' · ')}</small>}
+          </td>
+          <td>{performedBy}</td>
+          <td className="whitespace-nowrap">{event.job_code || '—'}</td>
+          <td>{event.job_title || '—'}</td>
+          <td>
+            {event.candidate_name || event.candidate_email || '—'}
+            {event.candidate_name && event.candidate_email && <small>{event.candidate_email}</small>}
+          </td>
+          <td className="whitespace-nowrap tabular-nums">
+            <time dateTime={event.created_at}>{timestamp.toLocaleTimeString()}<small>{timestamp.toLocaleDateString(undefined, { dateStyle: 'medium' })}</small></time>
+          </td>
+        </tr>;
+      })}</tbody>
+    </table>
+  </div>;
+}
+
 function Dialog({ children, title, onClose, busy = false }: { children: ReactNode; title: string; onClose: () => void; busy?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { const dialog = ref.current; dialog?.showModal(); return () => dialog?.close(); }, []);
@@ -108,6 +139,8 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [interviewSort, setInterviewSort] = useState('newest');
+  const [auditSort, setAuditSort] = useState('newest');
   const [jobFilter, setJobFilter] = useState('');
   const [search, setSearch] = useState('');
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
@@ -171,12 +204,9 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
     });
   }
   const jobPagination = (
-    <nav aria-label="Job pagination"
-      className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 sm:px-6 workspace-dark:border-slate-700">
-      <Button disabled={busy || jobCursors.length === 0} onClick={() => void changeJobPage('previous')}>← Previous</Button>
-      <span className="text-control tabular-nums" aria-live="polite">Page {jobCursors.length + 1} · {summary.jobs} {summary.jobs === 1 ? 'job' : 'jobs'} total</span>
-      <Button disabled={busy || !jobs.next_cursor} onClick={() => void changeJobPage('next')}>Next →</Button>
-    </nav>
+    <Pagination label="Job pagination" page={jobCursors.length + 1}
+      summary={`${summary.jobs} ${summary.jobs === 1 ? 'job' : 'jobs'} total`}
+      hasNext={!!jobs.next_cursor} busy={busy} onChange={direction => void changeJobPage(direction)} />
   );
   async function changeSessionPage(direction: 'previous' | 'next') {
     const cursor = sessions.next_cursor;
@@ -262,7 +292,14 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
   }
   const interviewJobs = new Set(sessions.items.map(session => session.job_code));
   const visible = sessions.items.filter(s => (!jobFilter || s.job_code === jobFilter) && (filter === 'all' || s.state === filter) && `${s.candidate_name} ${s.candidate_email} ${s.job_title} ${s.job_code}`.toLowerCase().includes(search.toLowerCase()));
-  return <div className="interviewer-workspace flex min-h-screen [--sidebar-width:clamp(248px,18vw,350px)] bg-slate-50 text-slate-900 max-sm:flex-col workspace-dark:bg-slate-950 workspace-dark:text-slate-100" data-theme={theme}>
+  visible.sort((left, right) => {
+    if (interviewSort === 'candidate') return left.candidate_name.localeCompare(right.candidate_name);
+    if (interviewSort === 'job') return left.job_code.localeCompare(right.job_code, undefined, { numeric: true });
+    const difference = Date.parse(left.created_at) - Date.parse(right.created_at);
+    return interviewSort === 'oldest' ? difference : -difference;
+  });
+  const auditEvents = auditSort === 'oldest' ? [...audit.items].reverse() : audit.items;
+  return <div className="interviewer-workspace flex min-h-screen [--sidebar-width:clamp(248px,18vw,350px)] bg-slate-50 text-slate-700 max-sm:flex-col workspace-dark:bg-slate-950 workspace-dark:text-slate-100" data-theme={theme}>
     <aside
       id="interviewer-sidebar"
       className={`flex flex-col overflow-hidden max-sm:border-b max-sm:border-solid max-sm:p-3 border-indigo-200 bg-indigo-100 sm:fixed sm:inset-y-0 sm:left-0 sm:z-10 sm:overflow-y-auto sm:border-r sm:border-solid sm:shadow-sm workspace-dark:border-slate-800 workspace-dark:bg-slate-900 motion-safe:transition-[width,padding] motion-safe:duration-200 motion-safe:ease-out ${sidebarOpen
@@ -279,11 +316,11 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
       </div>
       <nav id="interview-navigation" className="mt-5 flex min-h-0 flex-1 flex-col gap-2 max-sm:mt-3 max-sm:grid max-sm:grid-cols-4" aria-label="Interview navigation">
         {([
-          ['interviewer', 'Jobs & invitations', 'Jobs', BriefcaseBusiness],
-          ['reviewer', 'Interview results', 'Results', ClipboardList],
-          ['question-bank', 'Question-bank analytics', 'Analytics', ChartNoAxesColumn],
-          ['audit', 'Audit trail', 'Audit', History],
-        ] as const).map(([key, label, shortLabel, Icon]) => <Button
+          ['interviewer', 'Jobs & invitations', 'Jobs', BriefcaseBusiness, 'bg-sky-100 text-sky-700 workspace-dark:bg-sky-900/50 workspace-dark:text-sky-300'],
+          ['reviewer', 'Interview results', 'Results', ClipboardList, 'bg-emerald-100 text-emerald-700 workspace-dark:bg-emerald-900/50 workspace-dark:text-emerald-300'],
+          ['question-bank', 'Question-bank analytics', 'Analytics', ChartNoAxesColumn, 'bg-violet-100 text-violet-700 workspace-dark:bg-violet-900/50 workspace-dark:text-violet-300'],
+          ['audit', 'Audit trail', 'Audit', History, 'bg-amber-100 text-amber-800 workspace-dark:bg-amber-900/50 workspace-dark:text-amber-300'],
+        ] as const).map(([key, label, shortLabel, Icon, accent]) => <Button
           key={key}
           aria-label={label}
           title={sidebarOpen ? undefined : label}
@@ -291,7 +328,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
           className={`min-h-11 w-full min-w-0 py-2 text-control aria-[current=page]:ring-1 aria-[current=page]:ring-focus ${sidebarOpen ? 'px-2 sm:justify-start sm:px-3' : 'justify-center px-0'}`}
           onClick={() => navigateTo(key)}
         >
-          <Icon size={18} className="shrink-0" aria-hidden="true" />
+          <span className={`inline-grid size-6 shrink-0 place-items-center rounded-md ${accent}`} aria-hidden="true"><Icon size={16} /></span>
           {sidebarOpen && <>
             <span className="hidden truncate sm:inline">{label}</span>
             <span className="truncate sm:hidden">{shortLabel}</span>
@@ -302,7 +339,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
     <div className={`flex min-w-0 flex-1 flex-col motion-safe:transition-[margin-left] motion-safe:duration-200 motion-safe:ease-out ${sidebarOpen ? 'sm:ml-[var(--sidebar-width)]' : 'sm:ml-18'}`}><header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-solid border-slate-200 bg-white px-4 text-control text-slate-700 sm:px-6 workspace-dark:border-slate-800 workspace-dark:bg-slate-900 workspace-dark:text-slate-200"><div className="flex min-w-0 items-center gap-3">
       <nav aria-label="Workspace navigation" className="flex shrink-0 gap-1">
         <Button type="button" aria-label="Go back" title="Back" disabled={viewHistory.length < 2}
-          className="size-9 min-h-9 p-0" onClick={goBack}><ArrowLeft size={18} aria-hidden="true" /></Button>
+          className="size-9 min-h-9 p-0" onClick={goBack}><ArrowLeft size={18} className="text-violet-700 workspace-dark:text-violet-300" aria-hidden="true" /></Button>
         <Button type="button" aria-label="Go home" title="Home"
           className="size-9 min-h-9 p-0" onClick={() => navigateTo('interviewer')}><Home size={18} aria-hidden="true" /></Button>
       </nav>
@@ -313,7 +350,7 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
         </span>
         <Moon size={16} aria-hidden="true" />
       </button><Button className="size-9 min-h-0 rounded-full p-0" aria-label="Account details" popoverTarget="interviewer-account"><UserRound size={17} aria-hidden="true" /></Button>
-        <div ref={accountMenu} id="interviewer-account" popover="auto" aria-label="Account details" className="fixed inset-auto top-16 right-4 m-0 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-solid border-slate-200 bg-white p-4 text-slate-900 shadow-lg workspace-dark:border-slate-700 workspace-dark:bg-slate-900 workspace-dark:text-slate-100">
+        <div ref={accountMenu} id="interviewer-account" popover="auto" aria-label="Account details" className="fixed inset-auto top-16 right-4 m-0 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-solid border-slate-200 bg-white p-4 text-slate-700 shadow-lg workspace-dark:border-slate-700 workspace-dark:bg-slate-900 workspace-dark:text-slate-100">
           <p className="m-0 text-detail font-semibold uppercase tracking-wide">Interviewer account</p>
           <p className="mt-2 mb-4 break-all text-control" aria-live="polite">{account.email || (account.error ? 'Email unavailable' : 'Loading email…')}</p>
           <div className="flex flex-wrap gap-2">
@@ -344,6 +381,10 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
             <label>Job<input name="job" value={auditForm.job} onChange={event => setAuditForm({ ...auditForm, job: event.target.value })} placeholder="Title or job ID" /></label>
             <label>From date<input type="date" name="from" value={auditForm.from} onChange={event => setAuditForm({ ...auditForm, from: event.target.value })} /></label>
             <label>To date<input type="date" name="until" value={auditForm.until} onChange={event => setAuditForm({ ...auditForm, until: event.target.value })} /></label>
+            <label>Sort this page<select value={auditSort} onChange={event => setAuditSort(event.target.value)}>
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+            </select></label>
             <div className="audit-filter-actions">
               <button type="submit" className="button primary" disabled={busy}>Apply filters</button>
               <button type="reset" className="button" disabled={busy}>Clear</button>
@@ -361,21 +402,18 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
                   void loadAudit(filters);
                 }}>Search all dates</Button>
               </div>
-            ) : <Timeline events={audit.items} emptyMessage="No audit events match these filters." />}
+            ) : <AuditTable events={auditEvents} />}
           </div>
-          <nav aria-label="Audit pagination"
-            className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 sm:px-6 workspace-dark:border-slate-700">
-            <Button disabled={busy || auditCursors.length === 0} onClick={() => void changeAuditPage('previous')}>← Previous</Button>
-            <span className="text-control tabular-nums" aria-live="polite">Page {auditCursors.length + 1}{audit.total !== undefined && ` · ${audit.total} matching ${audit.total === 1 ? 'event' : 'events'}`}</span>
-            <Button disabled={busy || !audit.next_cursor} onClick={() => void changeAuditPage('next')}>Next →</Button>
-          </nav>
+          <Pagination label="Audit pagination" page={auditCursors.length + 1}
+      summary={`${auditEvents.length} on this page${audit.total !== undefined ? ` · ${audit.total} matching ${audit.total === 1 ? 'event' : 'events'}` : ''}`}
+      hasNext={!!audit.next_cursor} busy={busy} onChange={direction => void changeAuditPage(direction)} />
         </section> : <>
           {view === 'interviewer' && <section className="panel" aria-label="Your roles">{jobs.items.length ? <div className="job-grid items-stretch! pt-6">
             {jobs.items.map((job, index) => (
               <DashboardCard variant="job" index={index} key={job.id}>
                 <div className="flex items-start justify-between gap-3">
                   <span className="pill max-w-full break-all">{job.job_code}</span>
-                  <span aria-hidden="true" className="job-icon grid shrink-0 place-items-center motion-safe:transition-transform motion-safe:group-hover:translate-x-0.5 motion-safe:group-hover:-translate-y-0.5"><ArrowUpRight className="size-4" /></span>
+                  <span aria-hidden="true" className="job-icon grid shrink-0 place-items-center motion-safe:transition-transform motion-safe:group-hover:translate-x-0.5 motion-safe:group-hover:-translate-y-0.5"><ArrowUpRight className="size-4 text-violet-700 workspace-dark:text-violet-300" /></span>
                 </div>
                 <h3 className="mt-0! break-words">{job.title}</h3>
                 <div className="mt-auto border-t border-slate-200 pt-3 workspace-dark:border-slate-700">
@@ -393,20 +431,23 @@ export function Workspace({ token, onLogout }: { token: string; onLogout: () => 
               <option value="">All jobs</option>
               {jobFilter && !interviewJobs.has(jobFilter) && <option value={jobFilter}>{jobFilter}</option>}
               {[...interviewJobs].sort().map(code => <option key={code} value={code}>{code}</option>)}
-            </select><select aria-label="Filter interview status on this page" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">All statuses</option>{['invited', 'ready', 'in_progress', 'submitted', 'scoring', 'completed', 'expired'].map(s => <option value={s} key={s}>{s.replaceAll('_', ' ')}</option>)}</select></div></div>
+            </select><select aria-label="Filter interview status on this page" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">All statuses</option>{['invited', 'ready', 'in_progress', 'submitted', 'scoring', 'completed', 'expired'].map(s => <option value={s} key={s}>{s.replaceAll('_', ' ')}</option>)}</select>
+            <select aria-label="Sort interviews on this page" value={interviewSort} onChange={event => setInterviewSort(event.target.value)}>
+              <option value="newest">Newest invited</option>
+              <option value="oldest">Oldest invited</option>
+              <option value="candidate">Candidate A–Z</option>
+              <option value="job">Job ID</option>
+            </select></div></div>
             {visible.length ? <div className="table-scroll"><table><thead><tr><th>Candidate</th><th>Role</th><th>Status</th><th>Duration</th><th>Invited</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{visible.map(s => <tr key={s.id}><td><strong>{s.candidate_name}</strong><small>{s.candidate_email}</small></td><td>{s.job_title}<small>Job ID: {s.job_code}</small></td><td><Status state={s.state} /></td><td>{s.duration_minutes} min</td><td>{date(s.created_at)}</td><td><button className="text-button accent" disabled={busy} onClick={() => inspect(s.id)}>View →</button></td></tr>)}</tbody></table></div> : <div className="empty compact"><h3>{sessions.items.length ? 'No matching sessions on this page' : 'No candidates yet'}</h3><p>{sessions.items.length ? 'Try another search or status.' : 'Invite a candidate once a question set is ready. Their progress and results will appear here.'}</p></div>}
-            <nav aria-label="Interview pagination"
-              className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 sm:px-6 workspace-dark:border-slate-700">
-              <Button disabled={busy || sessionCursors.length === 0} onClick={() => void changeSessionPage('previous')}>← Previous</Button>
-              <span className="text-control tabular-nums" aria-live="polite">Page {sessionCursors.length + 1} · {summary.sessions} {summary.sessions === 1 ? 'interview' : 'interviews'} total</span>
-              <Button disabled={busy || !sessions.next_cursor} onClick={() => void changeSessionPage('next')}>Next →</Button>
-            </nav></section>}{view === 'question-bank' && <section className="panel" aria-label="Jobs for analytics">
+            <Pagination label="Interview pagination" page={sessionCursors.length + 1}
+      summary={`${summary.sessions} ${summary.sessions === 1 ? 'interview' : 'interviews'} total`}
+      hasNext={!!sessions.next_cursor} busy={busy} onChange={direction => void changeSessionPage(direction)} /></section>}{view === 'question-bank' && <section className="panel" aria-label="Jobs for analytics">
             {jobs.items.length === 0 && <p className="empty">Create a job to see question-bank analytics here.</p>}
             <div className="job-grid items-stretch! pt-6">{jobs.items.map((job, index) => <DashboardCard variant="analytics" index={index} key={job.id}>
               <div className="flex items-start justify-between gap-3">
                 <h3 className="min-w-0 break-words mt-0!">{job.title}</h3>
                 <Button className="job-icon min-h-0 shrink-0 p-0" aria-label={`Open analytics for ${job.title}`}
-                  onClick={() => { navigateTo({ job }); window.scrollTo(0, 0); }}><ArrowUpRight aria-hidden="true" className="size-4" /></Button>
+                  onClick={() => { navigateTo({ job }); window.scrollTo(0, 0); }}><ArrowUpRight aria-hidden="true" className="size-4 text-violet-700 workspace-dark:text-violet-300" /></Button>
               </div>
               <p className="job-code">Job ID: <strong>{job.job_code}</strong></p>
               <p className="job-description">{job.description}</p>

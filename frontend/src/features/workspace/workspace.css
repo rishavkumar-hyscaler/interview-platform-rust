@@ -133,7 +133,7 @@
   @apply [background:#303462] [color:#c7d2fe];
 }
 .interviewer-workspace[data-theme="dark"] .set-card-meta {
-  @apply [color:#a8b8d0];
+  @apply [color:#bdc9da];
 }
 .interviewer-workspace[data-theme="dark"] .set-card-body {
   @apply [border-color:#3b4b65];
@@ -163,7 +163,7 @@
   @apply [color:#f1f5f9];
 }
 .interviewer-workspace[data-theme="dark"] :is(.muted,small,.stat > span,.stat small,.job-description,.job-code,.job-meta,.panel-heading p,.timeline p,.timeline code,footer,.sidebar-bottom p,.accordion-content,.question-preparation p,.invitation-panel p,.review-placeholder p,.empty) {
-  @apply [color:#a8b8d0];
+  @apply [color:#bdc9da];
 }
 .interviewer-workspace[data-theme="dark"] :is(.job-code strong,label,td,.proctor-technical,summary) {
   @apply [color:#cbd5e1];
@@ -186,7 +186,7 @@
   @apply [color:#94a3b8];
 }
 .interviewer-workspace[data-theme="dark"] th {
-  @apply [background:#162238] [color:#a8b8d0] [border-color:#2a3850];
+  @apply [background:#162238] [color:#bdc9da] [border-color:#2a3850];
 }
 .interviewer-workspace[data-theme="dark"] :is(td,.job-meta,.table-toolbar,.detail-grid,.proctor-evidence,.session-timeline,.browser-observation,.proctor-attachment.recording-evidence,[data-slot="accordion-item"]) {
   @apply [border-color:#2a3850];
@@ -245,7 +245,7 @@
   }
 }
 .interviewer-workspace {
-  @apply min-h-screen bg-slate-50 text-slate-900;
+  @apply min-h-screen bg-slate-50 text-slate-700;
 }
 .interviewer-workspace .dashboard {
   @apply mx-auto bg-radial-[ellipse_42rem_18rem_at_top_right] from-indigo-100/65 to-transparent px-8 pb-8 pt-4 workspace-dark:from-indigo-500/12;
@@ -255,7 +255,7 @@
   @apply mb-4 flex-wrap gap-3;
 }
 .interviewer-workspace .page-heading h1 {
-  @apply m-0 text-section-title leading-8 font-medium tracking-tight sm:text-page-title sm:leading-10;
+  @apply m-0 text-section-title leading-8 font-normal tracking-tight text-slate-900 sm:text-page-title sm:leading-10;
   @apply after:mt-2 after:block after:h-0.5 after:w-8 after:rounded-full after:bg-indigo-500 after:content-[''] workspace-dark:after:bg-indigo-400;
 }
 .interviewer-workspace .page-heading .muted {
@@ -280,7 +280,7 @@
   @apply text-control font-normal text-slate-500;
 }
 .interviewer-workspace .stat strong {
-  @apply my-2 text-section-title font-medium tracking-tight text-slate-900;
+  @apply my-2 text-section-title font-normal tabular-nums tracking-tight text-slate-900;
 }
 .interviewer-workspace .stat small {
   @apply text-detail text-slate-500;
@@ -292,7 +292,7 @@
   @apply gap-4 p-6;
 }
 .interviewer-workspace .panel-heading h2 {
-  @apply text-subheading leading-7 font-semibold tracking-tight text-slate-900 sm:text-section-title sm:leading-8;
+  @apply text-subheading font-normal tracking-tight text-slate-900;
 }
 .interviewer-workspace .panel-heading p {
   @apply text-body leading-6 text-slate-500;
@@ -316,7 +316,7 @@
   @apply size-10 rounded-xl bg-indigo-50 text-primary;
 }
 .interviewer-workspace .job-card h3 {
-  @apply mb-1 mt-4 text-body leading-snug font-medium text-slate-900;
+  @apply mb-1 mt-4 text-body leading-snug font-normal text-slate-900;
 }
 .interviewer-workspace .job-code {
   @apply my-2 text-detail text-slate-500;
@@ -355,13 +355,13 @@
   @apply relative max-w-full overflow-x-auto;
 }
 .interviewer-workspace th {
-  @apply border-slate-100 bg-slate-50 px-6 py-3 text-detail font-semibold uppercase tracking-wide text-slate-500;
+  @apply border-slate-100 bg-slate-50 px-6 py-3 text-detail font-medium uppercase tracking-wide text-slate-500;
 }
 .interviewer-workspace td {
   @apply border-slate-100 px-6 py-4 text-control text-slate-600;
 }
 .interviewer-workspace td strong {
-  @apply font-semibold text-slate-900;
+  @apply font-semibold text-slate-800;
 }
 .interviewer-workspace tbody tr {
   @apply transition-colors hover:bg-indigo-50/40;
@@ -383,7 +383,7 @@
 .interviewer-workspace input,
 .interviewer-workspace select,
 .interviewer-workspace textarea {
-  @apply rounded-lg border-slate-300 bg-white text-control font-normal text-slate-900 transition-colors;
+  @apply rounded-lg border-slate-300 bg-white text-control font-normal text-slate-700 transition-colors;
 }
 .interviewer-workspace input:focus,
 .interviewer-workspace textarea:focus,

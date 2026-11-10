@@ -6,7 +6,7 @@ use crate::{
     infrastructure::interviewer_transaction,
     repositories::review_repository as repo,
     review::{
-        citations::{Document, Reply, ground_reply},
+        citations::{Citation, Document, Reply, ground_reply},
         performance,
     },
     services::{auth_service, review_service::exists},
@@ -15,6 +15,9 @@ use axum::http::StatusCode;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use uuid::Uuid;
+// Matches the quick action in ReviewAssistant.
+const INTEGRITY_SUMMARY_PROMPT: &str = "Give a one-line summary of the integrity evidence. Distinguish observations from suspected cheating and cite the recorded evidence.";
+
 pub(crate) struct Chat {
     pub question: String,
     pub conversation: Uuid,
@@ -64,6 +67,36 @@ pub(crate) async fn chat_answer(
                 json!({"answer":reply.answer,"citations":reply.citations,"sources":sources,"next_page":null,"evidence_page":0,"total_sources":1}),
             );
         }
+    }
+    if input.page.unwrap_or(0) == 0 && input.question.trim() == INTEGRITY_SUMMARY_PROMPT {
+        let counts = repo::counts(&mut tx, session).await?;
+        let total: i64 = counts.iter().map(|(_, count)| count).sum();
+        let quote = format!("Recorded observations: {total}");
+        let source = Document {
+            id: format!("{session}:integrity-overview"),
+            text: format!("{quote}\n{}", counts.iter()
+                .map(|(kind, count)| format!("{}: {count}", kind.replace('_', " ")))
+                .collect::<Vec<_>>()
+                .join("\n")),
+        };
+        let reply = Reply {
+            answer: format!("The session recorded {total} monitoring observations, including routine activity. Review potential deviations in the evidence list before drawing conclusions."),
+            citations: vec![Citation {
+                source_id: source.id.clone(),
+                quote,
+            }],
+        };
+        audit(
+            &mut tx,
+            owner,
+            Some(owner),
+            session,
+            "reviewer.message",
+            json!({"conversation":input.conversation,"question":input.question,"reply":reply,"method":"stored_observation_counts"}),
+        )
+        .await?;
+        tx.commit().await?;
+        return Ok(json!({"answer":reply.answer,"citations":reply.citations,"sources":[source],"next_page":null,"evidence_page":0,"total_sources":1}));
     }
     let provider = AiProvider::from_environment()
         .map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "AI is not configured"))?;

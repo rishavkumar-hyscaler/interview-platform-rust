@@ -5,15 +5,16 @@
   --color-app-background: var(--color-slate-50);
   --color-app-foreground: var(--color-slate-800);
   --color-app-muted: var(--color-slate-600);
-  --font-display: Sequel, "Sequel Sans", var(--font-sans);
+  --font-app: "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-display: var(--font-app);
 
-  --text-page-title: 2rem;
+  --text-page-title: 1.75rem;
   --text-page-title--line-height: 2.5rem;
-  --text-section-title: 1.5rem;
+  --text-section-title: 1.375rem;
   --text-section-title--line-height: 2rem;
-  --text-subheading: 1.25rem;
+  --text-subheading: 1.125rem;
   --text-subheading--line-height: 1.75rem;
-  --text-body: 1rem;
+  --text-body: 0.9375rem;
   --text-body--line-height: 1.5rem;
   --text-control: 0.875rem;
   --text-control--line-height: 1.25rem;

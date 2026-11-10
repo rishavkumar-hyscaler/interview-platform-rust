@@ -10,7 +10,7 @@ export function RefreshButton({ pending, disabled, children, className, ...props
   return <span className="inline-flex" title={children}>
     <Button {...props} className={cn('size-10 min-h-10 p-0', className)}
       disabled={disabled || pending} aria-label={children} aria-busy={pending}>
-      <RefreshCw size={16} aria-hidden="true" className={pending ? 'motion-safe:animate-spin' : undefined} />
+      <RefreshCw size={16} aria-hidden="true" className={cn('text-sky-700 workspace-dark:text-sky-300', pending && 'motion-safe:animate-spin')} />
     </Button>
   </span>;
 }

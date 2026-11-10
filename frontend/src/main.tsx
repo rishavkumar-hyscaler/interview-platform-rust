@@ -32,7 +32,7 @@ function App() {
     if (!token || invitationToken !== null) { setRestoring(false); return; }
     let active = true;
     setRestoring(true); setRestoreFailed(false);
-    request<Omit<Session, 'token'>>('/api/me', {}, token).then(profile => {
+    request<Omit<Session, 'token'>>('/api/me', { signal: AbortSignal.timeout(10000) }, token).then(profile => {
       if (active) { setSession({ ...profile, token }); setError(''); }
     }).catch(error => {
       if (!active) return;
@@ -44,6 +44,14 @@ function App() {
     }).finally(() => { if (active) setRestoring(false); });
     return () => { active = false; };
   }, [restoreAttempt, invitationToken]);
+  useEffect(() => {
+    if (!restoreFailed || invitationToken !== null) return;
+    function retry() {
+      setRestoreAttempt(value => value + 1);
+    }
+    window.addEventListener('online', retry);
+    return () => window.removeEventListener('online', retry);
+  }, [restoreFailed, invitationToken]);
   useEffect(() => {
     function unauthorized(event: Event) {
       if (session && (event as CustomEvent<string>).detail === session.token) {
@@ -70,8 +78,23 @@ function App() {
     finally { setBusy(false); }
   }
   if (invitationToken !== null) return <CandidateExperience key={invitationToken} token={invitationToken} />;
-  if (restoring) return <main className="access-page"><section className="access-card" role="status"><h2>Restoring your session…</h2><p>Please wait while we verify your sign-in.</p></section></main>;
-  if (restoreFailed) return <main className="access-page"><section className="access-card"><h2>Reconnect to your session</h2><p role="alert" className="error">{error}</p><button className="button" onClick={() => setRestoreAttempt(value => value + 1)}>Retry connection</button><button className="text-button" onClick={() => { forgetToken(); setRestoreFailed(false); setError(''); }}>Sign in with another account</button></section></main>;
+  if (restoring || restoreFailed) return <main className="access-page grid-cols-1! place-items-center!">
+    <section className="access-card w-full max-w-md" aria-labelledby="reconnect-title">
+      <h2 id="reconnect-title">Reconnect to your session</h2>
+      {restoring ? <p role="status">Checking your connection…</p> : <>
+        <p role="alert" className="error">{error}</p>
+        <div className="grid gap-2">
+          <button className="button" onClick={() => setRestoreAttempt(value => value + 1)}>Retry connection</button>
+          <button className="text-button w-full" onClick={() => {
+            forgetToken();
+            setSession(null);
+            setRestoreFailed(false);
+            setError('');
+          }}>Sign in with another account</button>
+        </div>
+      </>}
+    </section>
+  </main>;
   if (session) return <><Workspace token={session.token} onLogout={() => void logout()} />{error && <p className="toast error" role="alert">{error}</p>}</>;
   return <main className="access-page"><div className="access-intro"><a className="logo" href="#"><span className="logo-mark">i</span> interview /</a><p className="eyebrow">BETTER SIGNAL. BETTER HIRING.</p><h1>Great interviews.<br /><em>Grounded in evidence.</em></h1><p>Bring structure to your hiring process, from the first job description to the final review.</p><div className="access-features"><span>01 <strong>Define the role</strong></span><span>02 <strong>Invite your candidates</strong></span><span>03 <strong>Review with context</strong></span></div></div>
     <section className="access-card" aria-label="Interviewer access"><p className="eyebrow">INTERVIEWER</p><h2>{register ? 'Create an interviewer account' : 'Welcome back'}</h2><p className="muted">Sign in to set up interviews and review candidate evidence.</p>{error && <p role="alert" className="error">{error}</p>}

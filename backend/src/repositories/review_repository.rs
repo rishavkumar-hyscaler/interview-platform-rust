@@ -14,7 +14,7 @@ pub(crate) async fn session_exists(
             .await?,
     )
 }
-pub(crate) async fn observation_exists(
+pub(crate) async fn observation_with_media_exists(
     tx: &mut Transaction<'_, Postgres>,
     event: Uuid,
     session: Uuid,
@@ -23,10 +23,18 @@ pub(crate) async fn observation_exists(
         r#"
         SELECT EXISTS (
             SELECT 1
-            FROM audit_events
-            WHERE id = $1
-            AND entity_id = $2
-            AND action = 'proctor.observed')
+            FROM audit_events observation
+            WHERE observation.id = $1
+            AND observation.entity_id = $2
+            AND observation.action = 'proctor.observed'
+            AND EXISTS (
+                SELECT 1
+                FROM audit_events attachment
+                WHERE attachment.entity_id = observation.entity_id
+                AND attachment.action = 'proctor.evidence'
+                AND attachment.metadata ->> 'event_id' = observation.id::text
+            )
+        )
         "#,
     )
     .bind(event)
