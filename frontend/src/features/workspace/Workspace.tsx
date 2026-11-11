@@ -1,3 +1,9 @@
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { HelpTip } from './HelpTip';
 import { MetricTrend } from './MetricTrend';
 import { Select } from '../../components/ui/select';
@@ -48,11 +54,9 @@ import {
   workspaceApi,
   type Audit,
   type AuditFilters,
-  type AuditPage,
   type Interview,
   type Job,
   type Page,
-  type Summary,
 } from './api';
 
 const reviewSections = [
@@ -235,6 +239,23 @@ export function Workspace({
   const accountMenu = useRef<HTMLDivElement>(null);
   const { theme, toggleTheme } = useWorkspaceTheme();
   const api = useMemo(() => workspaceApi(token), [token]);
+  const createJobMutation = useMutation({ mutationFn: api.createJob });
+  const deleteJobMutation = useMutation({ mutationFn: api.deleteJob });
+  const inviteMutation = useMutation({
+    mutationFn: ({
+      job,
+      data,
+    }: {
+      job: string;
+      data: Parameters<typeof api.invite>[1];
+    }) => api.invite(job, data),
+  });
+  function inviteCandidate(
+    job: string,
+    data: Parameters<typeof api.invite>[1],
+  ) {
+    return inviteMutation.mutateAsync({ job, data });
+  }
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [viewHistory, setViewHistory] = useState<WorkspacePage[]>([
     'interviewer',
@@ -255,16 +276,7 @@ export function Workspace({
     );
   }
   const [jobCursors, setJobCursors] = useState<string[]>([]);
-  const [jobs, setJobs] = useState<Page<Job>>({ items: [], next_cursor: null });
   const [sessionCursors, setSessionCursors] = useState<string[]>([]);
-  const [sessions, setSessions] = useState<Page<Interview>>({
-    items: [],
-    next_cursor: null,
-  });
-  const [audit, setAudit] = useState<AuditPage>({
-    items: [],
-    next_cursor: null,
-  });
   const [auditCursors, setAuditCursors] = useState<string[]>([]);
   const auditScroll = useRef<HTMLDivElement>(null);
   const [auditForm, setAuditForm] = useState({
@@ -274,12 +286,46 @@ export function Workspace({
     until: '',
   });
   const [auditFilters, setAuditFilters] = useState<AuditFilters>({});
-  const [summary, setSummary] = useState<Summary>({
+  const queryClient = useQueryClient();
+  const queryRoot = ['workspace-view', token];
+  const jobsQuery = useQuery({
+    queryKey: [...queryRoot, 'jobs', jobCursors.at(-1)],
+    placeholderData: keepPreviousData,
+    queryFn: ({ signal }) => api.jobs(jobCursors.at(-1), JOBS_PER_PAGE, signal),
+  });
+  const sessionsQuery = useQuery({
+    queryKey: [...queryRoot, 'sessions', sessionCursors.at(-1)],
+    placeholderData: keepPreviousData,
+    queryFn: ({ signal }) => api.sessions(sessionCursors.at(-1), signal),
+  });
+  const auditQuery = useQuery({
+    queryKey: [...queryRoot, 'audit', auditCursors.at(-1), auditFilters],
+    queryFn: ({ signal }) =>
+      api.audit(undefined, auditCursors.at(-1), auditFilters, signal),
+  });
+  const summaryQuery = useQuery({
+    queryKey: [...queryRoot, 'summary'],
+    queryFn: ({ signal }) => api.summary(signal),
+  });
+  const jobs = jobsQuery.data ?? { items: [], next_cursor: null };
+  const sessions = sessionsQuery.data ?? { items: [], next_cursor: null };
+  const audit = auditQuery.data ?? { items: [], next_cursor: null };
+  const summary = summaryQuery.data ?? {
     jobs: 0,
     sessions: 0,
     active: 0,
     reviewable: 0,
-  });
+  };
+  const loading =
+    jobsQuery.isPending ||
+    sessionsQuery.isPending ||
+    auditQuery.isPending ||
+    summaryQuery.isPending;
+  const queryError =
+    jobsQuery.error ??
+    sessionsQuery.error ??
+    auditQuery.error ??
+    summaryQuery.error;
   const [selected, setSelected] = useState<Interview | null>(null);
   const [events, setEvents] = useState<Page<Audit>>({
     items: [],
@@ -307,7 +353,6 @@ export function Workspace({
   const [copyFeedback, setCopyFeedback] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [interviewSort, setInterviewSort] = useState('newest');
   const [auditSort, setAuditSort] = useState('newest');
@@ -315,33 +360,8 @@ export function Workspace({
   const [search, setSearch] = useState('');
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   useEffect(() => {
-    let active = true;
-    Promise.all([
-      api.jobs(undefined, JOBS_PER_PAGE),
-      api.sessions(),
-      api.audit(),
-      api.summary(),
-    ])
-      .then(([j, s, a, counts]) => {
-        if (active) {
-          setJobCursors([]);
-          setSessionCursors([]);
-          setJobs(j);
-          setSessions(s);
-          setAudit(a);
-          setSummary(counts);
-        }
-      })
-      .catch((error) => {
-        if (active) setError(message(error));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [api]);
+    if (queryError) setError(message(queryError));
+  }, [queryError]);
   function applyAuditFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -361,8 +381,6 @@ export function Workspace({
   }
   async function loadAudit(filters: AuditFilters) {
     await run(async () => {
-      const page = await api.audit(undefined, undefined, filters);
-      setAudit(page);
       setAuditFilters(filters);
       setAuditCursors([]);
       auditScroll.current?.scrollTo(0, 0);
@@ -376,8 +394,6 @@ export function Workspace({
         ? [...auditCursors, cursor]
         : auditCursors.slice(0, -1);
     await run(async () => {
-      const page = await api.audit(undefined, cursors.at(-1), auditFilters);
-      setAudit(page);
       setAuditCursors(cursors);
       auditScroll.current?.scrollTo(0, 0);
     });
@@ -391,8 +407,6 @@ export function Workspace({
         ? [...jobCursors, cursor]
         : jobCursors.slice(0, -1);
     await run(async () => {
-      const page = await api.jobs(cursors.at(-1), JOBS_PER_PAGE);
-      setJobs(page);
       setJobCursors(cursors);
     });
   }
@@ -402,7 +416,7 @@ export function Workspace({
       page={jobCursors.length + 1}
       summary={`${summary.jobs} ${summary.jobs === 1 ? 'job' : 'jobs'} total`}
       hasNext={!!jobs.next_cursor}
-      busy={busy}
+      busy={busy || jobsQuery.isFetching}
       onChange={(direction) => void changeJobPage(direction)}
     />
   );
@@ -414,8 +428,6 @@ export function Workspace({
         ? [...sessionCursors, cursor]
         : sessionCursors.slice(0, -1);
     await run(async () => {
-      const page = await api.sessions(cursors.at(-1));
-      setSessions(page);
       setSessionCursors(cursors);
     });
   }
@@ -424,12 +436,8 @@ export function Workspace({
     setDeletingJob(true);
     setDeleteError('');
     try {
-      await api.deleteJob(job.id);
+      await deleteJobMutation.mutateAsync(job.id);
       setExpandedJobId(null);
-      setJobs((page) => ({
-        ...page,
-        items: page.items.filter((item) => item.id !== job.id),
-      }));
       await run(refresh);
     } catch (failure) {
       setDeleteError(message(failure));
@@ -438,19 +446,10 @@ export function Workspace({
     }
   }
   async function refresh() {
-    const [j, s, a, counts] = await Promise.all([
-      api.jobs(undefined, JOBS_PER_PAGE),
-      api.sessions(),
-      api.audit(undefined, undefined, auditFilters),
-      api.summary(),
-    ]);
     setJobCursors([]);
     setSessionCursors([]);
-    setJobs(j);
-    setSessions(s);
-    setAudit(a);
-    setSummary(counts);
     setAuditCursors([]);
+    await queryClient.invalidateQueries({ queryKey: queryRoot });
     auditScroll.current?.scrollTo(0, 0);
   }
   async function run(action: () => Promise<void>) {
@@ -481,7 +480,7 @@ export function Workspace({
     const form = new FormData(event.currentTarget);
     await run(async () => {
       if (modal === 'job') {
-        await api.createJob({
+        await createJobMutation.mutateAsync({
           question_set_count: Number(form.get('question_set_count')),
           preparation_duration_minutes: Number(
             form.get('preparation_duration_minutes'),
@@ -493,7 +492,7 @@ export function Workspace({
         });
         setModal(null);
       } else {
-        const result = await api.invite(String(form.get('job_id')), {
+        const result = await inviteCandidate(String(form.get('job_id')), {
           candidate_name: String(form.get('candidate_name')),
           candidate_email: String(form.get('candidate_email')),
           duration_minutes: Number(form.get('duration_minutes')),
@@ -1038,7 +1037,7 @@ export function Workspace({
                     page={auditCursors.length + 1}
                     summary={`${auditEvents.length} on this page${audit.total !== undefined ? ` · ${audit.total} matching ${audit.total === 1 ? 'event' : 'events'}` : ''}`}
                     hasNext={!!audit.next_cursor}
-                    busy={busy}
+                    busy={busy || auditQuery.isFetching}
                     onChange={(direction) => void changeAuditPage(direction)}
                   />
                 </section>
@@ -1242,7 +1241,7 @@ export function Workspace({
                         page={sessionCursors.length + 1}
                         summary={`${summary.sessions} ${summary.sessions === 1 ? 'interview' : 'interviews'} total`}
                         hasNext={!!sessions.next_cursor}
-                        busy={busy}
+                        busy={busy || sessionsQuery.isFetching}
                         onChange={(direction) =>
                           void changeSessionPage(direction)
                         }

@@ -1,3 +1,5 @@
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './queryClient';
 import { Button } from './components/ui/button';
 import { StrictMode, useEffect, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -58,6 +60,7 @@ function App() {
       .catch((error) => {
         if (!active) return;
         if (error instanceof ApiError && error.status === 401) {
+          queryClient.clear();
           forgetToken();
           setSession(null);
           setError('Your session expired. Please sign in again.');
@@ -86,6 +89,7 @@ function App() {
   useEffect(() => {
     function unauthorized(event: Event) {
       if (session && (event as CustomEvent<string>).detail === session.token) {
+        queryClient.clear();
         forgetToken();
         setSession(null);
         setError('Your session expired. Please sign in again.');
@@ -124,10 +128,12 @@ function App() {
         { method: 'POST' },
         session.token,
       );
+      queryClient.clear();
       forgetToken();
       setSession(null);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
+        queryClient.clear();
         forgetToken();
         setSession(null);
       } else {
@@ -167,6 +173,7 @@ function App() {
                   variant="text"
                   className="w-full"
                   onClick={() => {
+                    queryClient.clear();
                     forgetToken();
                     setSession(null);
                     setRestoreFailed(false);
@@ -281,6 +288,8 @@ function App() {
 }
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
   </StrictMode>,
 );

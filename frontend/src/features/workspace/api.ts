@@ -61,7 +61,8 @@ export type Summary = {
 };
 export function workspaceApi(token: string) {
   const base = '/api/v1';
-  const get = <T>(path: string) => request<T>(`${base}${path}`, {}, token);
+  const get = <T>(path: string, signal?: AbortSignal) =>
+    request<T>(`${base}${path}`, { signal }, token);
   const post = <T>(path: string, data: unknown) =>
     request<T>(
       `${base}${path}`,
@@ -69,13 +70,17 @@ export function workspaceApi(token: string) {
       token,
     );
   return {
-    summary: () => get<Summary>('/summary'),
-    jobs: (cursor?: string, limit?: number) =>
+    summary: (signal?: AbortSignal) => get<Summary>('/summary', signal),
+    jobs: (cursor?: string, limit?: number, signal?: AbortSignal) =>
       get<Page<Job>>(
         `/jobs?${new URLSearchParams({ ...(cursor ? { cursor } : {}), ...(limit ? { limit: String(limit) } : {}) })}`,
+        signal,
       ),
-    sessions: (cursor?: string) =>
-      get<Page<Interview>>(`/sessions${cursor ? `?cursor=${cursor}` : ''}`),
+    sessions: (cursor?: string, signal?: AbortSignal) =>
+      get<Page<Interview>>(
+        `/sessions${cursor ? `?cursor=${cursor}` : ''}`,
+        signal,
+      ),
     detail: (id: string) => get<Interview>(`/sessions/${id}`),
     generation: (id: string, signal?: AbortSignal) =>
       request<Generation>(
@@ -89,9 +94,15 @@ export function workspaceApi(token: string) {
         expires_at: string;
         replaced_legacy_link: boolean;
       }>(`/sessions/${id}/invitation`, {}),
-    audit: (entity?: string, cursor?: string, filters: AuditFilters = {}) =>
+    audit: (
+      entity?: string,
+      cursor?: string,
+      filters: AuditFilters = {},
+      signal?: AbortSignal,
+    ) =>
       get<AuditPage>(
         `/audit?${new URLSearchParams({ ...filters, ...(entity ? { entity_id: entity } : {}), ...(cursor ? { cursor } : {}) })}`,
+        signal,
       ),
     questionSets: (id: string, signal?: AbortSignal) =>
       request<JobPool>(`${base}/jobs/${id}/question-sets`, { signal }, token),
