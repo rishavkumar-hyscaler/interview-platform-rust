@@ -1,3 +1,4 @@
+import { JobCard } from './JobCard';
 import { modalTypography } from '../../components/ui/modal-typography';
 import { ListToolbar } from '../../components/ui/list-toolbar';
 import { Input } from '../../components/ui/input';
@@ -26,7 +27,6 @@ import { auditPresentation } from './auditPresentation';
 import { ExpandableSection } from './ExpandableSection';
 import {
   ArrowLeft,
-  ArrowUpRight,
   BriefcaseBusiness,
   ChartNoAxesColumn,
   ClipboardList,
@@ -1119,35 +1119,11 @@ export function Workspace({
                       ) : jobs.items.length ? (
                         <div className="job-grid items-stretch! pt-6">
                           {jobs.items.map((job, index) => (
-                            <DashboardCard
-                              variant="job"
-                              index={index}
-                              key={job.id}
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <span className="pill max-w-full break-all">
-                                  {job.job_code}
-                                </span>
-                                <span
-                                  aria-hidden="true"
-                                  className="job-icon grid shrink-0 place-items-center motion-safe:transition-transform motion-safe:group-hover:translate-x-0.5 motion-safe:group-hover:-translate-y-0.5"
-                                >
-                                  <ArrowUpRight className="size-4 text-violet-700 workspace-dark:text-violet-300" />
-                                </span>
-                              </div>
-                              <h3 className="mt-0! break-words">{job.title}</h3>
-                              <button
-                                type="button"
-                                className="absolute inset-0 cursor-pointer rounded-xl border-0 bg-transparent p-0 hover:bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
-                                aria-label={`Open job details for ${job.job_code}: ${job.title}`}
-                                aria-haspopup="dialog"
-                                onClick={() => {
-                                  setConfirmDelete(false);
-                                  setDeleteError('');
-                                  setExpandedJobId(job.id);
-                                }}
-                              />
-                            </DashboardCard>
+                            <JobCard key={job.id} job={job} index={index} onOpen={() => {
+                              setConfirmDelete(false);
+                              setDeleteError('');
+                              setExpandedJobId(job.id);
+                            }} />
                           ))}
                         </div>
                       ) : (
@@ -1358,34 +1334,10 @@ export function Workspace({
                       )}
                       <div className="job-grid items-stretch! pt-6">
                         {jobs.items.map((job, index) => (
-                          <DashboardCard
-                            variant="analytics"
-                            index={index}
-                            key={job.id}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <h3 className="min-w-0 break-words mt-0!">
-                                {job.title}
-                              </h3>
-                              <Button
-                                className="job-icon min-h-0 shrink-0 p-0"
-                                aria-label={`Open analytics for ${job.title}`}
-                                onClick={() => {
-                                  navigateTo({ job });
-                                  window.scrollTo(0, 0);
-                                }}
-                              >
-                                <ArrowUpRight
-                                  aria-hidden="true"
-                                  className="size-4 text-violet-700 workspace-dark:text-violet-300"
-                                />
-                              </Button>
-                            </div>
-                            <p className="job-code">
-                              Job ID: <strong>{job.job_code}</strong>
-                            </p>
-                            <p className="job-description">{job.description}</p>
-                          </DashboardCard>
+                          <JobCard key={job.id} job={job} index={index} analytics onOpen={() => {
+                            navigateTo({ job });
+                            window.scrollTo(0, 0);
+                          }} />
                         ))}
                       </div>
                       {jobPagination}
