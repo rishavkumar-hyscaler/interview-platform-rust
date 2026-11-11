@@ -133,7 +133,13 @@ export function workspaceApi(token: string) {
       title: string;
       description: string;
       request_key: string;
-    }) => post<Job>('/jobs', data),
+    }) =>
+      request<Job>(
+        `${base}/jobs`,
+        { method: 'POST', body: JSON.stringify(data) },
+        token,
+        300000,
+      ),
     invite: (
       job: string,
       data: {

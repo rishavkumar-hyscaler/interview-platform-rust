@@ -46,9 +46,10 @@ pub(crate) async fn invite(
     cipher()?;
     let mut tx = interviewer_transaction(pool, user).await?;
     let recruiter = user;
-    repo::job(&mut tx, recruiter, job)
+    let duration = repo::job(&mut tx, recruiter, job)
         .await?
         .ok_or_else(missing)?;
+    validate_duration(input.duration_minutes, duration)?;
     repo::insert_interviewee(&mut tx, &email).await?;
     let interviewee = repo::interviewee(&mut tx, &email)
         .await?
@@ -65,7 +66,7 @@ pub(crate) async fn invite(
             request_key: input.request_key,
             name,
             email: &email,
-            duration: input.duration_minutes,
+            duration,
             interviewee,
         },
     )
@@ -214,4 +215,23 @@ pub(crate) async fn retrieve_invitation(
         expires_at,
         replaced_legacy_link,
     })
+}
+
+fn validate_duration(requested: i32, job_duration: i32) -> Result<()> {
+    if requested != job_duration {
+        return Err(conflict(
+            "Interview duration is fixed by the job and cannot be changed when inviting candidates",
+        ));
+    }
+    Ok(())
+}
+#[cfg(test)]
+mod duration_tests {
+    use super::*;
+    #[test]
+    fn invitation_duration_must_match_the_job() {
+        assert!(validate_duration(10, 10).is_ok());
+        assert!(validate_duration(5, 10).is_err());
+        assert!(validate_duration(30, 10).is_err());
+    }
 }

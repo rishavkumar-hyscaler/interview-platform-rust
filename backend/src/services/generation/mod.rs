@@ -39,3 +39,13 @@ pub(super) fn bounded_failure(error: anyhow::Error) -> anyhow::Error {
         PreparationRejected(error.to_string()).into()
     }
 }
+
+/// Prepare the job's fixed blueprint before any candidate is invited.
+pub(crate) async fn blueprint_for_job(
+    provider: &provider::AiProvider,
+    description: &str,
+    duration: i32,
+) -> anyhow::Result<serde_json::Value> {
+    let blueprint = quality::blueprint(provider, description, duration, "").await?;
+    serde_json::to_value(blueprint).map_err(Into::into)
+}

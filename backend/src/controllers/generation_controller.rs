@@ -15,7 +15,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
 #[derive(Clone)]
-struct ProviderOption(Option<Arc<AiProvider>>);
+pub(crate) struct ProviderOption(pub(crate) Option<Arc<AiProvider>>);
 pub fn routes(provider: Option<AiProvider>) -> Router<PgPool> {
     Router::new()
         .route(

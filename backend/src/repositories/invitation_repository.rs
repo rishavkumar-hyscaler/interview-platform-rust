@@ -22,14 +22,14 @@ pub(crate) async fn job(
     tx: &mut Transaction<'_, Postgres>,
     owner: Uuid,
     id: Uuid,
-) -> Result<Option<Uuid>> {
-    Ok(
-        sqlx::query_scalar("SELECT id FROM jobs WHERE interviewer_id=$1 AND id=$2")
-            .bind(owner)
-            .bind(id)
-            .fetch_optional(&mut **tx)
-            .await?,
+) -> Result<Option<i32>> {
+    Ok(sqlx::query_scalar(
+        "SELECT preparation_duration_minutes FROM jobs WHERE interviewer_id=$1 AND id=$2",
     )
+    .bind(owner)
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await?)
 }
 pub(crate) async fn insert_interviewee(
     tx: &mut Transaction<'_, Postgres>,

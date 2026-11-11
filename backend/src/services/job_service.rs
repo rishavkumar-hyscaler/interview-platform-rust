@@ -47,6 +47,7 @@ pub(crate) async fn create(
     pool: &PgPool,
     interviewer: Uuid,
     input: CreateJob,
+    provider: Option<&crate::generation::provider::AiProvider>,
 ) -> Result<CreatedJob> {
     if !(5..=180).contains(&input.preparation_duration_minutes) {
         return Err(bad("Interview duration must be 5–180 minutes"));
@@ -79,6 +80,30 @@ pub(crate) async fn create(
     let mut tx = interviewer_transaction(pool, interviewer).await?;
     let created = job_repository::insert(&mut tx, &new_job).await?;
     if created {
+        let provider = provider.ok_or(crate::ApiError(
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "AI must be configured before creating the job blueprint",
+        ))?;
+        let blueprint = crate::generation::blueprint_for_job(
+            provider,
+            &new_job.description,
+            new_job.preparation_duration_minutes,
+        )
+        .await
+        .map_err(|_| {
+            crate::ApiError(
+                axum::http::StatusCode::BAD_GATEWAY,
+                "Could not prepare the job blueprint. Retry creating the job.",
+            )
+        })?;
+        crate::repositories::generation_workflow_repository::save_blueprint(
+            &mut tx,
+            new_job.id,
+            blueprint,
+            &provider.model,
+            crate::generation::PROMPT_VERSION,
+        )
+        .await?;
         audit(
             &mut tx,
             interviewer,

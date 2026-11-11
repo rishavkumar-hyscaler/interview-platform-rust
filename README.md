@@ -459,7 +459,7 @@ Limits and model/calibration behavior are in the linked guide. Evidence attachme
 
 #### Candidate-specific invitation preparation
 
-Creating a job saves its description and default duration without generating a reusable pool. Inviting a candidate creates one private `question_sets` row with a fresh seed and links it through `interview_sessions.question_set_id`. Another candidate always receives another set. Existing historical invitations and sets are preserved.
+Creating a job saves a fixed duration and generates/validates its JD blueprint before returning success. AI configuration is required; a blueprint failure rolls the new job back so the same request can be retried. No reusable question pool is generated. Inviting a candidate creates one private `question_sets` row with a fresh seed and links it through `interview_sessions.question_set_id`. Another candidate always receives another set. Existing historical invitations and sets are preserved.
 
 The invite response is HTTP 202 with `invitation_token: null` while preparation is queued. Replaying the same request key returns the same session and does not enqueue another set. `GET /api/v1/sessions/{id}/generation` reports pending/running/completed/failed and saved question progress. The UI shows Preparing questions or Preparation failed and provides a candidate-specific manual retry via `POST /api/v1/sessions/{id}/generation`.
 
@@ -513,7 +513,7 @@ tracing is suppressed; application logs retain operational metadata only.
 
 ### Candidate-specific sets and assignment
 
-See [Candidate-specific invitation preparation](#candidate-specific-invitation-preparation) for the current lifecycle. The first preparation caches the JD competency blueprint; subsequent candidates reuse the blueprint, not the questions. Each new question targets a 2–3 minute scope and the complete plan fits that candidate's duration. Candidate APIs never expose reference answers or rubrics.
+See [Candidate-specific invitation preparation](#candidate-specific-invitation-preparation) for the current lifecycle. New jobs already have a validated JD competency blueprint. Every candidate reuses that saved blueprint and the job’s fixed duration, while receiving fresh questions. Invitation requests with a different duration are rejected. Historical jobs without a blueprint retain the legacy first-preparation fallback. Each new question targets a 2–3 minute scope and the complete plan fits the job's fixed duration. Candidate APIs never expose reference answers or rubrics.
 
 Existing historical reusable sets remain unchanged; new invitations never assign those sets. Analytics continue to group by question ID, so fresh questions usually have one candidate attempt and cannot establish a Pearson correlation until there are multiple comparable scores for that same question. Job-wide/set summaries remain useful; comparing different questions as identical would be misleading.
 

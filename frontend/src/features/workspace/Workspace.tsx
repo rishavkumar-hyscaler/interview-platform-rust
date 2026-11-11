@@ -1,3 +1,4 @@
+import { modalTypography } from '../../components/ui/modal-typography';
 import { ListToolbar } from '../../components/ui/list-toolbar';
 import { Input } from '../../components/ui/input';
 import { CreateJobForm } from './CreateJobForm';
@@ -218,7 +219,7 @@ function Dialog({
   return (
     <dialog
       ref={ref}
-      className="modal-backdrop interviewer-workspace"
+      className={`modal-backdrop interviewer-workspace ${modalTypography}`}
       aria-labelledby={title}
       onCancel={(event) => {
         event.preventDefault();
@@ -367,7 +368,8 @@ export function Workspace({
   });
   const [modal, setModal] = useState<'job' | 'invite' | null>(null);
   const [inviteJob, setInviteJob] = useState('');
-  const [inviteDuration, setInviteDuration] = useState(30);
+  const [inviteJobLocked, setInviteJobLocked] = useState(false);
+  const [inviteDuration, setInviteDuration] = useState(10);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -495,9 +497,10 @@ export function Workspace({
   function openModal(type: 'job' | 'invite', jobId = '') {
     const selected = jobId || jobs.items[0]?.id || '';
     setInviteJob(selected);
+    setInviteJobLocked(!!jobId);
     setInviteDuration(
       jobs.items.find((job) => job.id === selected)
-        ?.preparation_duration_minutes ?? 30,
+        ?.preparation_duration_minutes ?? 10,
     );
     setRequestKey(crypto.randomUUID());
     setPendingInvitation(null);
@@ -1575,6 +1578,13 @@ export function Workspace({
                 onChange={() => setRequestKey(crypto.randomUUID())}
               >
                 <>
+                  {inviteJobLocked ? (
+                    <div className="grid gap-1 text-control">
+                      <span className="text-slate-500 workspace-dark:text-slate-400">Job</span>
+                      <span>{jobs.items.find((job) => job.id === inviteJob)?.job_code} — {jobs.items.find((job) => job.id === inviteJob)?.title}</span>
+                      <input type="hidden" name="job_id" value={inviteJob} />
+                    </div>
+                  ) : (
                   <label>
                     Role
                     <Select
@@ -1585,7 +1595,7 @@ export function Workspace({
                         setInviteDuration(
                           jobs.items.find(
                             (job) => job.id === event.target.value,
-                          )?.preparation_duration_minutes ?? 30,
+                          )?.preparation_duration_minutes ?? 10,
                         );
                       }}
                       required
@@ -1597,6 +1607,7 @@ export function Workspace({
                       ))}
                     </Select>
                   </label>
+                  )}
                   <label>
                     Candidate name
                     <input
@@ -1616,21 +1627,11 @@ export function Workspace({
                       autoComplete="email"
                     />
                   </label>
-                  <label>
-                    Interview duration (minutes)
-                    <input
-                      key={inviteJob}
-                      name="duration_minutes"
-                      type="number"
-                      min={5}
-                      max={180}
-                      value={inviteDuration}
-                      onChange={(event) =>
-                        setInviteDuration(Number(event.target.value))
-                      }
-                      required
-                    />
-                  </label>
+                  <div className="flex items-center justify-between gap-3 text-control">
+                    <span className="text-slate-500 workspace-dark:text-slate-400">Duration</span>
+                    <span>{inviteDuration} minutes</span>
+                    <input type="hidden" name="duration_minutes" value={inviteDuration} />
+                  </div>
                   <p className="muted">
                     Prepare fresh questions for this candidate. The private link
                     becomes available when preparation completes. Email delivery

@@ -70,7 +70,7 @@ export function CreateJobForm({
         </label>
       </div>
       <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-6 py-4 workspace-dark:border-slate-700 workspace-dark:bg-slate-950/20">
-        <HelpTip text="Each candidate’s fresh questions and reference answers are prepared after you invite them. Saving the job does not start question generation." />
+        <HelpTip text="The duration and competency blueprint are fixed when this job is created. Fresh questions are generated from that blueprint for each invited candidate." />
         <div className="flex items-center gap-2">
           <Button compact onClick={onCancel} disabled={busy}>
             Cancel
@@ -79,7 +79,7 @@ export function CreateJobForm({
             {busy && (
               <LoaderCircle className="size-4 motion-safe:animate-spin" />
             )}
-            {busy ? 'Creating…' : 'Create job'}
+            {busy ? 'Preparing blueprint…' : 'Create job'}
           </Button>
         </div>
       </div>

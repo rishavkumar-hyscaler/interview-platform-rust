@@ -6,7 +6,7 @@ use crate::{
     services::job_service::{self, CreateJob},
 };
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
 };
@@ -15,6 +15,7 @@ use sqlx::PgPool;
 pub(crate) async fn create_job(
     State(pool): State<PgPool>,
     headers: HeaderMap,
+    Extension(provider): Extension<crate::controllers::generation_controller::ProviderOption>,
     Json(input): Json<CreateJobRequest>,
 ) -> Result<(StatusCode, Json<JobResponse>)> {
     let (interviewer, _) = authenticate(&pool, &headers).await?;
@@ -29,6 +30,7 @@ pub(crate) async fn create_job(
             preparation_duration_minutes: input.preparation_duration_minutes,
             question_set_count: input.question_set_count,
         },
+        provider.0.as_deref(),
     )
     .await?;
     let status = if result.created {

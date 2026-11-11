@@ -1416,8 +1416,30 @@ async fn candidate_invitation_waits_for_its_own_questions() {
         .await
         .unwrap();
     assert_eq!(count, 0, "job creation must not generate reusable sets");
+    let blueprint_ready: bool =
+        sqlx::query_scalar("SELECT blueprint IS NOT NULL FROM jobs WHERE id=$1")
+            .bind(job_id.parse::<Uuid>().unwrap())
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert!(
+        blueprint_ready,
+        "the blueprint must be saved during job creation"
+    );
     tx.commit().await.unwrap();
     let route = format!("/api/v1/jobs/{job_id}/invitations");
+    let (status, _) = call(
+        &app,
+        "POST",
+        &route,
+        json!({
+            "candidate_name":"Invalid duration", "candidate_email":"invalid@example.test",
+            "duration_minutes":30,"request_key":Uuid::new_v4()
+        }),
+        token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
     let input = json!({"candidate_name":"First candidate", "candidate_email":"first@example.test",
         "duration_minutes":10,"request_key":Uuid::new_v4()});
     let (status, first) = call(&app, "POST", &route, input.clone(), token).await;

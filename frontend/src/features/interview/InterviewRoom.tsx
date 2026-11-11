@@ -1,3 +1,4 @@
+import { modalTypography } from '../../components/ui/modal-typography';
 import { Button } from '../../components/ui/button';
 import type { InterviewDevices } from './useInterviewDevices';
 import type { ScreenEvidence } from './useScreenEvidence';
@@ -741,7 +742,7 @@ export function InterviewRoom({
         )}
         <dialog
           ref={submitDialog}
-          className="submit-dialog"
+          className={`submit-dialog ${modalTypography}`}
           onCancel={() => setConfirm(false)}
         >
           <h2>Submit your interview?</h2>
