@@ -88,12 +88,14 @@ export function ListToolbar({
   sort,
   filters,
   filtersActive = false,
+  actions,
   className,
 }: {
   search: ComponentProps<typeof Input>;
   sort: ReactNode;
   filters: ReactNode;
   filtersActive?: boolean;
+  actions?: ReactNode;
   className?: string;
 }) {
   return (
@@ -128,21 +130,24 @@ export function ListToolbar({
           )}
         />
       </div>
-      <div className="ml-auto flex shrink-0 items-center gap-1">
-        <ToolbarMenu
-          label="Sort by"
-          icon={<ArrowDownWideNarrow className="size-3.5" />}
-          closeOnChange
-        >
-          {sort}
-        </ToolbarMenu>
-        <ToolbarMenu
-          label="Filters"
-          icon={<Funnel className="size-3.5" />}
-          active={filtersActive}
-        >
-          {filters}
-        </ToolbarMenu>
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        {actions}
+        <div className="flex items-center gap-1">
+          <ToolbarMenu
+            label="Sort by"
+            icon={<ArrowDownWideNarrow className="size-3.5" />}
+            closeOnChange
+          >
+            {sort}
+          </ToolbarMenu>
+          <ToolbarMenu
+            label="Filters"
+            icon={<Funnel className="size-3.5" />}
+            active={filtersActive}
+          >
+            {filters}
+          </ToolbarMenu>
+        </div>
       </div>
     </div>
   );

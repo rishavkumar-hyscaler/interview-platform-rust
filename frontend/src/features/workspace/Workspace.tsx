@@ -502,6 +502,21 @@ export function Workspace({
       Date.parse(left.created_at) - Date.parse(right.created_at);
     return interviewSort === 'oldest' ? difference : -difference;
   });
+  const refreshAction = (
+    <RefreshButton
+      pending={refreshing}
+      disabled={busy || loading}
+      onClick={() => {
+        setRefreshing(true);
+        setError('');
+        void refresh()
+          .catch((failure) => setError(message(failure)))
+          .finally(() => setRefreshing(false));
+      }}
+    >
+      Refresh
+    </RefreshButton>
+  );
   const auditEvents =
     auditSort === 'oldest' ? [...audit.items].reverse() : audit.items;
   return (
@@ -736,44 +751,6 @@ export function Workspace({
             </section>
           ) : (
             <>
-              <div className="page-heading">
-                <div>
-                  <h1 className="font-display">
-                    {view === 'question-bank'
-                      ? 'Question-bank analytics'
-                      : view === 'reviewer'
-                        ? 'Interview results'
-                        : view === 'audit'
-                          ? 'Audit trail'
-                          : 'Jobs & invitations'}
-                  </h1>
-                </div>
-                <div className="actions items-center">
-                  <RefreshButton
-                    pending={refreshing}
-                    disabled={busy || loading}
-                    onClick={() => {
-                      setRefreshing(true);
-                      setError('');
-                      void refresh()
-                        .catch((failure) => setError(message(failure)))
-                        .finally(() => setRefreshing(false));
-                    }}
-                  >
-                    Refresh
-                  </RefreshButton>
-                  {view === 'interviewer' && (
-                    <Button
-                      variant="standard"
-                      compact
-                      disabled={busy || loading}
-                      onClick={() => openModal('job')}
-                    >
-                      + Create job
-                    </Button>
-                  )}
-                </div>
-              </div>
               {error && (
                 <div className="error" role="alert">
                   {error}
@@ -848,6 +825,7 @@ export function Workspace({
                     }}
                   >
                     <ListToolbar
+                      actions={refreshAction}
                       search={{
                         name: 'candidate',
                         value: auditForm.candidate,
@@ -942,7 +920,7 @@ export function Workspace({
                   </form>
                   <div
                     ref={auditScroll}
-                    className="audit-scroll"
+                    className="audit-scroll max-h-[calc(100dvh-17rem)]!"
                     role="region"
                     aria-label="Audit events"
                     tabIndex={0}
@@ -990,11 +968,24 @@ export function Workspace({
                 <>
                   {view === 'interviewer' && (
                     <section
-                      className="panel"
+                      className="panel flex min-h-[calc(100dvh-8rem)] flex-col"
                       aria-label="Your roles"
                       aria-busy={jobsQuery.isFetching}
                     >
                       <JobFilters
+                        actions={
+                          <>
+                            {refreshAction}
+                            <Button
+                              variant="standard"
+                              compact
+                              disabled={busy || loading}
+                              onClick={() => openModal('job')}
+                            >
+                              + Create job
+                            </Button>
+                          </>
+                        }
                         value={jobFilters}
                         onApply={(filters) => {
                           setJobCursors([]);
@@ -1015,7 +1006,7 @@ export function Workspace({
                           </Button>
                         </div>
                       ) : jobs.items.length ? (
-                        <div className="job-grid items-stretch! pt-6">
+                        <div className="job-grid flex-1 auto-rows-min items-stretch! pt-6">
                           {jobs.items.map((job, index) => (
                             <JobCard
                               key={job.id}
@@ -1057,10 +1048,11 @@ export function Workspace({
                   )}
                   {view === 'reviewer' && (
                     <section
-                      className="panel"
+                      className="panel flex min-h-[calc(100dvh-20rem)] flex-col"
                       aria-label="Candidate interviews"
                     >
                       <ListToolbar
+                        actions={refreshAction}
                         className="mx-5 my-4"
                         search={{
                           'aria-label': 'Search interviews on this page',
@@ -1148,7 +1140,7 @@ export function Workspace({
                         }
                       />
                       {visible.length ? (
-                        <div className="table-scroll">
+                        <div className="table-scroll flex-1">
                           <table>
                             <thead>
                               <tr>
@@ -1220,8 +1212,12 @@ export function Workspace({
                     </section>
                   )}
                   {view === 'question-bank' && (
-                    <section className="panel" aria-label="Jobs for analytics">
+                    <section
+                      className="panel flex min-h-[calc(100dvh-8rem)] flex-col"
+                      aria-label="Jobs for analytics"
+                    >
                       <JobFilters
+                        actions={refreshAction}
                         value={analyticsFilters}
                         onApply={(filters) => {
                           setJobCursors([]);
@@ -1235,7 +1231,7 @@ export function Workspace({
                             : 'Create a job to see question-bank analytics here.'}
                         </p>
                       )}
-                      <div className="job-grid items-stretch! pt-6">
+                      <div className="job-grid flex-1 auto-rows-min items-stretch! pt-6">
                         {jobs.items.map((job, index) => (
                           <JobCard
                             key={job.id}

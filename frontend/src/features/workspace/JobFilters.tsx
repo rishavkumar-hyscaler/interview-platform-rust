@@ -1,4 +1,4 @@
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { ListToolbar } from '../../components/ui/list-toolbar';
 import { Select } from '../../components/ui/select';
 import { Button } from '../../components/ui/button';
@@ -7,8 +7,10 @@ import type { JobListFilters } from './api';
 export function JobFilters({
   value,
   onApply,
+  actions,
 }: {
   value: JobListFilters;
+  actions?: ReactNode;
   onApply: (filters: JobListFilters) => void;
 }) {
   function apply(form: HTMLFormElement) {
@@ -38,6 +40,7 @@ export function JobFilters({
       aria-label="Filter jobs"
     >
       <ListToolbar
+        actions={actions}
         search={{
           name: 'search',
           'aria-label': 'Search jobs by ID or title',
