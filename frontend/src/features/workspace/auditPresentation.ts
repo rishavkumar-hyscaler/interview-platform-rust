@@ -20,6 +20,8 @@ const titles: Record<string, string> = {
   'assessment.completed': 'AI scoring completed',
   'assessment.failed': 'AI scoring failed',
   'adaptive.selected': 'Next question selected',
+  'question.served': 'Question opened',
+  'proctor.evidence': 'Evidence attachment saved',
   'proctor.observed': 'Browser activity recorded',
   'invitation.preparation_queued': 'Candidate question preparation queued',
   'generation.retried': 'Candidate question preparation retried',

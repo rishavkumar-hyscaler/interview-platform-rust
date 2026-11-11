@@ -23,7 +23,8 @@ import {
   useInterviewerAccount,
 } from './InterviewerProfile';
 import { LiveScreenViewer } from '../live-screen/LiveScreenViewer';
-import { auditPresentation } from './auditPresentation';
+import { AuditTable } from './AuditTable';
+import { SessionTimeline } from './SessionTimeline';
 import { ExpandableSection } from './ExpandableSection';
 import {
   ArrowLeft,
@@ -56,7 +57,6 @@ import { QuestionPreparation } from './QuestionPreparation';
 import {
   invitationIsActive,
   workspaceApi,
-  type Audit,
   type AuditFilters,
   type Interview,
   type Job,
@@ -99,106 +99,6 @@ export function Status({ state }: { state: string }) {
     </span>
   );
 }
-function Timeline({
-  events,
-  emptyMessage = 'No audit events for this session yet.',
-}: {
-  events: Audit[];
-  emptyMessage?: string;
-}) {
-  if (!events.length)
-    return <div className="empty compact">{emptyMessage}</div>;
-  return (
-    <ol className="timeline">
-      {events.map((event) => {
-        const { title, performedBy, details } = auditPresentation(event);
-        return (
-          <li key={event.id}>
-            <span className="timeline-dot" />
-            <div className="audit-event-content">
-              <strong>{title}</strong>
-              <p>
-                <time dateTime={event.created_at}>
-                  {date(event.created_at)}
-                </time>{' '}
-                · {performedBy}
-              </p>
-              {(event.job_title || event.job_code) && (
-                <p className="audit-context">
-                  Job: {event.job_title}
-                  {event.job_code && <> · Job ID: {event.job_code}</>}
-                </p>
-              )}
-              {event.candidate_name && (
-                <p>
-                  Candidate: {event.candidate_name}
-                  {event.candidate_email && <> · {event.candidate_email}</>}
-                </p>
-              )}
-              {details.length > 0 && <p>{details.join(' · ')}</p>}
-            </div>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-function AuditTable({ events }: { events: Audit[] }) {
-  if (!events.length)
-    return (
-      <div className="empty compact">No audit events match these filters.</div>
-    );
-  return (
-    <div className="table-scroll">
-      <table className="min-w-[44rem]">
-        <thead>
-          <tr>
-            <th scope="col">Event</th>
-            <th scope="col">Performed by</th>
-            <th scope="col">Job ID</th>
-            <th scope="col">Job title</th>
-            <th scope="col">Candidate</th>
-            <th scope="col">Timestamp</th>
-          </tr>
-        </thead>
-        <tbody>
-          {events.map((event) => {
-            const { title, performedBy, details } = auditPresentation(event);
-            const timestamp = new Date(event.created_at);
-            return (
-              <tr key={event.id} className="align-top">
-                <td>
-                  <strong className="font-normal!">{title}</strong>
-                  {details.length > 0 && <small>{details.join(' · ')}</small>}
-                </td>
-                <td>{performedBy}</td>
-                <td className="whitespace-nowrap">{event.job_code || '—'}</td>
-                <td>{event.job_title || '—'}</td>
-                <td>
-                  {event.candidate_name || event.candidate_email || '—'}
-                  {event.candidate_name && event.candidate_email && (
-                    <small>{event.candidate_email}</small>
-                  )}
-                </td>
-                <td className="whitespace-nowrap tabular-nums">
-                  <time dateTime={event.created_at}>
-                    {timestamp.toLocaleTimeString()}
-                    <small>
-                      {timestamp.toLocaleDateString(undefined, {
-                        dateStyle: 'medium',
-                      })}
-                    </small>
-                  </time>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function Dialog({
   children,
   title,
@@ -370,10 +270,6 @@ export function Workspace({
     auditQuery.error ??
     summaryQuery.error;
   const [selected, setSelected] = useState<Interview | null>(null);
-  const [events, setEvents] = useState<Page<Audit>>({
-    items: [],
-    next_cursor: null,
-  });
   const [modal, setModal] = useState<'job' | 'invite' | null>(null);
   const [inviteJob, setInviteJob] = useState('');
   const [inviteJobLocked, setInviteJobLocked] = useState(false);
@@ -551,18 +447,13 @@ export function Workspace({
     setDetailLink('');
     setCopyFeedback('');
     void run(async () => {
-      const [detail, history] = await Promise.all([
-        api.detail(id),
-        api.audit(id),
-      ]);
+      const detail = await api.detail(id);
       setSelected(detail);
-      setEvents(history);
       if (detail.invitation_recoverable && invitationIsActive(detail)) {
         const link = await api.invitation(id);
         setDetailLink(
           `${window.location.origin}${window.location.pathname}#invite=${link.invitation_token}`,
         );
-        setEvents(await api.audit(id));
       }
     });
   }
@@ -579,7 +470,6 @@ export function Workspace({
           : 'Saved invitation link ready to share.',
       );
       setSelected({ ...selected, invitation_recoverable: true });
-      setEvents(await api.audit(selected.id));
     });
   }
   async function copyInvitation() {
@@ -1876,36 +1766,12 @@ export function Workspace({
                   hidden={reviewSection !== 'timeline'}
                   aria-label="Session timeline"
                 >
-                  <ExpandableSection
-                    className="session-timeline"
-                    label={<>Session timeline ({events.items.length}) </>}
-                    help="Saved audit history for this session. Expand it and use Load older events to browse earlier activity."
-                  >
-                    <Timeline events={events.items} />
-                    {events.next_cursor && (
-                      <button
-                        className="load-more"
-                        disabled={busy}
-                        onClick={() =>
-                          void run(async () => {
-                            const next = await api.audit(
-                              selected.id,
-                              events.next_cursor!,
-                            );
-                            setEvents({
-                              items: [...events.items, ...next.items],
-                              next_cursor: next.next_cursor,
-                            });
-                          })
-                        }
-                      >
-                        Load older events ↓
-                      </button>
-                    )}
-                  </ExpandableSection>
-                  <p className="muted">
-                    Session ID: <code>{selected.id}</code>
-                  </p>
+                  <SessionTimeline
+                    key={selected.id}
+                    session={selected}
+                    token={token}
+                    active={reviewSection === 'timeline'}
+                  />
                 </section>
               </div>
             </div>
