@@ -137,6 +137,7 @@ fn document() -> Value {
     paths["/api/v1/jobs"]["post"]["responses"]["200"] =
         paths["/api/v1/jobs"]["post"]["responses"]["201"].clone();
     endpoint!("delete" "/api/v1/jobs/{job}", "Jobs", staff, "Permanently delete a job and its related data", "204" => None);
+    endpoint!("post" "/api/v1/jobs/{job}/blueprint", "Generation", staff, "Retry background job blueprint preparation", "202" => json_response(response_schema::<generation::PendingResponse>()));
     endpoint!("post" "/api/v1/jobs/{job}/invitations", "Invitations", staff, "Invite a candidate", "201" => json_response(response_schema::<invitation::InvitationResponse>()),
         "requestBody" => json_body(request_schema::<invitation::InvitationRequest>()));
     paths["/api/v1/jobs/{job}/invitations"]["post"]["responses"]["200"] =

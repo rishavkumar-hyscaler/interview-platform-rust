@@ -19,3 +19,5 @@ pub(crate) mod scoring_repository;
 pub(crate) mod scoring_task_repository;
 
 pub(crate) mod live_screen_repository;
+
+pub(crate) mod blueprint_repository;

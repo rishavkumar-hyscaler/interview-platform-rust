@@ -22,9 +22,9 @@ pub(crate) async fn job(
     tx: &mut Transaction<'_, Postgres>,
     owner: Uuid,
     id: Uuid,
-) -> Result<Option<i32>> {
-    Ok(sqlx::query_scalar(
-        "SELECT preparation_duration_minutes FROM jobs WHERE interviewer_id=$1 AND id=$2",
+) -> Result<Option<(i32, bool)>> {
+    Ok(sqlx::query_as(
+        "SELECT preparation_duration_minutes, blueprint IS NOT NULL FROM jobs WHERE interviewer_id=$1 AND id=$2",
     )
     .bind(owner)
     .bind(id)

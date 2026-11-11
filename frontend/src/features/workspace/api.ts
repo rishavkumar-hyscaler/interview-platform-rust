@@ -10,6 +10,11 @@ export type JobListFilters = {
   sort: string;
 };
 export type Job = {
+  blueprint_preparation?: {
+    status: 'not_started' | 'pending' | 'running' | 'completed' | 'failed';
+    attempts?: number;
+    last_error?: string | null;
+  };
   id: string;
   job_code: string;
   title: string;
@@ -124,6 +129,7 @@ export function workspaceApi(token: string) {
       request<JobPool>(`${base}/jobs/${id}/question-sets`, { signal }, token),
     retryQuestionSets: (id: string) =>
       post<{ status: string }>(`/jobs/${id}/question-sets`, {}),
+    retryBlueprint: (id: string) => post<void>(`/jobs/${id}/blueprint`, {}),
     deleteJob: (id: string) =>
       request<void>(`${base}/jobs/${id}`, { method: 'DELETE' }, token),
     createJob: (data: {
@@ -133,13 +139,7 @@ export function workspaceApi(token: string) {
       title: string;
       description: string;
       request_key: string;
-    }) =>
-      request<Job>(
-        `${base}/jobs`,
-        { method: 'POST', body: JSON.stringify(data) },
-        token,
-        300000,
-      ),
+    }) => post<Job>('/jobs', data),
     invite: (
       job: string,
       data: {

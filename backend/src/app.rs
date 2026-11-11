@@ -42,12 +42,7 @@ pub fn router_with_ai(pool: PgPool, provider: Option<generation::provider::AiPro
         .merge(review::routes())
         .merge(crate::rag::routes())
         .merge(crate::controllers::adaptive_controller::routes())
-        .merge(generation::routes(provider.clone()))
-        .layer(axum::Extension(
-            crate::controllers::generation_controller::ProviderOption(
-                provider.map(std::sync::Arc::new),
-            ),
-        ))
+        .merge(generation::routes(provider))
         .layer(
             tower_http::set_header::SetResponseHeaderLayer::if_not_present(
                 axum::http::header::CACHE_CONTROL,

@@ -318,9 +318,17 @@ export function Workspace({
   const [auditFilters, setAuditFilters] = useState<AuditFilters>({});
   const queryClient = useQueryClient();
   const queryRoot = ['workspace-view', token];
-  const jobsQuery = useQuery({
+  const jobsQuery = useQuery<Page<Job>>({
     queryKey: [...queryRoot, 'jobs', jobCursors.at(-1), activeJobFilters],
     placeholderData: keepPreviousData,
+    refetchInterval: (query) =>
+      query.state.data?.items.some((job) =>
+        ['pending', 'running'].includes(
+          job.blueprint_preparation?.status ?? '',
+        ),
+      )
+        ? 3000
+        : false,
     queryFn: ({ signal }) =>
       api.jobs(jobCursors.at(-1), JOBS_PER_PAGE, signal, activeJobFilters),
   });
@@ -1119,11 +1127,16 @@ export function Workspace({
                       ) : jobs.items.length ? (
                         <div className="job-grid items-stretch! pt-6">
                           {jobs.items.map((job, index) => (
-                            <JobCard key={job.id} job={job} index={index} onOpen={() => {
-                              setConfirmDelete(false);
-                              setDeleteError('');
-                              setExpandedJobId(job.id);
-                            }} />
+                            <JobCard
+                              key={job.id}
+                              job={job}
+                              index={index}
+                              onOpen={() => {
+                                setConfirmDelete(false);
+                                setDeleteError('');
+                                setExpandedJobId(job.id);
+                              }}
+                            />
                           ))}
                         </div>
                       ) : (
@@ -1334,10 +1347,16 @@ export function Workspace({
                       )}
                       <div className="job-grid items-stretch! pt-6">
                         {jobs.items.map((job, index) => (
-                          <JobCard key={job.id} job={job} index={index} analytics onOpen={() => {
-                            navigateTo({ job });
-                            window.scrollTo(0, 0);
-                          }} />
+                          <JobCard
+                            key={job.id}
+                            job={job}
+                            index={index}
+                            analytics
+                            onOpen={() => {
+                              navigateTo({ job });
+                              window.scrollTo(0, 0);
+                            }}
+                          />
                         ))}
                       </div>
                       {jobPagination}
@@ -1389,9 +1408,52 @@ export function Workspace({
                 {expandedJob.description}
               </p>
             </div>
+            {expandedJob.blueprint_preparation?.status !== 'completed' && (
+              <div
+                className="grid gap-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 text-control"
+                role="status"
+              >
+                <p className="m-0!">
+                  {expandedJob.blueprint_preparation?.status === 'failed'
+                    ? 'Blueprint preparation failed.'
+                    : expandedJob.blueprint_preparation?.status ===
+                        'not_started'
+                      ? 'Prepare the job blueprint to invite candidates.'
+                      : 'Preparing the job blueprint in the background. You can close this window.'}
+                </p>
+                {expandedJob.blueprint_preparation?.last_error && (
+                  <p className="m-0!">
+                    {expandedJob.blueprint_preparation.last_error}
+                  </p>
+                )}
+                {['failed', 'not_started'].includes(
+                  expandedJob.blueprint_preparation?.status ?? '',
+                ) && (
+                  <Button
+                    compact
+                    disabled={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        await api.retryBlueprint(expandedJob.id);
+                        await queryClient.invalidateQueries({
+                          queryKey: queryRoot,
+                        });
+                      })
+                    }
+                  >
+                    {expandedJob.blueprint_preparation?.status === 'not_started'
+                      ? 'Prepare blueprint'
+                      : 'Retry blueprint'}
+                  </Button>
+                )}
+              </div>
+            )}
             <div className="mt-6 flex items-start justify-between gap-3">
               <div className="flex min-w-0 flex-wrap items-center gap-3">
                 <Button
+                  disabled={
+                    expandedJob.blueprint_preparation?.status !== 'completed'
+                  }
                   onClick={() => {
                     setExpandedJobId(null);
                     openModal('invite', expandedJob.id);
@@ -1532,33 +1594,42 @@ export function Workspace({
                 <>
                   {inviteJobLocked ? (
                     <div className="grid gap-1 text-control">
-                      <span className="text-slate-500 workspace-dark:text-slate-400">Job</span>
-                      <span>{jobs.items.find((job) => job.id === inviteJob)?.job_code} — {jobs.items.find((job) => job.id === inviteJob)?.title}</span>
+                      <span className="text-slate-500 workspace-dark:text-slate-400">
+                        Job
+                      </span>
+                      <span>
+                        {
+                          jobs.items.find((job) => job.id === inviteJob)
+                            ?.job_code
+                        }{' '}
+                        —{' '}
+                        {jobs.items.find((job) => job.id === inviteJob)?.title}
+                      </span>
                       <input type="hidden" name="job_id" value={inviteJob} />
                     </div>
                   ) : (
-                  <label>
-                    Role
-                    <Select
-                      name="job_id"
-                      defaultValue={inviteJob || jobs.items[0]?.id}
-                      onChange={(event) => {
-                        setInviteJob(event.target.value);
-                        setInviteDuration(
-                          jobs.items.find(
-                            (job) => job.id === event.target.value,
-                          )?.preparation_duration_minutes ?? 10,
-                        );
-                      }}
-                      required
-                    >
-                      {jobs.items.map((job) => (
-                        <option key={job.id} value={job.id}>
-                          {job.job_code} — {job.title}
-                        </option>
-                      ))}
-                    </Select>
-                  </label>
+                    <label>
+                      Role
+                      <Select
+                        name="job_id"
+                        defaultValue={inviteJob || jobs.items[0]?.id}
+                        onChange={(event) => {
+                          setInviteJob(event.target.value);
+                          setInviteDuration(
+                            jobs.items.find(
+                              (job) => job.id === event.target.value,
+                            )?.preparation_duration_minutes ?? 10,
+                          );
+                        }}
+                        required
+                      >
+                        {jobs.items.map((job) => (
+                          <option key={job.id} value={job.id}>
+                            {job.job_code} — {job.title}
+                          </option>
+                        ))}
+                      </Select>
+                    </label>
                   )}
                   <label>
                     Candidate name
@@ -1580,9 +1651,15 @@ export function Workspace({
                     />
                   </label>
                   <div className="flex items-center justify-between gap-3 text-control">
-                    <span className="text-slate-500 workspace-dark:text-slate-400">Duration</span>
+                    <span className="text-slate-500 workspace-dark:text-slate-400">
+                      Duration
+                    </span>
                     <span>{inviteDuration} minutes</span>
-                    <input type="hidden" name="duration_minutes" value={inviteDuration} />
+                    <input
+                      type="hidden"
+                      name="duration_minutes"
+                      value={inviteDuration}
+                    />
                   </div>
                   <p className="muted">
                     Prepare fresh questions for this candidate. The private link

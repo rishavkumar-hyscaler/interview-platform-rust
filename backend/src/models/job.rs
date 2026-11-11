@@ -13,6 +13,7 @@ pub(crate) struct Job {
     pub created_at: String,
     pub preparation_duration_minutes: i32,
     pub question_set_count: i32,
+    pub blueprint_preparation: serde_json::Value,
 }
 #[derive(sqlx::FromRow)]
 pub(crate) struct JobListItem {

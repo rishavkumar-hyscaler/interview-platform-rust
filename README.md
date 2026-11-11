@@ -459,7 +459,7 @@ Limits and model/calibration behavior are in the linked guide. Evidence attachme
 
 #### Candidate-specific invitation preparation
 
-Creating a job saves a fixed duration and generates/validates its JD blueprint before returning success. AI configuration is required; a blueprint failure rolls the new job back so the same request can be retried. No reusable question pool is generated. Inviting a candidate creates one private `question_sets` row with a fresh seed and links it through `interview_sessions.question_set_id`. Another candidate always receives another set. Existing historical invitations and sets are preserved.
+Creating a job immediately saves its fixed duration and queues JD blueprint preparation in the background. The modal closes while the job card shows preparation status. The generation worker saves the validated blueprint before invitations are allowed. No reusable question pool is generated. Inviting a candidate creates one private `question_sets` row with a fresh seed and links it through `interview_sessions.question_set_id`. Another candidate always receives another set. Existing historical invitations and sets are preserved.
 
 The invite response is HTTP 202 with `invitation_token: null` while preparation is queued. Replaying the same request key returns the same session and does not enqueue another set. `GET /api/v1/sessions/{id}/generation` reports pending/running/completed/failed and saved question progress. The UI shows Preparing questions or Preparation failed and provides a candidate-specific manual retry via `POST /api/v1/sessions/{id}/generation`.
 
@@ -511,9 +511,11 @@ tracing is suppressed; application logs retain operational metadata only.
 
 `GET /api/v1/jobs` supports `search` (job ID/title, up to 160 characters), `invitations=all|with|without`, and `sort=newest|oldest`. Filters run on the server across all owned jobs. The response includes the matching `total`; cursor pagination uses the selected date order. Changing filters or sorting resets the UI to page one.
 
+Blueprint tasks are persisted as `job.blueprint_task` audit records with pending/running/completed/failed states, attempts, backoff and a fenced 15-minute lease. One initial attempt plus three retries is supported. Restarted workers recover expired claims. `POST /api/v1/jobs/{id}/blueprint` manually retries exhausted preparation; the job details UI exposes this action. Job lists include `blueprint_preparation`, and the frontend polls only while visible jobs are pending/running. No extra migration or task table is required. Creation dates are shown on the shared job cards.
+
 ### Candidate-specific sets and assignment
 
-See [Candidate-specific invitation preparation](#candidate-specific-invitation-preparation) for the current lifecycle. New jobs already have a validated JD competency blueprint. Every candidate reuses that saved blueprint and the job’s fixed duration, while receiving fresh questions. Invitation requests with a different duration are rejected. Historical jobs without a blueprint retain the legacy first-preparation fallback. Each new question targets a 2–3 minute scope and the complete plan fits the job's fixed duration. Candidate APIs never expose reference answers or rubrics.
+See [Candidate-specific invitation preparation](#candidate-specific-invitation-preparation) for the current lifecycle. New jobs queue a JD competency blueprint at creation, and invitations unlock once it is validated. Every candidate reuses that saved blueprint and the job’s fixed duration, while receiving fresh questions. Invitation requests with a different duration are rejected. Historical jobs without a blueprint can be explicitly queued from job details before inviting candidates; they are not automatically regenerated. Each new question targets a 2–3 minute scope and the complete plan fits the job's fixed duration. Candidate APIs never expose reference answers or rubrics.
 
 Existing historical reusable sets remain unchanged; new invitations never assign those sets. Analytics continue to group by question ID, so fresh questions usually have one candidate attempt and cannot establish a Pearson correlation until there are multiple comparable scores for that same question. Job-wide/set summaries remain useful; comparing different questions as identical would be misleading.
 

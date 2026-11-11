@@ -6,7 +6,7 @@ use crate::{
     services::job_service::{self, CreateJob},
 };
 use axum::{
-    Extension, Json,
+    Json,
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
 };
@@ -15,7 +15,6 @@ use sqlx::PgPool;
 pub(crate) async fn create_job(
     State(pool): State<PgPool>,
     headers: HeaderMap,
-    Extension(provider): Extension<crate::controllers::generation_controller::ProviderOption>,
     Json(input): Json<CreateJobRequest>,
 ) -> Result<(StatusCode, Json<JobResponse>)> {
     let (interviewer, _) = authenticate(&pool, &headers).await?;
@@ -30,7 +29,6 @@ pub(crate) async fn create_job(
             preparation_duration_minutes: input.preparation_duration_minutes,
             question_set_count: input.question_set_count,
         },
-        provider.0.as_deref(),
     )
     .await?;
     let status = if result.created {
@@ -88,6 +86,7 @@ fn response(job: Job) -> JobResponse {
         created_at: job.created_at,
         preparation_duration_minutes: job.preparation_duration_minutes,
         question_set_count: job.question_set_count,
+        blueprint_preparation: job.blueprint_preparation,
     }
 }
 
@@ -99,4 +98,19 @@ pub(crate) async fn delete_job(
     let (interviewer, _) = authenticate(&pool, &headers).await?;
     job_service::delete(&pool, interviewer, job).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub(crate) async fn retry_blueprint(
+    State(pool): State<PgPool>,
+    headers: HeaderMap,
+    axum::extract::Path(job): axum::extract::Path<uuid::Uuid>,
+) -> Result<(StatusCode, Json<crate::dto::generation::PendingResponse>)> {
+    let (owner, _) = authenticate(&pool, &headers).await?;
+    crate::services::blueprint_service::retry(&pool, owner, job).await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(crate::dto::generation::PendingResponse {
+            status: "pending",
+        }),
+    ))
 }

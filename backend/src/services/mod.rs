@@ -22,3 +22,5 @@ pub(crate) mod review;
 pub mod scoring;
 
 pub(crate) mod live_screen_service;
+
+pub(crate) mod blueprint_service;

@@ -1423,8 +1423,43 @@ async fn candidate_invitation_waits_for_its_own_questions() {
             .await
             .unwrap();
     assert!(
+        !blueprint_ready,
+        "job creation queues blueprint work without blocking"
+    );
+    tx.commit().await.unwrap();
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("/api/v1/jobs/{job_id}/invitations"),
+            json!({
+                "candidate_name":"Waiting candidate", "candidate_email":"waiting@example.test",
+                "duration_minutes":10, "request_key":Uuid::new_v4()
+            }),
+            token
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT,
+        "invitations wait for the background blueprint"
+    );
+    assert!(
+        process_next(&pool, &provider)
+            .await
+            .unwrap()
+    );
+    let mut tx = interviewer_transaction(&pool, user)
+        .await
+        .unwrap();
+    let blueprint_ready: bool =
+        sqlx::query_scalar("SELECT blueprint IS NOT NULL FROM jobs WHERE id=$1")
+            .bind(job_id.parse::<Uuid>().unwrap())
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert!(
         blueprint_ready,
-        "the blueprint must be saved during job creation"
+        "the worker must save the blueprint before invitations"
     );
     tx.commit().await.unwrap();
     let route = format!("/api/v1/jobs/{job_id}/invitations");

@@ -56,8 +56,19 @@ pub(crate) async fn find_by_request_key(
             description,
             to_jsonb(created_at) #>> '{}' AS created_at,
             preparation_duration_minutes,
-            question_set_count
-        FROM jobs
+            question_set_count,
+            CASE WHEN j.blueprint IS NOT NULL THEN jsonb_build_object('status','completed')
+            ELSE coalesce((
+                SELECT jsonb_build_object(
+                    'status', a.metadata -> 'status',
+                    'attempts', a.metadata -> 'attempts',
+                    'last_error', a.metadata -> 'last_error')
+                FROM audit_events a
+                WHERE a.entity_id = j.id AND a.action = 'job.blueprint_task'
+                ORDER BY a.created_at DESC, a.id DESC
+                LIMIT 1),
+                '{"status":"not_started","attempts":0}'::jsonb) END AS blueprint_preparation
+        FROM jobs j
         WHERE interviewer_id = $1
         AND request_key = $2
         "#,
@@ -86,6 +97,17 @@ pub(crate) async fn list(
             to_jsonb(j.created_at) #>> '{}' AS created_at,
             j.preparation_duration_minutes,
             j.question_set_count,
+            CASE WHEN j.blueprint IS NOT NULL THEN jsonb_build_object('status','completed')
+            ELSE coalesce((
+                SELECT jsonb_build_object(
+                    'status', a.metadata -> 'status',
+                    'attempts', a.metadata -> 'attempts',
+                    'last_error', a.metadata -> 'last_error')
+                FROM audit_events a
+                WHERE a.entity_id = j.id AND a.action = 'job.blueprint_task'
+                ORDER BY a.created_at DESC, a.id DESC
+                LIMIT 1),
+                '{"status":"not_started","attempts":0}'::jsonb) END AS blueprint_preparation,
             (
             SELECT count(*)
             FROM interview_sessions s

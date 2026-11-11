@@ -27,6 +27,10 @@ pub fn routes() -> Router<PgPool> {
             "/api/v1/jobs/{job}",
             delete(crate::controllers::job_controller::delete_job),
         )
+        .route(
+            "/api/v1/jobs/{job}/blueprint",
+            post(crate::controllers::job_controller::retry_blueprint),
+        )
         .route("/api/v1/jobs/{job}/invitations", post(invite))
         .route("/api/v1/sessions", get(list_sessions))
         .route("/api/v1/sessions/{session}", get(session_detail))

@@ -12,7 +12,15 @@ mod pipeline;
 mod plan;
 pub(crate) mod worker;
 pub use crate::controllers::generation_controller::routes;
-pub use worker::process_next;
+pub async fn process_next(
+    pool: &sqlx::PgPool,
+    provider: &provider::AiProvider,
+) -> anyhow::Result<bool> {
+    if crate::services::blueprint_service::process_next(pool, provider).await? {
+        return Ok(true);
+    }
+    worker::process_next(pool, provider).await
+}
 
 /// Preserve bounded diagnostic messages; the worker retries every failure category.
 #[derive(Debug)]

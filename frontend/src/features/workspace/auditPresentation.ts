@@ -1,6 +1,7 @@
 import type { Audit } from './api';
 
 const titles: Record<string, string> = {
+  'job.blueprint_task': 'Job blueprint preparation',
   'job.created': 'Job created',
   'session.invited': 'Candidate invited',
   'session.accepted': 'Invitation accepted',

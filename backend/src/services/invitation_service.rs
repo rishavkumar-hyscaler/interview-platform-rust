@@ -46,9 +46,14 @@ pub(crate) async fn invite(
     cipher()?;
     let mut tx = interviewer_transaction(pool, user).await?;
     let recruiter = user;
-    let duration = repo::job(&mut tx, recruiter, job)
+    let (duration, blueprint_ready) = repo::job(&mut tx, recruiter, job)
         .await?
         .ok_or_else(missing)?;
+    if !blueprint_ready {
+        return Err(conflict(
+            "The job blueprint is still being prepared. Invite candidates once it is ready.",
+        ));
+    }
     validate_duration(input.duration_minutes, duration)?;
     repo::insert_interviewee(&mut tx, &email).await?;
     let interviewee = repo::interviewee(&mut tx, &email)

@@ -29,6 +29,7 @@ pub(crate) struct JobResponse {
     pub created_at: String,
     pub preparation_duration_minutes: i32,
     pub question_set_count: i32,
+    pub blueprint_preparation: serde_json::Value,
 }
 #[derive(Serialize, schemars::JsonSchema)]
 pub(crate) struct JobListItemResponse {
