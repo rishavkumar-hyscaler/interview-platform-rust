@@ -36,7 +36,7 @@ export function JobFilters({
         )
           apply(event.currentTarget);
       }}
-      className="block! px-5 py-4"
+      className="block! px-6 pt-5 pb-0"
       aria-label="Filter jobs"
     >
       <ListToolbar

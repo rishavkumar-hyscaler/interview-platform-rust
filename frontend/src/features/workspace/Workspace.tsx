@@ -1006,7 +1006,7 @@ export function Workspace({
                           </Button>
                         </div>
                       ) : jobs.items.length ? (
-                        <div className="job-grid flex-1 auto-rows-min items-stretch! pt-6">
+                        <div className="job-grid flex-1 auto-rows-fr items-stretch! pt-4">
                           {jobs.items.map((job, index) => (
                             <JobCard
                               key={job.id}
@@ -1231,7 +1231,7 @@ export function Workspace({
                             : 'Create a job to see question-bank analytics here.'}
                         </p>
                       )}
-                      <div className="job-grid flex-1 auto-rows-min items-stretch! pt-6">
+                      <div className="job-grid flex-1 auto-rows-fr items-stretch! pt-4">
                         {jobs.items.map((job, index) => (
                           <JobCard
                             key={job.id}

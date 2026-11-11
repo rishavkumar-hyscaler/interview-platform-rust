@@ -46,7 +46,7 @@ function ToolbarMenu({
         aria-expanded={open}
         aria-controls={id}
         className={cn(
-          'gap-1.5! rounded-lg! border-0! bg-transparent! px-2.5! text-control! font-normal! text-slate-600! shadow-none! hover:bg-slate-200/70! workspace-dark:text-slate-300! workspace-dark:hover:bg-white/5!',
+          'h-9! min-h-9! gap-1.5! rounded-lg! border-0! bg-transparent! px-2.5! text-control! font-normal! text-slate-600! shadow-none! hover:bg-slate-200/70! workspace-dark:text-slate-300! workspace-dark:hover:bg-white/5!',
           active && 'text-indigo-600! workspace-dark:text-indigo-300!',
         )}
       >
@@ -101,38 +101,37 @@ export function ListToolbar({
   return (
     <div
       className={cn(
-        'flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-slate-200/70 bg-slate-100/80 px-2 py-1.5 workspace-dark:border-slate-700/50 workspace-dark:bg-white/[0.04]',
+        'flex min-w-0 flex-wrap items-center gap-3',
         className,
       )}
     >
-      <div className="relative min-w-32 flex-1">
-        <Search
-          aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-slate-400"
-        />
-        <Input
-          {...search}
-          onKeyDown={(event) => {
-            search.onKeyDown?.(event);
-            if (
-              !event.defaultPrevented &&
-              event.key === 'Enter' &&
-              !event.nativeEvent.isComposing &&
-              event.currentTarget.form
-            ) {
-              event.preventDefault();
-              event.currentTarget.form.requestSubmit();
-            }
-          }}
-          className={cn(
-            'border-0! bg-transparent! pl-9! shadow-none! focus-visible:outline-offset-0 workspace-dark:bg-transparent!',
-            search.className,
-          )}
-        />
-      </div>
-      <div className="ml-auto flex flex-wrap items-center gap-2">
-        {actions}
-        <div className="flex items-center gap-1">
+      <div className="flex h-12! min-h-12! max-h-12! min-w-0 flex-[1_1_20rem] items-center gap-2 rounded-xl border border-slate-200/70 bg-slate-100/80 px-2 py-0! workspace-dark:border-slate-700/50 workspace-dark:bg-white/[0.04]">
+        <div className="relative min-w-32 flex-1">
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-slate-400"
+          />
+          <Input
+            {...search}
+            onKeyDown={(event) => {
+              search.onKeyDown?.(event);
+              if (
+                !event.defaultPrevented &&
+                event.key === 'Enter' &&
+                !event.nativeEvent.isComposing &&
+                event.currentTarget.form
+              ) {
+                event.preventDefault();
+                event.currentTarget.form.requestSubmit();
+              }
+            }}
+            className={cn(
+              'h-9! min-h-0! max-h-9! py-0! border-0! bg-transparent! pl-9! shadow-none! focus-visible:outline-offset-0 workspace-dark:bg-transparent!',
+              search.className,
+            )}
+          />
+        </div>
+        <div className="ml-auto flex items-center gap-1">
           <ToolbarMenu
             label="Sort by"
             icon={<ArrowDownWideNarrow className="size-3.5" />}
@@ -149,6 +148,11 @@ export function ListToolbar({
           </ToolbarMenu>
         </div>
       </div>
+      {actions && (
+        <div className="ml-auto flex shrink-0 items-center gap-2 [&_button]:h-12! [&_button]:min-h-12! [&_button[aria-label]]:w-12!">
+          {actions}
+        </div>
+      )}
     </div>
   );
 }
