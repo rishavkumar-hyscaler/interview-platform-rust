@@ -31,3 +31,10 @@ pub(crate) struct NewJob {
     pub preparation_duration_minutes: i32,
     pub question_set_count: i32,
 }
+
+#[derive(Default)]
+pub(crate) struct JobFilters {
+    pub search: String,
+    pub invitations: String,
+    pub sort: String,
+}

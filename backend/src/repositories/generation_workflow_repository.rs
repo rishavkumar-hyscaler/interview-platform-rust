@@ -3,26 +3,6 @@ use serde_json::Value;
 use sqlx::{PgPool, Postgres, Transaction, postgres::PgQueryResult};
 use uuid::Uuid;
 
-pub(crate) async fn target_count(
-    tx: &mut Transaction<'_, Postgres>,
-    job: Uuid,
-) -> Result<i32, sqlx::Error> {
-    sqlx::query_scalar("SELECT question_set_count FROM jobs WHERE id=$1 FOR UPDATE")
-        .bind(job)
-        .fetch_one(&mut **tx)
-        .await
-}
-
-pub(crate) async fn set_count(
-    tx: &mut Transaction<'_, Postgres>,
-    job: Uuid,
-) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar("SELECT count(*) FROM question_sets WHERE job_id=$1")
-        .bind(job)
-        .fetch_one(&mut **tx)
-        .await
-}
-
 pub(crate) async fn insert_set(
     tx: &mut Transaction<'_, Postgres>,
     id: Uuid,
@@ -88,48 +68,6 @@ pub(crate) async fn lock_job(
         .bind(job)
         .fetch_one(&mut **tx)
         .await
-}
-
-pub(crate) async fn select_assignment(
-    tx: &mut Transaction<'_, Postgres>,
-    job: Uuid,
-    duration: i32,
-) -> Result<Option<Uuid>, sqlx::Error> {
-    sqlx::query_scalar(
-        r#"
-        SELECT p.id
-        FROM question_sets p
-        WHERE p.job_id = $1
-        AND p.duration_minutes = $2
-        AND p.status = 'completed'
-        AND EXISTS (
-            SELECT 1
-            FROM interview_questions q
-            WHERE q.set_id = p.id)
-        AND p.id IN (
-            SELECT id
-            FROM question_sets
-            WHERE job_id = p.job_id
-            ORDER BY created_at,
-                id
-            LIMIT (
-                SELECT question_set_count
-                FROM jobs
-                WHERE id = p.job_id))
-        ORDER BY (
-            SELECT count(*)
-            FROM interview_sessions s
-            WHERE s.question_set_id = p.id),
-            p.created_at,
-            p.id
-        FOR UPDATE OF p
-        LIMIT 1
-        "#,
-    )
-    .bind(job)
-    .bind(duration)
-    .fetch_optional(&mut **tx)
-    .await
 }
 
 pub(crate) async fn assign_set(
@@ -213,14 +151,7 @@ pub(crate) async fn queue_candidate(
             (extract(epoch
                 from p.created_at) * 1000000)::bigint AS created
         FROM question_sets p JOIN jobs j ON j.id = p.job_id
-        WHERE p.id IN (
-            SELECT id
-            FROM question_sets
-            WHERE job_id = p.job_id
-            ORDER BY created_at,
-                id
-            LIMIT j.question_set_count)
-        AND ((p.status = 'pending'
+        WHERE ((p.status = 'pending'
                 AND p.available_at <= now())
             OR (p.status = 'running'
                 AND p.lease_until < now()))

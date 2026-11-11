@@ -77,7 +77,7 @@ Setup follows the [official Tokio Console instructions](https://github.com/tokio
 
 One development baseline migration lives in [backend/migrations](backend/migrations/).
 
-Ten application tables: `users`, `auth_sessions`, `jobs`, `question_sets`, `interview_sessions`, `interview_questions`, `interview_answers`, `audit_events`, `embedding_jobs`, and `evidence_embeddings`. Users are interviewers or interviewees. Jobs own reusable question sets; generation attempts, retries and leases live only in `question_sets`. Sessions reference `question_set_id`; questions reference `set_id`. Answers are scoped by both session and question. Per-candidate generation, question copies, organizations and memberships are absent.
+Ten application tables: `users`, `auth_sessions`, `jobs`, `question_sets`, `interview_sessions`, `interview_questions`, `interview_answers`, `audit_events`, `embedding_jobs`, and `evidence_embeddings`. Users are interviewers or interviewees. Jobs own candidate-specific question sets; generation attempts, retries and leases live only in `question_sets`. Sessions reference `question_set_id`; questions reference `set_id`. Answers are scoped by both session and question. Each newly invited candidate gets a private generated set; question copies, organizations and memberships are absent.
 
 The development database was rebaselined with existing records preserved. Fresh databases use `cargo run -- --migrate`. Older checkouts with the previous five-migration history require a deliberate development rebaseline or a fresh database; rewriting applied migrations is not a production upgrade strategy.
 
@@ -262,7 +262,7 @@ rows and larger insert commands use internal models; no DTO/schema changes are n
 
 `users.role` has exactly two values: `interviewer` and `interviewee`. Interviewers sign in with email/password, create jobs and invitations, and review evidence. Reviewing is an interviewer capability, not a separate user role. Interviewees access their assigned session through private invitation links. An invitation creates or reuses an interviewee profile; it does not assign a password. Email is unique within each role.
 
-There are no organizations or memberships. Jobs belong directly to an interviewer. Interview sessions identify both their interviewer and interviewee. Questions belong to reusable job sets; answers belong to a session and question. Forced PostgreSQL row-level security uses transaction-local `app.interviewer_id` derived from authenticated identity. Composite foreign keys prevent cross-interviewer references. The runtime database role cannot bypass RLS.
+There are no organizations or memberships. Jobs belong directly to an interviewer. Interview sessions identify both their interviewer and interviewee. New questions belong to candidate-specific sets; answers belong to a session and question. Forced PostgreSQL row-level security uses transaction-local `app.interviewer_id` derived from authenticated identity. Composite foreign keys prevent cross-interviewer references. The runtime database role cannot bypass RLS.
 
 ### Ten application tables
 
@@ -333,7 +333,7 @@ All routes below are prefixed `/api/v1`. Ownership comes from the authenticated 
 | GET | `/sessions` | List owned interviews |
 | GET | `/sessions/{id}` | Details and invitation availability |
 | POST | `/sessions/{id}/invitation` | Recover the saved link token, or explicitly replace an unaccepted legacy link |
-| GET | `/sessions/{id}/generation` | Inspect the assigned reusable set and candidate answers |
+| GET | `/sessions/{id}/generation` | Inspect candidate-specific preparation and answers |
 | GET | `/audit` | Audit history, optionally filtered by `entity_id` |
 
 Lists use `limit=1..100` and UUID cursors, returning `{items,next_cursor}`. Job/invitation creation is idempotent per interviewer and request key. Identical retries return 200; new records return 201; conflicting reuse returns 409.
@@ -365,9 +365,9 @@ Scoring, adaptive difficulty, camera/audio answers, fullscreen enforcement, and 
 
 Configuration uses `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-5-mini`, `LLM_API_KEY`, `EMBEDDING_MODEL=text-embedding-3-small`, and `EMBEDDING_API_KEY`. `LLM_BASE_URL` defaults to `https://api.openai.com/v1`.
 
-When AI is configured, creating an invitation automatically queues question preparation in the same transaction. Opening or accepting an older, unprepared invitation also queues it once. Repeated candidate polls do not duplicate jobs, regenerate prepared questions, or reset failed attempts. Failed generation still requires an explicit interviewer retry. With missing configuration, the candidate sees a setup message rather than a promise of progress.
+Creating an invitation queues candidate-specific preparation in the same transaction; the link is issued only after completion. Opening or accepting an older, unprepared invitation also queues it once. Repeated candidate polls do not duplicate jobs, regenerate prepared questions, or reset failed attempts. Failed generation still requires an explicit interviewer retry. With missing configuration, the candidate sees a setup message rather than a promise of progress.
 
-A preparation request moves the session's generation status through pending/running/completed/failed. A five-minute lease, renewed every 30 seconds during preparation, and a fencing token support recovery. Failures retry up to three attempts; explicit retry resets the attempt budget. Schema, evidence quotations, rubric totals, and embedding output are validated before publishing. Exact fingerprints and pgvector cosine similarity reject repeats across sessions for the same job. Each question stores its rubric snapshot and generation provenance.
+A preparation request moves the session's generation status through pending/running/completed/failed. A five-minute lease, renewed every 30 seconds during preparation, and a fencing token support recovery. Failures receive one initial attempt plus three retries; explicit retry resets the attempt budget. Schema, evidence quotations, rubric totals, and embedding output are validated before publishing. Exact fingerprints and pgvector cosine similarity reject repeats across sessions for the same job. Each question stores its rubric snapshot and generation provenance.
 
 Provider request formats follow the official [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses) and [embeddings](https://developers.openai.com/api/reference/resources/embeddings/methods/create) documentation. No raw provider response or API secret is written to audit records.
 
@@ -457,17 +457,15 @@ Generation schemas enforce the exact requested number of blueprint slots, questi
 
 Limits and model/calibration behavior are in the linked guide. Evidence attachments do not count as candidate answers.
 
-#### Job question-set pool
+#### Candidate-specific invitation preparation
 
-`POST /api/v1/jobs` accepts `preparation_duration_minutes` (5–180; default 30) and `question_set_count` (1–5; default 1), and atomically queues that many reusable sets. `GET /api/v1/jobs/{job}/question-sets` returns owner-only status and questions/reference rubrics; `POST` retries failed sets. Invitations require a completed matching set and link it without copying questions or generating replacements. See [details](#ai-workflows-and-rig).
+Creating a job saves its description and default duration without generating a reusable pool. Inviting a candidate creates one private `question_sets` row with a fresh seed and links it through `interview_sessions.question_set_id`. Another candidate always receives another set. Existing historical invitations and sets are preserved.
 
-#### Incremental generation progress
+The invite response is HTTP 202 with `invitation_token: null` while preparation is queued. Replaying the same request key returns the same session and does not enqueue another set. `GET /api/v1/sessions/{id}/generation` reports pending/running/completed/failed and saved question progress. The UI shows Preparing questions or Preparation failed and provides a candidate-specific manual retry via `POST /api/v1/sessions/{id}/generation`.
 
-Generation v4 saves fully validated questions individually. Owner generation/status and pool previews may show saved questions while status is running/failed. Partial rows do not imply completion. Candidate session responses include `questions_ready`; starting requires a completed assigned set. `POST /jobs/{job}/question-sets` retries failed sets after their saved positions. Pool status includes owner-only `last_failure` summaries/findings, without the raw diagnostic draft.
+Generation validates and checkpoints each question, using the shared job blueprint, exact/vector deduplication across the job bank, worked reference answers, rubrics and quality review. One initial attempt plus three retries preserves accepted questions. The final checkpoint atomically completes the set, creates the encrypted invitation token, starts its seven-day expiry, and records the invitation audit event. Failures roll back publication. Until then no candidate credential exists. Internally `expires_at = infinity` prevents expiry during preparation; the worker replaces it with the real deadline when publishing. The interview timer still starts only when the candidate starts.
 
-#### Invitation readiness
-
-Creating a candidate invitation requires a completed, nonempty question set for the same job and duration, within the configured set count. Otherwise the API returns HTTP 409 and rolls back candidate/session/token creation. A successful invitation assigns that reusable set immediately. Replaying an existing request key still recovers the original invitation. The interviewer UI disables invitations until a ready set is available. Existing historical waiting invitations are preserved.
+The interviewer can close the preparation dialog and retrieve progress/link later from the candidate session details. Email delivery is not connected. `GET /api/v1/jobs/{job}/question-sets` lists candidate preparations; its POST retries existing failed sets without creating a pool. The old `question_set_count` field remains accepted for compatibility but does not limit or schedule candidate preparations. No schema reset or new migration is required.
 
 #### Candidate Next resilience
 
@@ -509,27 +507,15 @@ incomplete responses and tool calls. Embeddings validate count, indices,
 dimensions and finite nonzero vectors before persistence. Provider payload
 tracing is suppressed; application logs retain operational metadata only.
 
-### Reusable sets and assignment
+### Job filters
 
+`GET /api/v1/jobs` supports `search` (job ID/title, up to 160 characters), `invitations=all|with|without`, and `sort=newest|oldest`. Filters run on the server across all owned jobs. The response includes the matching `total`; cursor pagination uses the selected date order. Changing filters or sorting resets the UI to page one.
 
-Creating a job atomically queues the interviewer-selected 1–5 question sets (default 1). The interviewer chooses a preparation duration of 5–180 minutes. Each set uses the job blueprint and sequential question/reference/rubric generation with validation, embedding deduplication and independent review. New questions are scoped to 2–3 minutes, and their count is planned to fit the duration.
+### Candidate-specific sets and assignment
 
-The Question sets panel shows status, saved progress, reference answers, time plans and bounded failure details. Generation runs only for job sets. There is no per-session generation fallback or automatic replacement on assignment.
+See [Candidate-specific invitation preparation](#candidate-specific-invitation-preparation) for the current lifecycle. The first preparation caches the JD competency blueprint; subsequent candidates reuse the blueprint, not the questions. Each new question targets a 2–3 minute scope and the complete plan fits that candidate's duration. Candidate APIs never expose reference answers or rubrics.
 
-Invitations require a completed, nonempty set matching the duration. The transaction links `interview_sessions.question_set_id` to a reusable set, balancing usage across configured sets. Every question belongs to `interview_questions.set_id`; questions are never copied per candidate. Answers and progress remain scoped by session and question. Prepared sets remain usable with the AI provider offline.
-
-Generation state, initial attempt plus three retries, next-run time and worker leases live only in `question_sets`. Retries preserve saved question checkpoints. After four failed worker attempts, an interviewer can explicitly retry the job's failed sets.
-
-### Storage and API
-
-The single development baseline is `202611040001_initial_schema.sql`. Question text, worked references, rubrics and embeddings are stored in `interview_questions`; candidate answers are in `interview_answers`. The SECURITY INVOKER `session_question_details()` function projects questions through session assignment and preserves row-level security.
-
-- `POST /api/v1/jobs`: accepts `question_set_count` and `preparation_duration_minutes` alongside the job fields.
-- `GET /api/v1/jobs/{id}/question-sets`: interviewer-only set status, questions and references.
-- `POST /api/v1/jobs/{id}/question-sets`: explicit retry of failed configured sets.
-- `GET /api/v1/sessions/{id}/generation`: inspect the assigned set and that candidate's answers; this endpoint does not schedule generation.
-
-No candidate API returns reference answers or rubrics.
+Existing historical reusable sets remain unchanged; new invitations never assign those sets. Analytics continue to group by question ID, so fresh questions usually have one candidate attempt and cannot establish a Pearson correlation until there are multiple comparable scores for that same question. Job-wide/set summaries remain useful; comparing different questions as identical would be misleading.
 
 ### Generation policy
 
@@ -741,7 +727,7 @@ No public third-party ICE service is contacted by default.
 
 | Requirement | Implementation |
 | --- | --- |
-| JD blueprint, seeded unique questions, exact/vector dedup, rubric snapshots | Generation v2: worked references, assumptions, alternatives, mistakes, criterion-keyed reference sections, partial/full-credit anchors, coding examples, deterministic checks, a separate AI critic, bounded repairs and renewed worker leases |
+| JD blueprint, candidate-specific seeded questions, exact/vector dedup, rubric snapshots | Candidate preparation: worked references, assumptions, alternatives, mistakes, criterion-keyed reference sections, partial/full-credit anchors, coding examples, deterministic checks, a separate AI critic, bounded repairs and renewed worker leases |
 | Adaptive difficulty | Next question evaluates the saved answer and chooses a suitable unserved question from the prepared set; manual question navigation remains available |
 | Timed room, cursor resume, text/code/media, autosave | Server deadline, optimistic revisions, local unsent draft recovery, refreshed cursor; optional bounded audio/video attachments with private playback and IndexedDB retry recovery |
 | Fullscreen and one browser tab | Editor requires fullscreen; exclusive Web Lock gates the candidate view on one origin/profile |

@@ -4,7 +4,7 @@ use crate::{
     audit::record as audit,
     error::{bad, conflict},
     infrastructure::interviewer_transaction,
-    models::job::{Job, JobListItem, NewJob},
+    models::job::{Job, JobFilters, JobListItem, NewJob},
     repositories::job_repository,
 };
 use serde_json::json;
@@ -24,6 +24,7 @@ pub(crate) struct CreatedJob {
     pub created: bool,
 }
 pub(crate) struct JobPage {
+    pub total: i64,
     pub items: Vec<JobListItem>,
     pub next_cursor: Option<Uuid>,
 }
@@ -78,13 +79,6 @@ pub(crate) async fn create(
     let mut tx = interviewer_transaction(pool, interviewer).await?;
     let created = job_repository::insert(&mut tx, &new_job).await?;
     if created {
-        crate::generation::bank::replenish(
-            &mut tx,
-            interviewer,
-            new_job.id,
-            new_job.preparation_duration_minutes,
-        )
-        .await?;
         audit(
             &mut tx,
             interviewer,
@@ -122,12 +116,22 @@ pub(crate) async fn list(
     interviewer: Uuid,
     cursor: Option<Uuid>,
     limit: i64,
+    filters: JobFilters,
 ) -> Result<JobPage> {
     if !(1..=100).contains(&limit) {
         return Err(bad("Limit must be between 1 and 100"));
     }
+    if filters.search.chars().count() > 160 || filters.search.contains('\0') {
+        return Err(bad("Job search must be at most 160 characters"));
+    }
+    if !matches!(filters.invitations.as_str(), "all" | "with" | "without")
+        || !matches!(filters.sort.as_str(), "newest" | "oldest")
+    {
+        return Err(bad("Invalid job filter or sort order"));
+    }
     let mut tx = interviewer_transaction(pool, interviewer).await?;
-    let mut items = job_repository::list(&mut tx, interviewer, cursor, limit + 1).await?;
+    let total = job_repository::matching_count(&mut tx, interviewer, &filters).await?;
+    let mut items = job_repository::list(&mut tx, interviewer, cursor, limit + 1, &filters).await?;
     tx.commit().await?;
     let more = items.len() > limit as usize;
     items.truncate(limit as usize);
@@ -137,6 +141,7 @@ pub(crate) async fn list(
         None
     };
     Ok(JobPage {
+        total,
         items,
         next_cursor,
     })

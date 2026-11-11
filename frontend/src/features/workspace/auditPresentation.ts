@@ -20,6 +20,8 @@ const titles: Record<string, string> = {
   'assessment.failed': 'AI scoring failed',
   'adaptive.selected': 'Next question selected',
   'proctor.observed': 'Browser activity recorded',
+  'invitation.preparation_queued': 'Candidate question preparation queued',
+  'generation.retried': 'Candidate question preparation retried',
   'invitation.link_retrieved': 'Invitation link retrieved',
   'reviewer.message': 'Interviewer asked the assistant',
   'rag.completed': 'Interview evidence ready to search',

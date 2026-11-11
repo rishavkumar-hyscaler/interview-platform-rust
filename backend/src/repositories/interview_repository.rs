@@ -19,7 +19,11 @@ pub(crate) async fn list(
             s.question_set_id,
             s.candidate_name,
             s.candidate_email,
-            s.state,
+            CASE WHEN s.state='invited' AND NOT EXISTS (
+                SELECT 1 FROM auth_sessions a WHERE a.interview_session_id=s.id)
+                THEN CASE WHEN EXISTS (SELECT 1 FROM question_sets p WHERE p.id=s.question_set_id AND p.status='failed')
+                    THEN 'preparation_failed' ELSE 'preparing' END
+                ELSE s.state END AS state,
             s.duration_minutes,
             to_jsonb(s.expires_at) #>> '{}' AS expires_at,
             to_jsonb(s.started_at) #>> '{}' AS started_at,
@@ -62,7 +66,11 @@ pub(crate) async fn detail(
             s.question_set_id,
             s.candidate_name,
             s.candidate_email,
-            s.state,
+            CASE WHEN s.state='invited' AND NOT EXISTS (
+                SELECT 1 FROM auth_sessions a WHERE a.interview_session_id=s.id)
+                THEN CASE WHEN EXISTS (SELECT 1 FROM question_sets p WHERE p.id=s.question_set_id AND p.status='failed')
+                    THEN 'preparation_failed' ELSE 'preparing' END
+                ELSE s.state END AS state,
             s.duration_minutes,
             to_jsonb(s.expires_at) #>> '{}' AS expires_at,
             to_jsonb(s.started_at) #>> '{}' AS started_at,
@@ -98,7 +106,8 @@ pub(crate) async fn detail(
                 FROM auth_sessions c
                 WHERE c.interview_session_id = s.id),
                 false) AS invitation_recoverable,
-            s.state IN ('invited',
+            EXISTS (SELECT 1 FROM auth_sessions a WHERE a.interview_session_id=s.id)
+        AND s.state IN ('invited',
                 'ready',
                 'in_progress')
         AND least(s.expires_at,

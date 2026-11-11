@@ -1,3 +1,6 @@
+import { CreateJobForm } from './CreateJobForm';
+import { JobFilters } from './JobFilters';
+import { CandidatePreparation } from './CandidatePreparation';
 import {
   keepPreviousData,
   useMutation,
@@ -34,13 +37,11 @@ import {
 } from 'lucide-react';
 import { useWorkspaceTheme } from './useWorkspaceTheme';
 import './workspace.css';
-import { JobQuestionSets } from './JobQuestionSets';
 import { RecordingEvidence } from './RecordingEvidence';
 import { Analytics } from './Analytics';
 import { ReviewAssistant } from './ReviewAssistant';
 import { Assessment } from './Assessment';
 import {
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -56,6 +57,7 @@ import {
   type AuditFilters,
   type Interview,
   type Job,
+  type JobListFilters,
   type Page,
 } from './api';
 
@@ -77,7 +79,7 @@ const message = (error: unknown) =>
     ? error.message
     : 'Something went wrong. Please retry.';
 const date = (value: string | null) =>
-  value
+  value && Number.isFinite(Date.parse(value))
     ? new Date(value).toLocaleString(undefined, {
         dateStyle: 'medium',
         timeStyle: 'short',
@@ -86,7 +88,11 @@ const date = (value: string | null) =>
 export function Status({ state }: { state: string }) {
   return (
     <span className={`status status-${state}`}>
-      {state.replaceAll('_', ' ')}
+      {state === 'preparing'
+        ? 'Preparing questions'
+        : state === 'preparation_failed'
+          ? 'Preparation failed'
+          : state.replaceAll('_', ' ')}
     </span>
   );
 }
@@ -265,16 +271,27 @@ export function Workspace({
   const analyticsJob = typeof page === 'string' ? null : page.job;
 
   function navigateTo(next: WorkspacePage) {
+    setJobCursors([]);
     setViewHistory((history) =>
       history.at(-1) === next ? history : [...history, next],
     );
   }
 
   function goBack() {
+    setJobCursors([]);
     setViewHistory((history) =>
       history.length > 1 ? history.slice(0, -1) : history,
     );
   }
+  const [jobFilters, setJobFilters] = useState<JobListFilters>({
+    search: '',
+    invitations: 'all',
+    sort: 'newest',
+  });
+  const activeJobFilters = view === 'interviewer' ? jobFilters : undefined;
+  const hasJobFilters =
+    !!activeJobFilters &&
+    (!!jobFilters.search || jobFilters.invitations !== 'all');
   const [jobCursors, setJobCursors] = useState<string[]>([]);
   const [sessionCursors, setSessionCursors] = useState<string[]>([]);
   const [auditCursors, setAuditCursors] = useState<string[]>([]);
@@ -289,12 +306,17 @@ export function Workspace({
   const queryClient = useQueryClient();
   const queryRoot = ['workspace-view', token];
   const jobsQuery = useQuery({
-    queryKey: [...queryRoot, 'jobs', jobCursors.at(-1)],
+    queryKey: [...queryRoot, 'jobs', jobCursors.at(-1), activeJobFilters],
     placeholderData: keepPreviousData,
-    queryFn: ({ signal }) => api.jobs(jobCursors.at(-1), JOBS_PER_PAGE, signal),
+    queryFn: ({ signal }) =>
+      api.jobs(jobCursors.at(-1), JOBS_PER_PAGE, signal, activeJobFilters),
   });
-  const sessionsQuery = useQuery({
+  const sessionsQuery = useQuery<Page<Interview>>({
     queryKey: [...queryRoot, 'sessions', sessionCursors.at(-1)],
+    refetchInterval: (query) =>
+      query.state.data?.items.some((session) => session.state === 'preparing')
+        ? 5000
+        : false,
     placeholderData: keepPreviousData,
     queryFn: ({ signal }) => api.sessions(sessionCursors.at(-1), signal),
   });
@@ -340,13 +362,8 @@ export function Workspace({
   const [deletingJob, setDeletingJob] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const expandedJob = jobs.items.find((job) => job.id === expandedJobId);
-  const [readyDurations, setReadyDurations] = useState<
-    Record<string, number[]>
-  >({});
-  const updateReady = useCallback(
-    (job: string, durations: number[]) =>
-      setReadyDurations((previous) => ({ ...previous, [job]: durations })),
-    [],
+  const [pendingInvitation, setPendingInvitation] = useState<string | null>(
+    null,
   );
   const [invitation, setInvitation] = useState('');
   const [detailLink, setDetailLink] = useState('');
@@ -360,7 +377,7 @@ export function Workspace({
   const [search, setSearch] = useState('');
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   useEffect(() => {
-    if (queryError) setError(message(queryError));
+    setError(queryError ? message(queryError) : '');
   }, [queryError]);
   function applyAuditFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -414,7 +431,7 @@ export function Workspace({
     <Pagination
       label="Job pagination"
       page={jobCursors.length + 1}
-      summary={`${summary.jobs} ${summary.jobs === 1 ? 'job' : 'jobs'} total`}
+      summary={`${jobs.total ?? summary.jobs} ${(jobs.total ?? summary.jobs) === 1 ? 'job' : 'jobs'}${hasJobFilters ? ' matching' : ' total'}`}
       hasNext={!!jobs.next_cursor}
       busy={busy || jobsQuery.isFetching}
       onChange={(direction) => void changeJobPage(direction)}
@@ -464,13 +481,14 @@ export function Workspace({
     }
   }
   function openModal(type: 'job' | 'invite', jobId = '') {
-    const selected =
-      jobId ||
-      jobs.items.find((job) => readyDurations[job.id]?.length)?.id ||
-      '';
+    const selected = jobId || jobs.items[0]?.id || '';
     setInviteJob(selected);
-    setInviteDuration(readyDurations[selected]?.[0] ?? 30);
+    setInviteDuration(
+      jobs.items.find((job) => job.id === selected)
+        ?.preparation_duration_minutes ?? 30,
+    );
     setRequestKey(crypto.randomUUID());
+    setPendingInvitation(null);
     setInvitation('');
     setModal(type);
     setError('');
@@ -481,7 +499,7 @@ export function Workspace({
     await run(async () => {
       if (modal === 'job') {
         await createJobMutation.mutateAsync({
-          question_set_count: Number(form.get('question_set_count')),
+          question_set_count: 1,
           preparation_duration_minutes: Number(
             form.get('preparation_duration_minutes'),
           ),
@@ -498,11 +516,7 @@ export function Workspace({
           duration_minutes: Number(form.get('duration_minutes')),
           request_key: requestKey,
         });
-        setInvitation(
-          result.invitation_token
-            ? `${window.location.origin}${window.location.pathname}#invite=${result.invitation_token}`
-            : 'This older invitation already exists. Open its session details to recover or replace its link.',
-        );
+        setPendingInvitation(result.session.id);
       }
       await refresh();
     });
@@ -1044,8 +1058,32 @@ export function Workspace({
               ) : (
                 <>
                   {view === 'interviewer' && (
-                    <section className="panel" aria-label="Your roles">
-                      {jobs.items.length ? (
+                    <section
+                      className="panel"
+                      aria-label="Your roles"
+                      aria-busy={jobsQuery.isFetching}
+                    >
+                      <JobFilters
+                        value={jobFilters}
+                        onApply={(filters) => {
+                          setJobCursors([]);
+                          setJobFilters(filters);
+                        }}
+                      />
+                      {jobsQuery.isError ? (
+                        <div
+                          className="grid justify-items-center gap-3 px-6 py-10"
+                          role="alert"
+                        >
+                          <p>Jobs couldn’t be loaded.</p>
+                          <Button
+                            compact
+                            onClick={() => void jobsQuery.refetch()}
+                          >
+                            Retry loading
+                          </Button>
+                        </div>
+                      ) : jobs.items.length ? (
                         <div className="job-grid items-stretch! pt-6">
                           {jobs.items.map((job, index) => (
                             <DashboardCard
@@ -1065,21 +1103,6 @@ export function Workspace({
                                 </span>
                               </div>
                               <h3 className="mt-0! break-words">{job.title}</h3>
-                              <div className="mt-auto border-t border-slate-200 pt-3 workspace-dark:border-slate-700">
-                                {expandedJobId === job.id ? (
-                                  <span className="text-control">
-                                    Question sets
-                                  </span>
-                                ) : (
-                                  <JobQuestionSets
-                                    key={job.session_count}
-                                    job={job.id}
-                                    token={token}
-                                    onReadyChange={updateReady}
-                                    summaryOnly
-                                  />
-                                )}
-                              </div>
                               <button
                                 type="button"
                                 className="absolute inset-0 cursor-pointer rounded-xl border-0 bg-transparent p-0 hover:bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
@@ -1097,15 +1120,23 @@ export function Workspace({
                       ) : (
                         <div className="empty">
                           <div className="empty-icon">▧</div>
-                          <h3>Your first interview starts here</h3>
-                          <p>
-                            Add a job description to create your first role.
-                          </p>
+                          <h3>
+                            {hasJobFilters ? 'No matching jobs' : 'No jobs yet'}
+                          </h3>
                           <Button
                             variant="standard"
-                            onClick={() => openModal('job')}
+                            onClick={() => {
+                              if (hasJobFilters) {
+                                setJobCursors([]);
+                                setJobFilters({
+                                  search: '',
+                                  invitations: 'all',
+                                  sort: 'newest',
+                                });
+                              } else openModal('job');
+                            }}
                           >
-                            + Create your first job
+                            {hasJobFilters ? 'Clear filters' : '+ Create job'}
                           </Button>
                         </div>
                       )}
@@ -1149,6 +1180,8 @@ export function Workspace({
                           >
                             <option value="all">All statuses</option>
                             {[
+                              'preparing',
+                              'preparation_failed',
                               'invited',
                               'ready',
                               'in_progress',
@@ -1232,7 +1265,7 @@ export function Workspace({
                           <p>
                             {sessions.items.length
                               ? 'Try another search or status.'
-                              : 'Invite a candidate once a question set is ready. Their progress and results will appear here.'}
+                              : 'Invite a candidate to prepare their questions. Progress and results will appear here.'}
                           </p>
                         </div>
                       )}
@@ -1336,15 +1369,9 @@ export function Workspace({
                 {expandedJob.description}
               </p>
             </div>
-            <JobQuestionSets
-              job={expandedJob.id}
-              token={token}
-              onReadyChange={updateReady}
-            />
             <div className="mt-6 flex items-start justify-between gap-3">
               <div className="flex min-w-0 flex-wrap items-center gap-3">
                 <Button
-                  disabled={!readyDurations[expandedJob.id]?.length}
                   onClick={() => {
                     setExpandedJobId(null);
                     openModal('invite', expandedJob.id);
@@ -1352,11 +1379,6 @@ export function Workspace({
                 >
                   Invite a candidate
                 </Button>
-                {!readyDurations[expandedJob.id]?.length && (
-                  <small className="muted">
-                    Invitations unlock when a question set is complete.
-                  </small>
-                )}
               </div>
               <Button
                 className="shrink-0 text-rose-700 workspace-dark:text-rose-300"
@@ -1413,14 +1435,28 @@ export function Workspace({
       )}
       {modal && (
         <Dialog title="modal-title" onClose={() => setModal(null)} busy={busy}>
-          <section className="modal">
-            <div className="panel-heading">
+          <section
+            className={
+              modal === 'job'
+                ? 'modal flex! max-h-[90dvh]! w-[min(640px,calc(100vw-2rem))]! flex-col! overflow-hidden! p-0!'
+                : 'modal'
+            }
+          >
+            <div
+              className={
+                modal === 'job'
+                  ? 'panel-heading m-0! shrink-0 border-b border-slate-200 px-6! py-4! workspace-dark:border-slate-700'
+                  : 'panel-heading'
+              }
+            >
               <h2 id="modal-title">
                 {modal === 'job'
                   ? 'Create a job'
-                  : invitation
-                    ? 'Invitation created'
-                    : 'Invite a candidate'}
+                  : pendingInvitation
+                    ? 'Candidate preparation'
+                    : invitation
+                      ? 'Invitation created'
+                      : 'Invite a candidate'}
               </h2>
               <button
                 className="icon-button"
@@ -1436,7 +1472,16 @@ export function Workspace({
                 {error}
               </p>
             )}
-            {invitation ? (
+            {modal === 'job' ? (
+              <CreateJobForm
+                onSubmit={save}
+                onChange={() => setRequestKey(crypto.randomUUID())}
+                onCancel={() => setModal(null)}
+                busy={busy}
+              />
+            ) : pendingInvitation ? (
+              <CandidatePreparation token={token} session={pendingInvitation} />
+            ) : invitation ? (
               <>
                 <p>
                   Share this private link with the candidate. The link grants
@@ -1464,161 +1509,75 @@ export function Workspace({
                 onSubmit={save}
                 onChange={() => setRequestKey(crypto.randomUUID())}
               >
-                {modal === 'job' ? (
-                  <>
-                    <label>
-                      Job ID
-                      <input
-                        name="job_code"
-                        required
-                        maxLength={64}
-                        placeholder="e.g. BE-2026-001"
-                        autoComplete="off"
-                        aria-describedby="job-code-help"
-                      />
-                    </label>
-                    <p id="job-code-help" className="muted">
-                      Unique for your account, ignoring letter case. Start with
-                      a letter or number; use letters, numbers, hyphens or
-                      underscores.
-                    </p>
-                    <label>
-                      Job title
-                      <input
-                        name="title"
-                        required
-                        maxLength={160}
-                        placeholder="e.g. Senior Backend Engineer"
-                      />
-                    </label>
-                    <label>
-                      Job description
-                      <textarea
-                        name="description"
-                        required
-                        minLength={20}
-                        maxLength={20000}
-                        rows={8}
-                        placeholder="Describe the role, responsibilities, and required skills…"
-                      />
-                    </label>
-                    <label>
-                      Interview duration (minutes)
-                      <input
-                        name="preparation_duration_minutes"
-                        type="number"
-                        min={5}
-                        max={180}
-                        defaultValue={30}
-                        required
-                      />
-                    </label>
-                    <label>
-                      Number of question sets
-                      <input
-                        name="question_set_count"
-                        type="number"
-                        min={1}
-                        max={5}
-                        defaultValue={1}
-                        required
-                      />
-                    </label>
-                    <p className="muted">
-                      Prepare 1–5 unique sets with reference answers. Each new
-                      question is scoped to 2–3 minutes; short interviews use
-                      fewer questions. More sets use more AI requests. Only this
-                      many sets are created and reused across candidates. No
-                      automatic replacements.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <label>
-                      Role
-                      <Select
-                        name="job_id"
-                        defaultValue={inviteJob || jobs.items[0]?.id}
-                        onChange={(event) => {
-                          setInviteJob(event.target.value);
-                          setInviteDuration(
-                            readyDurations[event.target.value]?.[0] ?? 30,
-                          );
-                        }}
-                        required
-                      >
-                        {jobs.items.map((job) => (
-                          <option
-                            disabled={!readyDurations[job.id]?.length}
-                            key={job.id}
-                            value={job.id}
-                          >
-                            {job.job_code} — {job.title}
-                          </option>
-                        ))}
-                      </Select>
-                    </label>
-                    <label>
-                      Candidate name
-                      <input
-                        name="candidate_name"
-                        required
-                        maxLength={120}
-                        autoComplete="name"
-                      />
-                    </label>
-                    <label>
-                      Candidate email
-                      <input
-                        name="candidate_email"
-                        type="email"
-                        required
-                        maxLength={254}
-                        autoComplete="email"
-                      />
-                    </label>
-                    <label>
-                      Interview duration (minutes)
-                      <input
-                        key={inviteJob}
-                        name="duration_minutes"
-                        type="number"
-                        min={5}
-                        max={180}
-                        value={inviteDuration}
-                        onChange={(event) =>
-                          setInviteDuration(Number(event.target.value))
-                        }
-                        required
-                      />
-                    </label>
-                    <p className="muted">
-                      Create a private link to share manually. Email delivery is
-                      not connected yet.
-                    </p>
-                    {!readyDurations[inviteJob]?.includes(inviteDuration) && (
-                      <p className="configuration-note">
-                        No completed set is available for this duration. Choose
-                        a duration with a ready set before inviting.
-                      </p>
-                    )}
-                  </>
-                )}
+                <>
+                  <label>
+                    Role
+                    <Select
+                      name="job_id"
+                      defaultValue={inviteJob || jobs.items[0]?.id}
+                      onChange={(event) => {
+                        setInviteJob(event.target.value);
+                        setInviteDuration(
+                          jobs.items.find(
+                            (job) => job.id === event.target.value,
+                          )?.preparation_duration_minutes ?? 30,
+                        );
+                      }}
+                      required
+                    >
+                      {jobs.items.map((job) => (
+                        <option key={job.id} value={job.id}>
+                          {job.job_code} — {job.title}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <label>
+                    Candidate name
+                    <input
+                      name="candidate_name"
+                      required
+                      maxLength={120}
+                      autoComplete="name"
+                    />
+                  </label>
+                  <label>
+                    Candidate email
+                    <input
+                      name="candidate_email"
+                      type="email"
+                      required
+                      maxLength={254}
+                      autoComplete="email"
+                    />
+                  </label>
+                  <label>
+                    Interview duration (minutes)
+                    <input
+                      key={inviteJob}
+                      name="duration_minutes"
+                      type="number"
+                      min={5}
+                      max={180}
+                      value={inviteDuration}
+                      onChange={(event) =>
+                        setInviteDuration(Number(event.target.value))
+                      }
+                      required
+                    />
+                  </label>
+                  <p className="muted">
+                    Prepare fresh questions for this candidate. The private link
+                    becomes available when preparation completes. Email delivery
+                    is not connected yet.
+                  </p>
+                </>
                 <Button
                   type="submit"
                   variant="standard"
-                  disabled={
-                    busy ||
-                    refreshing ||
-                    (modal === 'invite' &&
-                      !readyDurations[inviteJob]?.includes(inviteDuration))
-                  }
+                  disabled={busy || refreshing}
                 >
-                  {busy
-                    ? 'Saving…'
-                    : modal === 'job'
-                      ? 'Create job'
-                      : 'Create invitation'}
+                  {busy ? 'Saving…' : 'Prepare invitation'}
                 </Button>
               </form>
             )}
@@ -1709,6 +1668,11 @@ export function Workspace({
                     <p className="error" role="alert">
                       {error}
                     </p>
+                  )}
+                  {['preparing', 'preparation_failed'].includes(
+                    selected.state,
+                  ) && (
+                    <CandidatePreparation token={token} session={selected.id} />
                   )}
                   {invitationIsActive(selected) && (
                     <div className="invitation-panel">

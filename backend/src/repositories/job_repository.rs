@@ -73,6 +73,7 @@ pub(crate) async fn list(
     interviewer: Uuid,
     cursor: Option<Uuid>,
     fetch_limit: i64,
+    filters: &crate::models::job::JobFilters,
 ) -> Result<Vec<JobListItem>> {
     Ok(sqlx::query_as(
         r#"
@@ -91,22 +92,49 @@ pub(crate) async fn list(
             WHERE s.job_id = j.id) AS session_count
         FROM jobs j
         WHERE j.interviewer_id = $1
-        AND ($2::uuid IS NULL
-            OR (j.created_at,
-                    j.id) < (
-                SELECT created_at,
-                    id
-                FROM jobs
-                WHERE id = $2))
-        ORDER BY j.created_at DESC,
-            j.id DESC
+        AND ($4 = '' OR strpos(lower(j.job_code || ' ' || j.title), lower($4)) > 0)
+        AND ($5 = 'all' OR ($5 = 'with') = EXISTS (
+            SELECT 1 FROM interview_sessions s WHERE s.job_id = j.id))
+        AND ($2::uuid IS NULL OR CASE WHEN $6 = 'oldest'
+            THEN (j.created_at, j.id) > (SELECT created_at, id FROM jobs WHERE id = $2)
+            ELSE (j.created_at, j.id) < (SELECT created_at, id FROM jobs WHERE id = $2)
+            END)
+        ORDER BY
+            CASE WHEN $6 = 'newest' THEN j.created_at END DESC,
+            CASE WHEN $6 = 'newest' THEN j.id END DESC,
+            CASE WHEN $6 = 'oldest' THEN j.created_at END ASC,
+            CASE WHEN $6 = 'oldest' THEN j.id END ASC
         LIMIT $3
         "#,
     )
     .bind(interviewer)
     .bind(cursor)
     .bind(fetch_limit)
+    .bind(&filters.search)
+    .bind(&filters.invitations)
+    .bind(&filters.sort)
     .fetch_all(&mut **tx)
+    .await?)
+}
+
+pub(crate) async fn matching_count(
+    tx: &mut Transaction<'_, Postgres>,
+    interviewer: Uuid,
+    filters: &crate::models::job::JobFilters,
+) -> Result<i64> {
+    Ok(sqlx::query_scalar(
+        r#"
+        SELECT count(*) FROM jobs j
+        WHERE j.interviewer_id = $1
+        AND ($2 = '' OR strpos(lower(j.job_code || ' ' || j.title), lower($2)) > 0)
+        AND ($3 = 'all' OR ($3 = 'with') = EXISTS (
+            SELECT 1 FROM interview_sessions s WHERE s.job_id = j.id))
+    "#,
+    )
+    .bind(interviewer)
+    .bind(&filters.search)
+    .bind(&filters.invitations)
+    .fetch_one(&mut **tx)
     .await?)
 }
 

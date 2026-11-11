@@ -125,6 +125,13 @@ fn document() -> Value {
     endpoint!("get" "/api/v1/summary", "Jobs", staff, "Get dashboard totals", "200" => json_response(response_schema::<interview::SummaryResponse>()));
     endpoint!("get" "/api/v1/jobs", "Jobs", staff, "List jobs", "200" => json_response(response_schema::<job::JobListResponse>()),
         "parameters" => json!(pagination()));
+    if let Some(parameters) = paths["/api/v1/jobs"]["get"]["parameters"].as_array_mut() {
+        parameters.extend([
+            json!({"name":"search","in":"query","schema":{"type":"string","maxLength":160},"description":"Search job ID or title"}),
+            json!({"name":"invitations","in":"query","schema":{"type":"string","enum":["all","with","without"],"default":"all"}}),
+            json!({"name":"sort","in":"query","schema":{"type":"string","enum":["newest","oldest"],"default":"newest"}}),
+        ]);
+    }
     endpoint!("post" "/api/v1/jobs", "Jobs", staff, "Create a job", "201" => json_response(response_schema::<job::JobResponse>()),
         "requestBody" => json_body(request_schema::<job::CreateJobRequest>()));
     paths["/api/v1/jobs"]["post"]["responses"]["200"] =
@@ -137,6 +144,8 @@ fn document() -> Value {
     endpoint!("get" "/api/v1/sessions", "Sessions", staff, "List interview sessions", "200" => json_response(response_schema::<interview::SessionListResponse>()),
         "parameters" => json!(pagination()));
     endpoint!("get" "/api/v1/sessions/{session}", "Sessions", staff, "Get interview session details", "200" => json_response(response_schema::<interview::SessionDetailResponse>()));
+    paths["/api/v1/jobs/{job}/invitations"]["post"]["responses"]["202"] =
+        paths["/api/v1/jobs/{job}/invitations"]["post"]["responses"]["201"].clone();
     endpoint!("post" "/api/v1/sessions/{session}/invitation", "Invitations", staff, "Retrieve an active invitation", "200" => json_response(response_schema::<invitation::RecoveredInvitationResponse>()));
     endpoint!("get" "/api/v1/audit", "Audit", staff, "List audit events", "200" => json_response(response_schema::<audit::AuditPageResponse>()),
         "parameters" => json!(audit_parameters(pagination())));
@@ -164,6 +173,7 @@ fn document() -> Value {
         "requestBody" => json_body(request_schema::<live_screen::Signal>()));
     endpoint!("post" "/api/v1/candidate/live-screen", "Live-screen", candidate, "Exchange candidate WebRTC signals", "200" => json_response(response_schema::<live_screen::View>()),
         "requestBody" => json_body(request_schema::<live_screen::Signal>()));
+    endpoint!("post" "/api/v1/sessions/{session}/generation", "Generation", staff, "Retry this candidate's failed question preparation", "202" => json_response(response_schema::<generation::PendingResponse>()));
     endpoint!("get" "/api/v1/sessions/{session}/generation", "Generation", staff, "Get prepared interview questions", "200" => json_response(response_schema::<generation::SessionGenerationResponse>()));
     endpoint!("get" "/api/v1/jobs/{job}/question-sets", "Generation", staff, "List job question sets", "200" => json_response(response_schema::<generation::QuestionSetsResponse>()));
     endpoint!("post" "/api/v1/jobs/{job}/question-sets", "Generation", staff, "Retry failed question set generation", "202" => json_response(response_schema::<generation::PendingResponse>()));

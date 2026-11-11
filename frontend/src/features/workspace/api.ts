@@ -1,5 +1,14 @@
 import { request } from '../../api';
-export type Page<T> = { items: T[]; next_cursor: string | null };
+export type Page<T> = {
+  items: T[];
+  next_cursor: string | null;
+  total?: number;
+};
+export type JobListFilters = {
+  search: string;
+  invitations: string;
+  sort: string;
+};
 export type Job = {
   id: string;
   job_code: string;
@@ -71,9 +80,14 @@ export function workspaceApi(token: string) {
     );
   return {
     summary: (signal?: AbortSignal) => get<Summary>('/summary', signal),
-    jobs: (cursor?: string, limit?: number, signal?: AbortSignal) =>
+    jobs: (
+      cursor?: string,
+      limit?: number,
+      signal?: AbortSignal,
+      filters?: JobListFilters,
+    ) =>
       get<Page<Job>>(
-        `/jobs?${new URLSearchParams({ ...(cursor ? { cursor } : {}), ...(limit ? { limit: String(limit) } : {}) })}`,
+        `/jobs?${new URLSearchParams({ ...filters, ...(cursor ? { cursor } : {}), ...(limit ? { limit: String(limit) } : {}) })}`,
         signal,
       ),
     sessions: (cursor?: string, signal?: AbortSignal) =>
@@ -88,6 +102,8 @@ export function workspaceApi(token: string) {
         { signal },
         token,
       ),
+    retryGeneration: (id: string) =>
+      post<{ status: string }>(`/sessions/${id}/generation`, {}),
     invitation: (id: string) =>
       post<{
         invitation_token: string;
@@ -196,6 +212,7 @@ export type Generation = {
     attempts: number;
     last_error: string | null;
     seed: string;
+    planned_total?: number | null;
   } | null;
   blueprint: {
     competencies: {

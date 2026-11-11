@@ -95,7 +95,10 @@ pub(super) async fn save(
     repo::advance_checkpoint(&mut tx, claim.id, claim.token, complete).await?;
     repo::record_question(&mut tx,Uuid::new_v4(),claim.recruiter,claim.id,json!({"actor":"worker","position":context.position,"total":total,"prompt_version":PROMPT_VERSION})).await?;
     if complete {
-        repo::record_completion(&mut tx,Uuid::new_v4(),claim.recruiter,claim.id,json!({"actor":"worker","count":total,"model":context.provider.model,"embedding_model":context.provider.embedding_model,"prompt_version":PROMPT_VERSION,"seed":claim.seed,"quality_review":"passed","reference_version":"worked-answer-v2","source":"job_pool"})).await?;
+        crate::services::invitation_service::publish_prepared(&mut tx, claim.recruiter, claim.id)
+            .await
+            .map_err(|error| anyhow::anyhow!(error.1))?;
+        repo::record_completion(&mut tx,Uuid::new_v4(),claim.recruiter,claim.id,json!({"actor":"worker","count":total,"model":context.provider.model,"embedding_model":context.provider.embedding_model,"prompt_version":PROMPT_VERSION,"seed":claim.seed,"quality_review":"passed","reference_version":"worked-answer-v2","source":"candidate_preparation"})).await?;
     }
     tx.commit().await?;
     Ok(())

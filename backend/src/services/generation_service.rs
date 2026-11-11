@@ -52,8 +52,6 @@ pub(crate) async fn retry(pool: &PgPool, owner: Uuid, job: Uuid, configured: boo
         ));
     }
     repo::reset_failed(&mut tx, job).await?;
-    crate::generation::bank::replenish(&mut tx, owner, job, row.preparation_duration_minutes)
-        .await?;
     crate::audit::record(
         &mut tx,
         owner,
@@ -61,6 +59,37 @@ pub(crate) async fn retry(pool: &PgPool, owner: Uuid, job: Uuid, configured: boo
         job,
         "question_sets.retried",
         json!({"target":row.question_set_count}),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Retry only this candidate's failed preparation, preserving saved questions.
+pub(crate) async fn retry_session(
+    pool: &PgPool,
+    owner: Uuid,
+    session: Uuid,
+    configured: bool,
+) -> Result<()> {
+    if !configured {
+        return Err(ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "AI generation is not configured",
+        ));
+    }
+    let mut tx = interviewer_transaction(pool, owner).await?;
+    repo::session(&mut tx, session)
+        .await?
+        .ok_or_else(missing)?;
+    repo::reset_session_failed(&mut tx, session).await?;
+    crate::audit::record(
+        &mut tx,
+        owner,
+        Some(owner),
+        session,
+        "generation.retried",
+        json!({"source":"candidate_preparation"}),
     )
     .await?;
     tx.commit().await?;

@@ -1353,3 +1353,184 @@ async fn every_generation_failure_gets_three_worker_retries() {
     let _ = server.await;
     pool.close().await;
 }
+
+/// Use a disposable database and local mock only, never the live AI provider.
+#[tokio::test]
+#[ignore = "requires migrated TEST_DATABASE_URL, invitation key and local mock listener"]
+async fn candidate_invitation_waits_for_its_own_questions() {
+    platform_api::infrastructure::load_environment().unwrap();
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&std::env::var("TEST_DATABASE_URL").expect("use a disposable test database"))
+        .await
+        .unwrap();
+    let mock = Mock::new();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap();
+    let address = listener.local_addr().unwrap();
+    let service = Router::new()
+        .route("/v1/responses", post(responses))
+        .route("/v1/embeddings", post(embeddings))
+        .with_state(mock.clone());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, service)
+            .await
+            .unwrap();
+    });
+    let mut provider = AiProvider::new(
+        format!("http://{address}/v1"),
+        "mock-key".into(),
+        "mock-key".into(),
+        "gpt-5-mini".into(),
+        "text-embedding-3-small".into(),
+    )
+    .unwrap();
+    provider.dimensions = 12;
+    let app = platform_api::router_with_ai(pool.clone(), Some(provider.clone()));
+    let owner = account(&app).await;
+    let token = owner["token"].as_str().unwrap();
+    let user: Uuid = owner["user_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let (_, job) = call(
+        &app,
+        "POST",
+        "/api/v1/jobs",
+        json!({
+            "job_code":format!("PRIVATE-{}",Uuid::new_v4()), "title":"Rust engineer",
+            "description":JD,"preparation_duration_minutes":10,"request_key":Uuid::new_v4()
+        }),
+        token,
+    )
+    .await;
+    let job_id = job["id"].as_str().unwrap();
+    let mut tx = interviewer_transaction(&pool, user)
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM question_sets WHERE job_id=$1")
+        .bind(job_id.parse::<Uuid>().unwrap())
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "job creation must not generate reusable sets");
+    tx.commit().await.unwrap();
+    let route = format!("/api/v1/jobs/{job_id}/invitations");
+    let input = json!({"candidate_name":"First candidate", "candidate_email":"first@example.test",
+        "duration_minutes":10,"request_key":Uuid::new_v4()});
+    let (status, first) = call(&app, "POST", &route, input.clone(), token).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert!(first["invitation_token"].is_null());
+    let (_, replay) = call(&app, "POST", &route, input, token).await;
+    assert_eq!(first["session"]["id"], replay["session"]["id"]);
+    let session = first["session"]["id"].as_str().unwrap();
+    let link_route = format!("/api/v1/sessions/{session}/invitation");
+    assert_eq!(
+        call(&app, "POST", &link_route, json!({}), token)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    assert!(
+        process_next(&pool, &provider)
+            .await
+            .unwrap()
+    );
+    let (_, progress) = call(
+        &app,
+        "GET",
+        &format!("/api/v1/sessions/{session}/generation"),
+        Value::Null,
+        token,
+    )
+    .await;
+    assert_eq!(progress["status"], "completed", "{progress}");
+    let (status, link) = call(&app, "POST", &link_route, json!({}), token).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !link["invitation_token"]
+            .as_str()
+            .unwrap()
+            .is_empty()
+    );
+    let (_, same_link) = call(&app, "POST", &link_route, json!({}), token).await;
+    assert_eq!(link["invitation_token"], same_link["invitation_token"]);
+    let (_, second) = call(&app, "POST", &route, json!({"candidate_name":"Second candidate",
+        "candidate_email":"second@example.test","duration_minutes":10,"request_key":Uuid::new_v4()}), token).await;
+    assert!(second["invitation_token"].is_null());
+    assert_ne!(
+        first["session"]["question_set_id"],
+        second["session"]["question_set_id"]
+    );
+    let second_id = second["session"]["id"]
+        .as_str()
+        .unwrap();
+    let second_uuid: Uuid = second_id.parse().unwrap();
+    let mut tx = interviewer_transaction(&pool, user)
+        .await
+        .unwrap();
+    let waiting: bool = sqlx::query_scalar("SELECT expires_at='infinity'::timestamptz AND NOT EXISTS (SELECT 1 FROM auth_sessions a WHERE a.interview_session_id=s.id) FROM interview_sessions s WHERE id=$1")
+        .bind(second_uuid).fetch_one(&mut *tx).await.unwrap();
+    assert!(
+        waiting,
+        "preparation must have neither a token nor a running expiry"
+    );
+    sqlx::query("UPDATE question_sets SET attempts=3 WHERE id=(SELECT question_set_id FROM interview_sessions WHERE id=$1)")
+        .bind(second_uuid).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    mock.malformed
+        .store(7, Ordering::SeqCst);
+    assert!(
+        process_next(&pool, &provider)
+            .await
+            .unwrap()
+    );
+    let generation_route = format!("/api/v1/sessions/{second_id}/generation");
+    let (_, failed) = call(&app, "GET", &generation_route, Value::Null, token).await;
+    assert_eq!(failed["status"], "failed");
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("/api/v1/sessions/{second_id}/invitation"),
+            json!({}),
+            token
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(&app, "POST", &generation_route, json!({}), token)
+            .await
+            .0,
+        StatusCode::ACCEPTED
+    );
+    mock.malformed
+        .store(0, Ordering::SeqCst);
+    mock.variant.store(4, Ordering::SeqCst);
+    assert!(
+        process_next(&pool, &provider)
+            .await
+            .unwrap()
+    );
+    let second_id = second["session"]["id"]
+        .as_str()
+        .unwrap();
+    let (_, second_progress) = call(
+        &app,
+        "GET",
+        &format!("/api/v1/sessions/{second_id}/generation"),
+        Value::Null,
+        token,
+    )
+    .await;
+    assert_eq!(second_progress["status"], "completed", "{second_progress}");
+    assert_ne!(
+        progress["questions"][0]["prompt"],
+        second_progress["questions"][0]["prompt"]
+    );
+    server.abort();
+}

@@ -43,6 +43,7 @@ pub(crate) async fn invite(
             "Provide a candidate name, email, and a duration of 5–180 minutes",
         ));
     }
+    cipher()?;
     let mut tx = interviewer_transaction(pool, user).await?;
     let recruiter = user;
     repo::job(&mut tx, recruiter, job)
@@ -69,12 +70,21 @@ pub(crate) async fn invite(
         },
     )
     .await?;
-    if inserted && !crate::generation::bank::assign(&mut tx, recruiter, id).await? {
-        return Err(conflict(
-            "No completed question set is available for this job and interview duration. Complete question preparation before inviting a candidate.",
-        ));
+    if inserted {
+        crate::generation::bank::assign(&mut tx, recruiter, id).await?;
+        // No expiry clock runs until the worker publishes the invitation link.
+        repo::await_preparation(&mut tx, id).await?;
+        audit(
+            &mut tx,
+            recruiter,
+            Some(user),
+            id,
+            "invitation.preparation_queued",
+            json!({"job_id":job}),
+        )
+        .await?;
     }
-    let result = repo::by_request(&mut tx, recruiter, input.request_key).await?;
+    let mut result = repo::by_request(&mut tx, recruiter, input.request_key).await?;
     if result.job_id != job
         || result.candidate_name != name
         || result.candidate_email != email
@@ -84,33 +94,17 @@ pub(crate) async fn invite(
             "Request key was already used with different invitation details",
         ));
     }
-    let token = if inserted {
-        let token = new_token();
-        let sealed = cipher()?
-            .seal(&token, recruiter, id)
-            .map_err(|_| link_unavailable())?;
-        repo::insert_token(&mut tx, &digest(&token), id, &sealed).await?;
-        audit(
-            &mut tx,
-            recruiter,
-            Some(user),
-            id,
-            "session.invited",
-            json!({"job_id":job}),
-        )
-        .await?;
-        Some(token)
-    } else {
-        let session_id = result.id;
-        let sealed = repo::sealed_token(&mut tx, session_id, recruiter).await?;
-        sealed
-            .map(|value| {
-                cipher()?
-                    .open(&value, recruiter, session_id)
-                    .map_err(|_| link_unavailable())
-            })
-            .transpose()?
-    };
+    let token = repo::sealed_token(&mut tx, result.id, recruiter)
+        .await?
+        .map(|sealed| {
+            cipher()?
+                .open(&sealed, recruiter, result.id)
+                .map_err(|_| link_unavailable())
+        })
+        .transpose()?;
+    if token.is_none() {
+        result.state = "preparing".to_string();
+    }
     tx.commit().await?;
     Ok(CreatedInvitation {
         session: result,
@@ -118,6 +112,31 @@ pub(crate) async fn invite(
         created: inserted,
     })
 }
+pub(crate) async fn publish_prepared(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    owner: Uuid,
+    set: Uuid,
+) -> Result<()> {
+    for id in repo::unpublished_sessions(tx, set).await? {
+        let token = new_token();
+        let sealed = cipher()?
+            .seal(&token, owner, id)
+            .map_err(|_| link_unavailable())?;
+        repo::start_invitation_expiry(tx, id).await?;
+        repo::insert_token(tx, &digest(&token), id, &sealed).await?;
+        audit(
+            tx,
+            owner,
+            None,
+            id,
+            "session.invited",
+            json!({"source":"candidate_preparation"}),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 fn link_unavailable() -> ApiError {
     ApiError(
         StatusCode::SERVICE_UNAVAILABLE,
@@ -140,6 +159,11 @@ pub(crate) async fn retrieve_invitation(
     if !session.active || !matches!(session.state.as_str(), "invited" | "ready" | "in_progress") {
         return Err(conflict(
             "Invitation links are unavailable for expired or submitted sessions",
+        ));
+    }
+    if !repo::preparation_complete(&mut tx, id).await? {
+        return Err(conflict(
+            "Questions are still being prepared. The invitation link will be available after preparation completes.",
         ));
     }
     let row = repo::lock_token(&mut tx, id, recruiter)

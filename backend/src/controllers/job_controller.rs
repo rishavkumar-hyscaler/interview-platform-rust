@@ -1,9 +1,8 @@
 //! HTTP extraction and explicit DTO mapping; no SQL or generation rules.
 use crate::{
     Result, authenticate,
-    dto::job::{CreateJobRequest, JobListItemResponse, JobListResponse, JobResponse},
-    models::job::Job,
-    pagination::Page,
+    dto::job::{CreateJobRequest, JobListItemResponse, JobListQuery, JobListResponse, JobResponse},
+    models::job::{Job, JobFilters},
     services::job_service::{self, CreateJob},
 };
 use axum::{
@@ -43,12 +42,29 @@ pub(crate) async fn create_job(
 pub(crate) async fn list_jobs(
     State(pool): State<PgPool>,
     headers: HeaderMap,
-    Query(page): Query<Page>,
+    Query(query): Query<JobListQuery>,
 ) -> Result<Json<JobListResponse>> {
-    let limit = page.limit()?;
+    let limit = crate::pagination::Page {
+        cursor: query.cursor,
+        limit: query.limit,
+        entity_id: None,
+    }
+    .limit()?;
     let (interviewer, _) = authenticate(&pool, &headers).await?;
-    let result = job_service::list(&pool, interviewer, page.cursor, limit).await?;
+    let result = job_service::list(
+        &pool,
+        interviewer,
+        query.cursor,
+        limit,
+        JobFilters {
+            search: query.search.trim().to_string(),
+            invitations: query.invitations,
+            sort: query.sort,
+        },
+    )
+    .await?;
     Ok(Json(JobListResponse {
+        total: result.total,
         items: result
             .items
             .into_iter()

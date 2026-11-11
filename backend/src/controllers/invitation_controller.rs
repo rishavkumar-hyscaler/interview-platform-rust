@@ -30,7 +30,9 @@ pub(crate) async fn invite(
     )
     .await?;
     Ok((
-        if result.created {
+        if result.created && result.token.is_none() {
+            StatusCode::ACCEPTED
+        } else if result.created {
             StatusCode::CREATED
         } else {
             StatusCode::OK

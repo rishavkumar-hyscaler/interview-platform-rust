@@ -21,7 +21,12 @@ pub(crate) async fn session(
                 'attempts',
                 p.attempts,
                 'last_error',
-                p.last_error) END AS job,
+                p.last_error,
+                'planned_total',
+                (SELECT jsonb_array_length(a.metadata #> '{plan,allocations}')
+                 FROM audit_events a
+                 WHERE a.entity_id=p.id AND a.action='generation.planned'
+                 ORDER BY a.created_at, a.id LIMIT 1)) END AS job,
             j.blueprint
         FROM interview_sessions s JOIN jobs j ON j.id = s.job_id
         LEFT JOIN question_sets p ON p.id = s.question_set_id
@@ -139,16 +144,6 @@ pub(crate) async fn sets(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result
                 WHERE q.set_id = p.id))
         FROM question_sets p
         WHERE p.job_id = $1
-        AND p.id IN (
-            SELECT id
-            FROM question_sets
-            WHERE job_id = $1
-            ORDER BY created_at,
-                id
-            LIMIT (
-                SELECT question_set_count
-                FROM jobs
-                WHERE id = $1))
         ORDER BY p.created_at DESC,
             p.id DESC
         LIMIT 60
@@ -177,16 +172,6 @@ pub(crate) async fn questions(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> R
                 q.rubric)
         FROM interview_questions q JOIN question_sets p ON p.id = q.set_id
         WHERE p.job_id = $1
-        AND p.id IN (
-            SELECT id
-            FROM question_sets
-            WHERE job_id = $1
-            ORDER BY created_at,
-                id
-            LIMIT (
-                SELECT question_set_count
-                FROM jobs
-                WHERE id = $1))
         ORDER BY p.created_at,
             p.id,
             q.position
@@ -209,20 +194,19 @@ pub(crate) async fn reset_failed(tx: &mut Transaction<'_, Postgres>, id: Uuid) -
             available_at = now()
         WHERE job_id = $1
         AND status = 'failed'
-        AND id IN (
-            SELECT id
-            FROM question_sets
-            WHERE job_id = $1
-            ORDER BY created_at,
-                id
-            LIMIT (
-                SELECT question_set_count
-                FROM jobs
-                WHERE id = $1))
         "#,
     )
     .bind(id)
     .execute(&mut **tx)
     .await?;
+    Ok(())
+}
+
+pub(crate) async fn reset_session_failed(
+    tx: &mut Transaction<'_, Postgres>,
+    session: Uuid,
+) -> Result<()> {
+    sqlx::query("UPDATE question_sets SET status='pending', attempts=0, last_error=NULL, claim_token=NULL, lease_until=NULL, available_at=now() WHERE id=(SELECT question_set_id FROM interview_sessions WHERE id=$1 AND state='invited') AND status='failed'")
+        .bind(session).execute(&mut **tx).await?;
     Ok(())
 }

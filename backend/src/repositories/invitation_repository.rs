@@ -180,8 +180,9 @@ pub(crate) async fn sealed_token(
     )
     .bind(id)
     .bind(owner)
-    .fetch_one(&mut **tx)
-    .await?)
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten())
 }
 pub(crate) async fn lock_session(
     tx: &mut Transaction<'_, Postgres>,
@@ -251,4 +252,40 @@ pub(crate) async fn replace_token(
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+// Preparation has no invitation deadline. PostgreSQL infinity stays internal;
+// the worker replaces it with a real seven-day expiry when publishing the link.
+pub(crate) async fn await_preparation(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<()> {
+    sqlx::query("UPDATE interview_sessions SET expires_at='infinity'::timestamptz WHERE id=$1")
+        .bind(id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+pub(crate) async fn unpublished_sessions(
+    tx: &mut Transaction<'_, Postgres>,
+    set: Uuid,
+) -> Result<Vec<Uuid>> {
+    Ok(sqlx::query_scalar("SELECT s.id FROM interview_sessions s WHERE question_set_id=$1 AND state='invited' AND NOT EXISTS (SELECT 1 FROM auth_sessions a WHERE a.interview_session_id=s.id) FOR UPDATE")
+        .bind(set).fetch_all(&mut **tx).await?)
+}
+pub(crate) async fn start_invitation_expiry(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE interview_sessions SET expires_at=clock_timestamp()+interval '7 days' WHERE id=$1",
+    )
+    .bind(id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+pub(crate) async fn preparation_complete(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM interview_sessions s JOIN question_sets p ON p.id=s.question_set_id WHERE s.id=$1 AND p.status='completed')")
+        .bind(id).fetch_one(&mut **tx).await?)
 }

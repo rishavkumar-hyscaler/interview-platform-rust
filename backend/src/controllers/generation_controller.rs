@@ -18,7 +18,10 @@ use uuid::Uuid;
 struct ProviderOption(Option<Arc<AiProvider>>);
 pub fn routes(provider: Option<AiProvider>) -> Router<PgPool> {
     Router::new()
-        .route("/api/v1/sessions/{session}/generation", get(status))
+        .route(
+            "/api/v1/sessions/{session}/generation",
+            get(status).post(retry_session),
+        )
         .route("/api/v1/jobs/{job}/question-sets", get(sets).post(retry))
         .layer(Extension(ProviderOption(provider.map(Arc::new))))
 }
@@ -66,6 +69,22 @@ async fn retry(
 ) -> Result<(StatusCode, Json<PendingResponse>)> {
     let (owner, _) = authenticate(&pool, &headers).await?;
     generation_service::retry(&pool, owner, job, provider.0.is_some()).await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(PendingResponse {
+            status: "pending",
+        }),
+    ))
+}
+
+async fn retry_session(
+    State(pool): State<PgPool>,
+    Path(session): Path<Uuid>,
+    headers: HeaderMap,
+    Extension(provider): Extension<ProviderOption>,
+) -> Result<(StatusCode, Json<PendingResponse>)> {
+    let (owner, _) = authenticate(&pool, &headers).await?;
+    generation_service::retry_session(&pool, owner, session, provider.0.is_some()).await?;
     Ok((
         StatusCode::ACCEPTED,
         Json(PendingResponse {

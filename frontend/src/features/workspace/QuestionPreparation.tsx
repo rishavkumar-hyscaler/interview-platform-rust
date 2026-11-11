@@ -112,8 +112,8 @@ export function QuestionPreparation({
           )}
           {generation.status !== 'completed' && (
             <p>
-              Manage preparation and retries under this job’s Question sets.
-              Questions are prepared for the job and reused across candidates.
+              Retry this candidate’s preparation from Job & session. Saved
+              questions are preserved.
             </p>
           )}
           {generation.blueprint && (
