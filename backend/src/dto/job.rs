@@ -17,7 +17,7 @@ fn default_set_count() -> i32 {
     1
 }
 fn default_duration() -> i32 {
-    30
+    10
 }
 
 #[derive(Serialize, schemars::JsonSchema)]

@@ -1,3 +1,4 @@
+import { ListToolbar } from '../../components/ui/list-toolbar';
 import { Button } from '../../components/ui/button';
 import { Select } from '../../components/ui/select';
 import { DashboardCard } from './DashboardCard';
@@ -300,6 +301,7 @@ function QuestionCharts({ groups }: { groups: ScoreGroup[] }) {
 }
 
 function FilteredQuestionCharts({ groups }: { groups: ScoreGroup[] }) {
+  const [search, setSearch] = useState('');
   const [set, setSet] = useState('');
   const [question, setQuestion] = useState('');
   const [sort, setSort] = useState('question');
@@ -314,7 +316,11 @@ function FilteredQuestionCharts({ groups }: { groups: ScoreGroup[] }) {
     (group) => !set || String(group.set_number) === set,
   );
   const visible = available.filter(
-    (group) => !question || group.question_id === question,
+    (group) =>
+      (!question || group.question_id === question) &&
+      `${group.prompt} ${group.competency_id} ${questionLabel(group, 0)}`
+        .toLowerCase()
+        .includes(search.trim().toLowerCase()),
   );
 
   if (sort === 'attempts')
@@ -331,51 +337,74 @@ function FilteredQuestionCharts({ groups }: { groups: ScoreGroup[] }) {
 
   return (
     <>
-      <div className="mt-4 flex flex-wrap justify-end gap-3">
-        <label className="flex items-center gap-2 text-control">
-          Set
-          <Select
-            value={set}
-            onChange={(event) => {
-              setSet(event.target.value);
-              setQuestion('');
-            }}
-          >
-            <option value="">All sets</option>
-            {sets.map((number) => (
-              <option key={number} value={number}>
-                Set {number}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="flex items-center gap-2 text-control">
-          Question
-          <Select
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-          >
-            <option value="">All questions</option>
-            {available.map((group, index) => (
-              <option key={group.question_id} value={group.question_id}>
-                {questionLabel(group, index)}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="flex items-center gap-2 whitespace-nowrap text-control">
-          Sort by
-          <Select
-            value={sort}
-            onChange={(event) => setSort(event.target.value)}
-          >
-            <option value="question">Set and question</option>
-            <option value="attempts">Most attempts</option>
-            <option value="time">Longest average time</option>
-            <option value="score">Highest average score</option>
-          </Select>
-        </label>
-      </div>
+      <ListToolbar
+        className="mt-4 mb-4"
+        search={{
+          'aria-label': 'Search question analytics',
+          placeholder: 'Search questions…',
+          value: search,
+          onChange: (event) => setSearch(event.target.value),
+        }}
+        filtersActive={!!set || !!question}
+        sort={
+          <label>
+            Sort questions
+            <Select
+              value={sort}
+              onChange={(event) => setSort(event.target.value)}
+            >
+              <option value="question">Set and question</option>
+              <option value="attempts">Most attempts</option>
+              <option value="time">Longest average time</option>
+              <option value="score">Highest average score</option>
+            </Select>
+          </label>
+        }
+        filters={
+          <>
+            <label>
+              Set
+              <Select
+                value={set}
+                onChange={(event) => {
+                  setSet(event.target.value);
+                  setQuestion('');
+                }}
+              >
+                <option value="">All sets</option>
+                {sets.map((number) => (
+                  <option key={number} value={number}>
+                    Set {number}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label>
+              Question
+              <Select
+                value={question}
+                onChange={(event) => setQuestion(event.target.value)}
+              >
+                <option value="">All questions</option>
+                {available.map((group, index) => (
+                  <option key={group.question_id} value={group.question_id}>
+                    {questionLabel(group, index)}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <Button
+              compact
+              onClick={() => {
+                setSet('');
+                setQuestion('');
+              }}
+            >
+              Clear filters
+            </Button>
+          </>
+        }
+      />
       <QuestionCharts groups={visible} />
     </>
   );

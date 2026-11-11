@@ -43,7 +43,7 @@ export function CreateJobForm({
             type="number"
             min={5}
             max={180}
-            defaultValue={30}
+            defaultValue={10}
             required
           />
         </label>

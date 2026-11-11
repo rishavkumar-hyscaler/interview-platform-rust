@@ -1,3 +1,5 @@
+import { ListToolbar } from '../../components/ui/list-toolbar';
+import { Input } from '../../components/ui/input';
 import { CreateJobForm } from './CreateJobForm';
 import { JobFilters } from './JobFilters';
 import { CandidatePreparation } from './CandidatePreparation';
@@ -288,10 +290,20 @@ export function Workspace({
     invitations: 'all',
     sort: 'newest',
   });
-  const activeJobFilters = view === 'interviewer' ? jobFilters : undefined;
+  const [analyticsFilters, setAnalyticsFilters] = useState<JobListFilters>({
+    search: '',
+    invitations: 'all',
+    sort: 'newest',
+  });
+  const activeJobFilters =
+    view === 'interviewer'
+      ? jobFilters
+      : view === 'question-bank'
+        ? analyticsFilters
+        : undefined;
   const hasJobFilters =
     !!activeJobFilters &&
-    (!!jobFilters.search || jobFilters.invitations !== 'all');
+    (!!activeJobFilters.search || activeJobFilters.invitations !== 'all');
   const [jobCursors, setJobCursors] = useState<string[]>([]);
   const [sessionCursors, setSessionCursors] = useState<string[]>([]);
   const [auditCursors, setAuditCursors] = useState<string[]>([]);
@@ -920,9 +932,9 @@ export function Workspace({
                   Loading your interviews…
                 </section>
               ) : view === 'audit' ? (
-                <section className="panel pt-6" aria-label="Audit events">
+                <section className="panel" aria-label="Audit events">
                   <form
-                    className="audit-filters px-6 max-sm:px-4"
+                    className="block! px-5 py-4"
                     onSubmit={applyAuditFilters}
                     onReset={() => {
                       setAuditForm({
@@ -934,80 +946,98 @@ export function Workspace({
                       void loadAudit({});
                     }}
                   >
-                    <label>
-                      Candidate
-                      <input
-                        name="candidate"
-                        value={auditForm.candidate}
-                        onChange={(event) =>
+                    <ListToolbar
+                      search={{
+                        name: 'candidate',
+                        value: auditForm.candidate,
+                        placeholder: 'Search candidates…',
+                        'aria-label': 'Search audit events by candidate',
+                        onChange: (event) =>
                           setAuditForm({
                             ...auditForm,
                             candidate: event.target.value,
-                          })
-                        }
-                        placeholder="Name or email"
-                      />
-                    </label>
-                    <label>
-                      Job
-                      <input
-                        name="job"
-                        value={auditForm.job}
-                        onChange={(event) =>
-                          setAuditForm({
-                            ...auditForm,
-                            job: event.target.value,
-                          })
-                        }
-                        placeholder="Title or job ID"
-                      />
-                    </label>
-                    <label>
-                      From date
-                      <input
-                        type="date"
-                        name="from"
-                        value={auditForm.from}
-                        onChange={(event) =>
-                          setAuditForm({
-                            ...auditForm,
-                            from: event.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      To date
-                      <input
-                        type="date"
-                        name="until"
-                        value={auditForm.until}
-                        onChange={(event) =>
-                          setAuditForm({
-                            ...auditForm,
-                            until: event.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Sort this page
-                      <Select
-                        value={auditSort}
-                        onChange={(event) => setAuditSort(event.target.value)}
-                      >
-                        <option value="newest">Newest first</option>
-                        <option value="oldest">Oldest first</option>
-                      </Select>
-                    </label>
-                    <div className="audit-filter-actions">
-                      <Button type="submit" variant="primary" disabled={busy}>
-                        Apply filters
-                      </Button>
-                      <Button type="reset" variant="standard" disabled={busy}>
-                        Clear
-                      </Button>
-                    </div>
+                          }),
+                      }}
+                      filtersActive={
+                        !!(
+                          auditFilters.job ||
+                          auditFilters.from ||
+                          auditFilters.until
+                        )
+                      }
+                      sort={
+                        <label>
+                          Sort this page
+                          <Select
+                            value={auditSort}
+                            onChange={(event) =>
+                              setAuditSort(event.target.value)
+                            }
+                          >
+                            <option value="newest">Newest first</option>
+                            <option value="oldest">Oldest first</option>
+                          </Select>
+                        </label>
+                      }
+                      filters={
+                        <>
+                          <label>
+                            Job
+                            <Input
+                              name="job"
+                              value={auditForm.job}
+                              onChange={(event) =>
+                                setAuditForm({
+                                  ...auditForm,
+                                  job: event.target.value,
+                                })
+                              }
+                              placeholder="Title or job ID"
+                            />
+                          </label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label>
+                              From date
+                              <Input
+                                type="date"
+                                name="from"
+                                title="From date"
+                                value={auditForm.from}
+                                onChange={(event) =>
+                                  setAuditForm({
+                                    ...auditForm,
+                                    from: event.target.value,
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              To date
+                              <Input
+                                type="date"
+                                name="until"
+                                title="To date"
+                                value={auditForm.until}
+                                onChange={(event) =>
+                                  setAuditForm({
+                                    ...auditForm,
+                                    until: event.target.value,
+                                  })
+                                }
+                              />
+                            </label>
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <Button compact type="reset" disabled={busy}>
+                              Clear
+                            </Button>
+                            <Button compact type="submit" disabled={busy}>
+                              Apply
+                            </Button>
+                          </div>
+                        </>
+                      }
+                    />
                   </form>
                   <div
                     ref={auditScroll}
@@ -1148,67 +1178,93 @@ export function Workspace({
                       className="panel"
                       aria-label="Candidate interviews"
                     >
-                      <div className="table-toolbar">
-                        <input
-                          aria-label="Search interviews on this page"
-                          placeholder="Search this page…"
-                          value={search}
-                          onChange={(event) => setSearch(event.target.value)}
-                        />
-                        <div className="flex min-w-0 flex-wrap gap-2">
-                          <Select
-                            aria-label="Filter interviews by job ID on this page"
-                            value={jobFilter}
-                            onChange={(event) =>
-                              setJobFilter(event.target.value)
-                            }
-                          >
-                            <option value="">All jobs</option>
-                            {jobFilter && !interviewJobs.has(jobFilter) && (
-                              <option value={jobFilter}>{jobFilter}</option>
-                            )}
-                            {[...interviewJobs].sort().map((code) => (
-                              <option key={code} value={code}>
-                                {code}
-                              </option>
-                            ))}
-                          </Select>
-                          <Select
-                            aria-label="Filter interview status on this page"
-                            value={filter}
-                            onChange={(event) => setFilter(event.target.value)}
-                          >
-                            <option value="all">All statuses</option>
-                            {[
-                              'preparing',
-                              'preparation_failed',
-                              'invited',
-                              'ready',
-                              'in_progress',
-                              'submitted',
-                              'scoring',
-                              'completed',
-                              'expired',
-                            ].map((status) => (
-                              <option key={status} value={status}>
-                                {status.replaceAll('_', ' ')}
-                              </option>
-                            ))}
-                          </Select>
-                          <Select
-                            aria-label="Sort interviews on this page"
-                            value={interviewSort}
-                            onChange={(event) =>
-                              setInterviewSort(event.target.value)
-                            }
-                          >
-                            <option value="newest">Newest invited</option>
-                            <option value="oldest">Oldest invited</option>
-                            <option value="candidate">Candidate A–Z</option>
-                            <option value="job">Job ID</option>
-                          </Select>
-                        </div>
-                      </div>
+                      <ListToolbar
+                        className="mx-5 my-4"
+                        search={{
+                          'aria-label': 'Search interviews on this page',
+                          placeholder: 'Search this page…',
+                          value: search,
+                          onChange: (event) => setSearch(event.target.value),
+                        }}
+                        filtersActive={!!jobFilter || filter !== 'all'}
+                        sort={
+                          <label>
+                            Sort this page
+                            <Select
+                              aria-label="Sort interviews on this page"
+                              value={interviewSort}
+                              onChange={(event) =>
+                                setInterviewSort(event.target.value)
+                              }
+                            >
+                              <option value="newest">Newest invited</option>
+                              <option value="oldest">Oldest invited</option>
+                              <option value="candidate">Candidate A–Z</option>
+                              <option value="job">Job ID</option>
+                            </Select>
+                          </label>
+                        }
+                        filters={
+                          <>
+                            <label>
+                              Job
+                              <Select
+                                aria-label="Filter interviews by job ID on this page"
+                                value={jobFilter}
+                                onChange={(event) =>
+                                  setJobFilter(event.target.value)
+                                }
+                              >
+                                <option value="">All jobs</option>
+                                {jobFilter && !interviewJobs.has(jobFilter) && (
+                                  <option value={jobFilter}>{jobFilter}</option>
+                                )}
+                                {[...interviewJobs].sort().map((code) => (
+                                  <option key={code} value={code}>
+                                    {code}
+                                  </option>
+                                ))}
+                              </Select>
+                            </label>
+                            <label>
+                              Status
+                              <Select
+                                aria-label="Filter interview status on this page"
+                                value={filter}
+                                onChange={(event) =>
+                                  setFilter(event.target.value)
+                                }
+                              >
+                                <option value="all">All statuses</option>
+                                {[
+                                  'preparing',
+                                  'preparation_failed',
+                                  'invited',
+                                  'ready',
+                                  'in_progress',
+                                  'submitted',
+                                  'scoring',
+                                  'completed',
+                                  'expired',
+                                ].map((status) => (
+                                  <option key={status} value={status}>
+                                    {status.replaceAll('_', ' ')}
+                                  </option>
+                                ))}
+                              </Select>
+                            </label>
+                            <Button
+                              compact
+                              onClick={() => {
+                                setJobFilter('');
+                                setFilter('all');
+                              }}
+                            >
+                              Clear filters
+                            </Button>
+                          </>
+                        }
+                      />
                       {visible.length ? (
                         <div className="table-scroll">
                           <table>
@@ -1283,9 +1339,18 @@ export function Workspace({
                   )}
                   {view === 'question-bank' && (
                     <section className="panel" aria-label="Jobs for analytics">
+                      <JobFilters
+                        value={analyticsFilters}
+                        onApply={(filters) => {
+                          setJobCursors([]);
+                          setAnalyticsFilters(filters);
+                        }}
+                      />
                       {jobs.items.length === 0 && (
                         <p className="empty">
-                          Create a job to see question-bank analytics here.
+                          {hasJobFilters
+                            ? 'No jobs match these filters.'
+                            : 'Create a job to see question-bank analytics here.'}
                         </p>
                       )}
                       <div className="job-grid items-stretch! pt-6">
