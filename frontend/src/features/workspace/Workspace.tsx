@@ -1,3 +1,4 @@
+import { QuestionContent } from '../interview/QuestionContent';
 import { JobCard } from './JobCard';
 import { modalTypography } from '../../components/ui/modal-typography';
 import { ListToolbar } from '../../components/ui/list-toolbar';
@@ -1006,7 +1007,7 @@ export function Workspace({
                           </Button>
                         </div>
                       ) : jobs.items.length ? (
-                        <div className="job-grid flex-1 auto-rows-fr items-stretch! pt-4">
+                        <div className="job-grid flex-1 auto-rows-[minmax(13.5375rem,16.245rem)] content-start items-stretch! pt-4">
                           {jobs.items.map((job, index) => (
                             <JobCard
                               key={job.id}
@@ -1231,7 +1232,7 @@ export function Workspace({
                             : 'Create a job to see question-bank analytics here.'}
                         </p>
                       )}
-                      <div className="job-grid flex-1 auto-rows-fr items-stretch! pt-4">
+                      <div className="job-grid flex-1 auto-rows-[minmax(13.5375rem,16.245rem)] content-start items-stretch! pt-4">
                         {jobs.items.map((job, index) => (
                           <JobCard
                             key={job.id}
@@ -1264,14 +1265,14 @@ export function Workspace({
           busy={deletingJob}
           onClose={() => setExpandedJobId(null)}
         >
-          <section className="modal detail-modal">
-            <div className="panel-heading">
+          <section className="modal detail-modal flex max-h-[88dvh]! w-[min(960px,calc(100vw-24px))]! flex-col overflow-hidden! p-0!">
+            <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-6 py-5 workspace-dark:border-slate-700/70 sm:px-8">
               <div className="min-w-0">
-                <p className="eyebrow">JOB DETAILS</p>
-                <h2 id="job-details-title" className="break-words">
+                <p className="eyebrow m-0! mb-2! text-detail! tracking-[0.16em] text-indigo-600 workspace-dark:text-indigo-300">JOB DETAILS</p>
+                <h2 id="job-details-title" className="m-0! break-words leading-snug!">
                   {expandedJob.title}
                 </h2>
-                <p>
+                <p className="m-0! mt-2! text-detail! text-slate-500 workspace-dark:text-slate-400">
                   Job ID {expandedJob.job_code} · {expandedJob.session_count}{' '}
                   {expandedJob.session_count === 1
                     ? 'invitation'
@@ -1288,15 +1289,21 @@ export function Workspace({
                 ×
               </Button>
             </div>
-            <div className="my-6">
-              <h3>Job description</h3>
-              <p className="preserve max-w-prose break-words">
-                {expandedJob.description}
-              </p>
-            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-6 [scrollbar-gutter:stable] sm:px-8">
+              <div className="mb-6 flex flex-wrap gap-2 text-detail text-slate-500 workspace-dark:text-slate-400">
+                <span className="rounded-lg border border-slate-200 px-3 py-1.5 workspace-dark:border-slate-700">
+                  {expandedJob.preparation_duration_minutes} minute interview
+                </span>
+                <span className="rounded-lg border border-slate-200 px-3 py-1.5 workspace-dark:border-slate-700">
+                  Created {date(expandedJob.created_at)}
+                </span>
+              </div>
+              <div className="max-w-prose break-words [&_.question-content]:text-control! [&_.question-content]:text-slate-600! workspace-dark:[&_.question-content]:text-slate-300! [&_.question-content]:leading-relaxed! [&_h3]:mt-6! [&_h3]:mb-3! [&_h3:first-child]:mt-0! [&_p]:my-2! [&_ul]:list-disc [&_ol]:list-decimal [&_li]:my-1! [&_strong]:font-medium!">
+                <QuestionContent content={expandedJob.description} />
+              </div>
             {expandedJob.blueprint_preparation?.status !== 'completed' && (
               <div
-                className="grid gap-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 text-control"
+                className="mt-6 grid gap-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 text-control"
                 role="status"
               >
                 <p className="m-0!">
@@ -1334,7 +1341,8 @@ export function Workspace({
                 )}
               </div>
             )}
-            <div className="mt-6 flex items-start justify-between gap-3">
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-6 py-4 workspace-dark:border-slate-700/70 workspace-dark:bg-slate-950/20 sm:px-8">
               <div className="flex min-w-0 flex-wrap items-center gap-3">
                 <Button
                   disabled={

@@ -1,6 +1,9 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './queryClient';
 import { Button } from './components/ui/button';
+import { Card } from './components/ui/card';
+import { Input } from './components/ui/input';
+import { ArrowRight, Eye, EyeOff, LoaderCircle, LockKeyhole } from 'lucide-react';
 import { StrictMode, useEffect, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ApiError, request } from './api';
@@ -29,6 +32,7 @@ function App() {
     };
   }, []);
   const [register, setRegister] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -227,21 +231,33 @@ function App() {
           </span>
         </div>
       </div>
-      <section className="access-card" aria-label="Interviewer access">
-        <p className="eyebrow">INTERVIEWER</p>
-        <h2>{register ? 'Create an interviewer account' : 'Welcome back'}</h2>
-        <p className="muted">
-          Sign in to set up interviews and review candidate evidence.
+      <Card
+        className="relative w-full max-w-[440px] gap-0 overflow-hidden rounded-3xl border-indigo-100 bg-white px-6 py-8 shadow-xl shadow-indigo-950/5 sm:px-9 sm:py-10"
+        aria-label="Interviewer access"
+      >
+        <div aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-300 via-indigo-500 to-violet-300" />
+        <div className="mb-6 flex items-center gap-3">
+          <span className="grid size-11 place-items-center rounded-2xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+            <LockKeyhole className="size-5" aria-hidden="true" />
+          </span>
+          <span className="text-detail font-medium tracking-[0.16em] text-indigo-600">INTERVIEWER</span>
+        </div>
+        <h2 className="m-0! text-section-title font-normal tracking-tight text-slate-900">
+          {register ? 'Create your account' : 'Welcome back'}
+        </h2>
+        <p className="mt-2 mb-7 text-control leading-relaxed text-slate-500">
+          {register ? 'Your next great interview starts here.' : 'Sign in to your interview workspace.'}
         </p>
         {error && (
           <p role="alert" className="error">
             {error}
           </p>
         )}
-        <form onSubmit={submit}>
-          <label>
-            Email
-            <input
+        <form onSubmit={submit} className="gap-5">
+          <label className="gap-2 text-control font-normal text-slate-600">
+            Email address
+            <Input
+              className="h-12! rounded-xl! bg-slate-50! px-4!"
               name="email"
               type="email"
               required
@@ -250,39 +266,59 @@ function App() {
               placeholder="you@company.com"
             />
           </label>
-          <label>
+          <label className="gap-2 text-control font-normal text-slate-600">
             Password
-            <input
-              name="password"
-              type="password"
-              required
-              minLength={12}
-              maxLength={128}
-              autoComplete={register ? 'new-password' : 'current-password'}
-            />
+            <div className="relative">
+              <Input
+                className="h-12! rounded-xl! bg-slate-50! pr-12! pl-4!"
+                name="password"
+                type={showPassword ? 'text' : 'password'}
+                required
+                minLength={12}
+                maxLength={128}
+                autoComplete={register ? 'new-password' : 'current-password'}
+                placeholder={register ? 'At least 12 characters' : 'Enter your password'}
+              />
+              <Button
+                variant="text"
+                className="absolute inset-y-1 right-1 grid w-10 place-items-center rounded-lg! border-0! bg-transparent! p-0! text-slate-400! shadow-none! hover:text-indigo-600!"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword(!showPassword)}
+              >
+                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </Button>
+            </div>
           </label>
-          <Button type="submit" variant="standard" disabled={busy}>
-            {busy
-              ? 'Please wait…'
-              : register
-                ? 'Create account →'
-                : 'Sign in →'}
-          </Button>
           <Button
-            type="button"
+            type="submit"
+            variant="standard"
+            className="mt-1 h-12! w-full gap-2 rounded-xl! border-indigo-600! bg-indigo-600! text-white! shadow-md shadow-indigo-500/15 hover:bg-indigo-700!"
+            disabled={busy}
+          >
+            {busy ? (
+              <><LoaderCircle className="size-4 motion-safe:animate-spin" /> Please wait…</>
+            ) : (
+              <>{register ? 'Create account' : 'Sign in'} <ArrowRight className="size-4" /></>
+            )}
+          </Button>
+        </form>
+        <div className="mt-7 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 border-t border-slate-100 pt-5 text-control text-slate-500">
+          <span>{register ? 'Already registered?' : 'New here?'}</span>
+          <Button
             variant="text"
+            className="min-h-0! rounded-md! border-0! bg-transparent! px-1! py-1! font-medium! text-indigo-600! shadow-none! hover:text-indigo-800!"
             disabled={busy}
             onClick={() => {
               setRegister(!register);
+              setShowPassword(false);
               setError('');
             }}
           >
-            {register
-              ? 'Already have an account? Sign in'
-              : 'New here? Create an interviewer account'}
+            {register ? 'Sign in' : 'Create an account'}
           </Button>
-        </form>
-      </section>
+        </div>
+      </Card>
     </main>
   );
 }
