@@ -1,34 +1,106 @@
-<!doctype html><meta charset="utf-8"><title>Local proctoring model smoke test</title><pre id="result">Running…</pre><script type="module">
-const result = document.querySelector('#result');
-const base = `${location.origin}/proctoring`;
-function run(kind, input) {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(`${base}/inference-worker.js`);
-    const timeout = setTimeout(() => { worker.terminate(); reject(new Error(`${kind}: timeout`)); }, 45000);
-    worker.onerror = event => { clearTimeout(timeout); worker.terminate(); reject(new Error(`${kind}: ${event.message}`)); };
-    worker.onmessage = async ({data}) => {
-      if (data.type === 'ready') { const message = await input(); worker.postMessage(message, message.frame ? [message.frame] : [message.samples.buffer]); }
-      else { clearTimeout(timeout); worker.terminate(); data.type === 'failure' ? reject(new Error(`${kind}: inference failed`)) : resolve(data); }
-    };
-    worker.postMessage({type:'init',kind,base});
-  });
-}
-try {
-  const canvas = document.createElement('canvas'); canvas.width=640;canvas.height=360;canvas.getContext('2d').fillRect(0,0,640,360);
-  const face = await run('vision', async () => ({type:'frame',frame:await createImageBitmap(canvas)}));
-  const audio = await run('audio', async () => ({type:'audio',samples:new Float32Array(16000),sampleRate:16000}));
-  if(face.sample.faces!==0 || !Number.isFinite(audio.probability))throw new Error('Unexpected model output');
-  const positive = {};
-  if (new URLSearchParams(location.search).has('positive')) {
-    const image = new Image(); image.src = '/proctoring/test-portrait.jpg'; await image.decode();
-    positive.single = await run('vision', async () => ({type:'frame',frame:await createImageBitmap(image)}));
-    const tiled = document.createElement('canvas'); tiled.width=800;tiled.height=600;
-    const ctx=tiled.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,800,600);ctx.drawImage(image,0,0,400,600);ctx.drawImage(image,400,0,400,600);
-    positive.multiple = await run('vision', async () => ({type:'frame',frame:await createImageBitmap(tiled)}));
-    const context=new AudioContext();const clip=await context.decodeAudioData(await(await fetch('/proctoring/test-speech.wav')).arrayBuffer());
-    positive.speech=await run('audio',async()=>({type:'audio',samples:clip.getChannelData(0).slice(),sampleRate:clip.sampleRate}));await context.close();
-    if(positive.single.sample.faces!==1 || positive.multiple.sample.faces<2 || positive.speech.probability<0.65)throw new Error(`Positive model checks failed: ${JSON.stringify(positive)}`);
+<!doctype html><meta charset="utf-8" /><title>
+  Local proctoring model smoke test
+</title>
+<pre id="result">Running…</pre>
+<script type="module">
+  const result = document.querySelector('#result');
+  const base = `${location.origin}/proctoring`;
+  function run(kind, input) {
+    return new Promise((resolve, reject) => {
+      const worker = new Worker(`${base}/inference-worker.js`);
+      const timeout = setTimeout(() => {
+        worker.terminate();
+        reject(new Error(`${kind}: timeout`));
+      }, 45000);
+      worker.onerror = (event) => {
+        clearTimeout(timeout);
+        worker.terminate();
+        reject(new Error(`${kind}: ${event.message}`));
+      };
+      worker.onmessage = async ({ data }) => {
+        if (data.type === 'ready') {
+          const message = await input();
+          worker.postMessage(
+            message,
+            message.frame ? [message.frame] : [message.samples.buffer],
+          );
+        } else {
+          clearTimeout(timeout);
+          worker.terminate();
+          data.type === 'failure'
+            ? reject(new Error(`${kind}: inference failed`))
+            : resolve(data);
+        }
+      };
+      worker.postMessage({ type: 'init', kind, base });
+    });
   }
-  result.textContent=JSON.stringify({passed:true,face,audio,positive});
-} catch(error){result.textContent=JSON.stringify({passed:false,error:error.message});}
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 360;
+    canvas.getContext('2d').fillRect(0, 0, 640, 360);
+    const face = await run('vision', async () => ({
+      type: 'frame',
+      frame: await createImageBitmap(canvas),
+    }));
+    const audio = await run('audio', async () => ({
+      type: 'audio',
+      samples: new Float32Array(16000),
+      sampleRate: 16000,
+    }));
+    if (face.sample.faces !== 0 || !Number.isFinite(audio.probability))
+      throw new Error('Unexpected model output');
+    const positive = {};
+    if (new URLSearchParams(location.search).has('positive')) {
+      const image = new Image();
+      image.src = '/proctoring/test-portrait.jpg';
+      await image.decode();
+      positive.single = await run('vision', async () => ({
+        type: 'frame',
+        frame: await createImageBitmap(image),
+      }));
+      const tiled = document.createElement('canvas');
+      tiled.width = 800;
+      tiled.height = 600;
+      const ctx = tiled.getContext('2d');
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, 800, 600);
+      ctx.drawImage(image, 0, 0, 400, 600);
+      ctx.drawImage(image, 400, 0, 400, 600);
+      positive.multiple = await run('vision', async () => ({
+        type: 'frame',
+        frame: await createImageBitmap(tiled),
+      }));
+      const context = new AudioContext();
+      const clip = await context.decodeAudioData(
+        await (await fetch('/proctoring/test-speech.wav')).arrayBuffer(),
+      );
+      positive.speech = await run('audio', async () => ({
+        type: 'audio',
+        samples: clip.getChannelData(0).slice(),
+        sampleRate: clip.sampleRate,
+      }));
+      await context.close();
+      if (
+        positive.single.sample.faces !== 1 ||
+        positive.multiple.sample.faces < 2 ||
+        positive.speech.probability < 0.65
+      )
+        throw new Error(
+          `Positive model checks failed: ${JSON.stringify(positive)}`,
+        );
+    }
+    result.textContent = JSON.stringify({
+      passed: true,
+      face,
+      audio,
+      positive,
+    });
+  } catch (error) {
+    result.textContent = JSON.stringify({
+      passed: false,
+      error: error.message,
+    });
+  }
 </script>

@@ -5,7 +5,7 @@
   --color-app-background: var(--color-slate-50);
   --color-app-foreground: var(--color-slate-800);
   --color-app-muted: var(--color-slate-600);
-  --font-app: "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-app: 'Inter', 'Segoe UI', system-ui, sans-serif;
   --font-display: var(--font-app);
 
   --text-page-title: 1.75rem;

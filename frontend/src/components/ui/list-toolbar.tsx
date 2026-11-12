@@ -99,12 +99,7 @@ export function ListToolbar({
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        'flex min-w-0 flex-wrap items-center gap-3',
-        className,
-      )}
-    >
+    <div className={cn('flex min-w-0 flex-wrap items-center gap-3', className)}>
       <div className="flex h-12! min-h-12! max-h-12! min-w-0 flex-[1_1_20rem] items-center gap-2 rounded-xl border border-slate-200/70 bg-slate-100/80 px-2 py-0! workspace-dark:border-slate-700/50 workspace-dark:bg-white/[0.04]">
         <div className="relative min-w-32 flex-1">
           <Search

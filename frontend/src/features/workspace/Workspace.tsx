@@ -1268,8 +1268,13 @@ export function Workspace({
           <section className="modal detail-modal flex max-h-[88dvh]! w-[min(960px,calc(100vw-24px))]! flex-col overflow-hidden! p-0!">
             <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-6 py-5 workspace-dark:border-slate-700/70 sm:px-8">
               <div className="min-w-0">
-                <p className="eyebrow m-0! mb-2! text-detail! tracking-[0.16em] text-indigo-600 workspace-dark:text-indigo-300">JOB DETAILS</p>
-                <h2 id="job-details-title" className="m-0! break-words leading-snug!">
+                <p className="eyebrow m-0! mb-2! text-detail! tracking-[0.16em] text-indigo-600 workspace-dark:text-indigo-300">
+                  JOB DETAILS
+                </p>
+                <h2
+                  id="job-details-title"
+                  className="m-0! break-words leading-snug!"
+                >
                   {expandedJob.title}
                 </h2>
                 <p className="m-0! mt-2! text-detail! text-slate-500 workspace-dark:text-slate-400">
@@ -1301,46 +1306,47 @@ export function Workspace({
               <div className="max-w-prose break-words [&_.question-content]:text-control! [&_.question-content]:text-slate-600! workspace-dark:[&_.question-content]:text-slate-300! [&_.question-content]:leading-relaxed! [&_h3]:mt-6! [&_h3]:mb-3! [&_h3:first-child]:mt-0! [&_p]:my-2! [&_ul]:list-disc [&_ol]:list-decimal [&_li]:my-1! [&_strong]:font-medium!">
                 <QuestionContent content={expandedJob.description} />
               </div>
-            {expandedJob.blueprint_preparation?.status !== 'completed' && (
-              <div
-                className="mt-6 grid gap-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 text-control"
-                role="status"
-              >
-                <p className="m-0!">
-                  {expandedJob.blueprint_preparation?.status === 'failed'
-                    ? 'Blueprint preparation failed.'
-                    : expandedJob.blueprint_preparation?.status ===
-                        'not_started'
-                      ? 'Prepare the job blueprint to invite candidates.'
-                      : 'Preparing the job blueprint in the background. You can close this window.'}
-                </p>
-                {expandedJob.blueprint_preparation?.last_error && (
+              {expandedJob.blueprint_preparation?.status !== 'completed' && (
+                <div
+                  className="mt-6 grid gap-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3 text-control"
+                  role="status"
+                >
                   <p className="m-0!">
-                    {expandedJob.blueprint_preparation.last_error}
+                    {expandedJob.blueprint_preparation?.status === 'failed'
+                      ? 'Blueprint preparation failed.'
+                      : expandedJob.blueprint_preparation?.status ===
+                          'not_started'
+                        ? 'Prepare the job blueprint to invite candidates.'
+                        : 'Preparing the job blueprint in the background. You can close this window.'}
                   </p>
-                )}
-                {['failed', 'not_started'].includes(
-                  expandedJob.blueprint_preparation?.status ?? '',
-                ) && (
-                  <Button
-                    compact
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        await api.retryBlueprint(expandedJob.id);
-                        await queryClient.invalidateQueries({
-                          queryKey: queryRoot,
-                        });
-                      })
-                    }
-                  >
-                    {expandedJob.blueprint_preparation?.status === 'not_started'
-                      ? 'Prepare blueprint'
-                      : 'Retry blueprint'}
-                  </Button>
-                )}
-              </div>
-            )}
+                  {expandedJob.blueprint_preparation?.last_error && (
+                    <p className="m-0!">
+                      {expandedJob.blueprint_preparation.last_error}
+                    </p>
+                  )}
+                  {['failed', 'not_started'].includes(
+                    expandedJob.blueprint_preparation?.status ?? '',
+                  ) && (
+                    <Button
+                      compact
+                      disabled={busy}
+                      onClick={() =>
+                        void run(async () => {
+                          await api.retryBlueprint(expandedJob.id);
+                          await queryClient.invalidateQueries({
+                            queryKey: queryRoot,
+                          });
+                        })
+                      }
+                    >
+                      {expandedJob.blueprint_preparation?.status ===
+                      'not_started'
+                        ? 'Prepare blueprint'
+                        : 'Retry blueprint'}
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-6 py-4 workspace-dark:border-slate-700/70 workspace-dark:bg-slate-950/20 sm:px-8">
               <div className="flex min-w-0 flex-wrap items-center gap-3">

@@ -46,7 +46,9 @@ export function SessionTimeline({
         category === 'all' ||
         (category === 'scoring'
           ? event.action.startsWith('assessment.')
-          : category === 'question' ? event.action.startsWith('question') : event.action.startsWith(`${category}.`));
+          : category === 'question'
+            ? event.action.startsWith('question')
+            : event.action.startsWith(`${category}.`));
       return matches && group;
     })
     .sort(

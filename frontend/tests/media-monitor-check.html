@@ -1,15 +1,76 @@
-<!doctype html><meta charset="utf-8"><title>Synthetic camera monitoring check</title>
-<h1>Synthetic camera monitoring check</h1><p>This page uses a generated blank video only. No camera, microphone or backend API is accessed.</p><button id="start">Start blank-camera check</button><video id="preview" autoplay muted playsinline width="320"></video><pre id="result">Not started</pre>
+<!doctype html><meta charset="utf-8" /><title>
+  Synthetic camera monitoring check
+</title>
+<h1>Synthetic camera monitoring check</h1>
+<p>
+  This page uses a generated blank video only. No camera, microphone or backend
+  API is accessed.
+</p>
+<button id="start">Start blank-camera check</button
+><video id="preview" autoplay muted playsinline width="320"></video>
+<pre id="result">Not started</pre>
 <script type="module">
-import { startMediaMonitor } from '/src/features/interview/proctoring/monitor.ts';
-const canvas=document.createElement('canvas');canvas.width=640;canvas.height=360;const ctx=canvas.getContext('2d');
-let monitor;let ticks=0;const state={status:'waiting',samples:0,events:[],assets:[]};
-const render=()=>{document.querySelector('#result').textContent=JSON.stringify({...state,hidden:document.hidden,video_ready:preview.readyState,paused:preview.paused},null,2);};
-const preview=document.querySelector('#preview');
-window.addEventListener('interview-device',event=>{state.device=event.detail;render();});
-document.querySelector('#start').onclick=async()=>{
-  monitor?.stop();ctx.fillStyle='black';ctx.fillRect(0,0,640,360);preview.srcObject=canvas.captureStream(5);await preview.play();
-  setInterval(()=>{ctx.fillStyle=ticks++%2?'#050505':'black';ctx.fillRect(0,0,640,360);},200);
-  monitor=startMediaMonitor(preview,preview.srcObject,value=>{state.status=value;render();},{enqueue:async(event,assets)=>{if(!state.events.some(old=>old.id===event.id))state.events.push(event);state.assets.push(...assets.map(asset=>({event:event.kind,mime:asset.blob.type,bytes:asset.blob.size})));render();}},value=>{state.live=value;state.samples++;render();});
-};
+  import { startMediaMonitor } from '/src/features/interview/proctoring/monitor.ts';
+  const canvas = document.createElement('canvas');
+  canvas.width = 640;
+  canvas.height = 360;
+  const ctx = canvas.getContext('2d');
+  let monitor;
+  let ticks = 0;
+  const state = { status: 'waiting', samples: 0, events: [], assets: [] };
+  const render = () => {
+    document.querySelector('#result').textContent = JSON.stringify(
+      {
+        ...state,
+        hidden: document.hidden,
+        video_ready: preview.readyState,
+        paused: preview.paused,
+      },
+      null,
+      2,
+    );
+  };
+  const preview = document.querySelector('#preview');
+  window.addEventListener('interview-device', (event) => {
+    state.device = event.detail;
+    render();
+  });
+  document.querySelector('#start').onclick = async () => {
+    monitor?.stop();
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, 640, 360);
+    preview.srcObject = canvas.captureStream(5);
+    await preview.play();
+    setInterval(() => {
+      ctx.fillStyle = ticks++ % 2 ? '#050505' : 'black';
+      ctx.fillRect(0, 0, 640, 360);
+    }, 200);
+    monitor = startMediaMonitor(
+      preview,
+      preview.srcObject,
+      (value) => {
+        state.status = value;
+        render();
+      },
+      {
+        enqueue: async (event, assets) => {
+          if (!state.events.some((old) => old.id === event.id))
+            state.events.push(event);
+          state.assets.push(
+            ...assets.map((asset) => ({
+              event: event.kind,
+              mime: asset.blob.type,
+              bytes: asset.blob.size,
+            })),
+          );
+          render();
+        },
+      },
+      (value) => {
+        state.live = value;
+        state.samples++;
+        render();
+      },
+    );
+  };
 </script>

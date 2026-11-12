@@ -3,7 +3,13 @@ import { queryClient } from './queryClient';
 import { Button } from './components/ui/button';
 import { Card } from './components/ui/card';
 import { Input } from './components/ui/input';
-import { ArrowRight, Eye, EyeOff, LoaderCircle, LockKeyhole } from 'lucide-react';
+import {
+  ArrowRight,
+  Eye,
+  EyeOff,
+  LoaderCircle,
+  LockKeyhole,
+} from 'lucide-react';
 import { StrictMode, useEffect, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ApiError, request } from './api';
@@ -235,18 +241,25 @@ function App() {
         className="relative w-full max-w-[440px] gap-0 overflow-hidden rounded-3xl border-indigo-100 bg-white px-6 py-8 shadow-xl shadow-indigo-950/5 sm:px-9 sm:py-10"
         aria-label="Interviewer access"
       >
-        <div aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-300 via-indigo-500 to-violet-300" />
+        <div
+          aria-hidden="true"
+          className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-300 via-indigo-500 to-violet-300"
+        />
         <div className="mb-6 flex items-center gap-3">
           <span className="grid size-11 place-items-center rounded-2xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
             <LockKeyhole className="size-5" aria-hidden="true" />
           </span>
-          <span className="text-detail font-medium tracking-[0.16em] text-indigo-600">INTERVIEWER</span>
+          <span className="text-detail font-medium tracking-[0.16em] text-indigo-600">
+            INTERVIEWER
+          </span>
         </div>
         <h2 className="m-0! text-section-title font-normal tracking-tight text-slate-900">
           {register ? 'Create your account' : 'Welcome back'}
         </h2>
         <p className="mt-2 mb-7 text-control leading-relaxed text-slate-500">
-          {register ? 'Your next great interview starts here.' : 'Sign in to your interview workspace.'}
+          {register
+            ? 'Your next great interview starts here.'
+            : 'Sign in to your interview workspace.'}
         </p>
         {error && (
           <p role="alert" className="error">
@@ -277,7 +290,9 @@ function App() {
                 minLength={12}
                 maxLength={128}
                 autoComplete={register ? 'new-password' : 'current-password'}
-                placeholder={register ? 'At least 12 characters' : 'Enter your password'}
+                placeholder={
+                  register ? 'At least 12 characters' : 'Enter your password'
+                }
               />
               <Button
                 variant="text"
@@ -286,7 +301,11 @@ function App() {
                 aria-pressed={showPassword}
                 onClick={() => setShowPassword(!showPassword)}
               >
-                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                {showPassword ? (
+                  <EyeOff className="size-4" />
+                ) : (
+                  <Eye className="size-4" />
+                )}
               </Button>
             </div>
           </label>
@@ -297,9 +316,15 @@ function App() {
             disabled={busy}
           >
             {busy ? (
-              <><LoaderCircle className="size-4 motion-safe:animate-spin" /> Please wait…</>
+              <>
+                <LoaderCircle className="size-4 motion-safe:animate-spin" />{' '}
+                Please wait…
+              </>
             ) : (
-              <>{register ? 'Create account' : 'Sign in'} <ArrowRight className="size-4" /></>
+              <>
+                {register ? 'Create account' : 'Sign in'}{' '}
+                <ArrowRight className="size-4" />
+              </>
             )}
           </Button>
         </form>

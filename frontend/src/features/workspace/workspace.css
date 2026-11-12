@@ -1,23 +1,34 @@
 /* No global reset: the candidate room keeps its existing device/fullscreen styles. */
-@import "tailwindcss/theme.css";
-@import "tailwindcss/utilities.css";
-@import "../../theme.css";
+@import 'tailwindcss/theme.css';
+@import 'tailwindcss/utilities.css';
+@import '../../theme.css';
 @custom-variant workspace-dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 @source "./**/*.tsx";
 @source "../../components/ui/**/*.tsx";
 @theme {
-  --animate-chart-bar: chart-bar-in 460ms ease-out var(--card-delay, 0ms) backwards;
-  --animate-chart-column: chart-column-in 460ms ease-out var(--card-delay, 0ms) backwards;
+  --animate-chart-bar: chart-bar-in 460ms ease-out var(--card-delay, 0ms)
+    backwards;
+  --animate-chart-column: chart-column-in 460ms ease-out var(--card-delay, 0ms)
+    backwards;
   @keyframes chart-column-in {
-    from { transform: scaleY(0); }
-    to { transform: scaleY(1); }
+    from {
+      transform: scaleY(0);
+    }
+    to {
+      transform: scaleY(1);
+    }
   }
   @keyframes chart-bar-in {
-    from { transform: scaleX(0); }
-    to { transform: scaleX(1); }
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
   }
 
-  --animate-dashboard-card: dashboard-card-in 300ms ease-out var(--card-delay, 0ms) backwards;
+  --animate-dashboard-card: dashboard-card-in 300ms ease-out
+    var(--card-delay, 0ms) backwards;
   @keyframes dashboard-card-in {
     from {
       opacity: 0;
@@ -33,22 +44,22 @@
   --animate-accordion-up: accordion-up 180ms ease-out;
   @keyframes accordion-down {
     from {
-    height: 0;
+      height: 0;
     }
     to {
-    height: var(--radix-accordion-content-height);
+      height: var(--radix-accordion-content-height);
     }
   }
   @keyframes accordion-up {
     from {
-    height: var(--radix-accordion-content-height);
+      height: var(--radix-accordion-content-height);
     }
     to {
-    height: 0;
+      height: 0;
     }
   }
 }
-[data-theme="dark"] {
+[data-theme='dark'] {
   @apply [scrollbar-color:var(--color-slate-600)_transparent];
 }
 
@@ -64,7 +75,7 @@
 .interviewer-workspace .accordion-trigger:focus-visible {
   @apply [outline:2px_solid_#818cf8] [outline-offset:2px];
 }
-.interviewer-workspace [data-slot="accordion-item"] {
+.interviewer-workspace [data-slot='accordion-item'] {
   @apply [border-color:#e2e8f0] [border-style:solid] [border-width:0_0_1px];
 }
 .interviewer-workspace .expandable-section {
@@ -94,13 +105,23 @@
 .interviewer-workspace .question-set-list .question-set-card {
   @apply m-0 overflow-hidden rounded-xl border border-solid border-slate-200 bg-slate-50;
 }
-.interviewer-workspace .question-set-card > [data-slot="accordion-item"] {
+.interviewer-workspace .question-set-card > [data-slot='accordion-item'] {
   @apply [border:0];
 }
-.interviewer-workspace .question-set-card > [data-slot="accordion-item"] > div > .accordion-header > .accordion-trigger {
+.interviewer-workspace
+  .question-set-card
+  > [data-slot='accordion-item']
+  > div
+  > .accordion-header
+  > .accordion-trigger {
   @apply px-4 py-4;
 }
-.interviewer-workspace .question-set-card > [data-slot="accordion-item"] > div > .accordion-header > .accordion-trigger[data-state="open"] {
+.interviewer-workspace
+  .question-set-card
+  > [data-slot='accordion-item']
+  > div
+  > .accordion-header
+  > .accordion-trigger[data-state='open'] {
   @apply bg-indigo-50;
   @apply [box-shadow:inset_3px_0_0_#6366f1];
 }
@@ -120,22 +141,33 @@
   @apply border-t border-solid border-slate-200 px-4;
   @apply [max-height:420px] [max-height:min(420px,_55dvh)] [overflow-y:auto] [overscroll-behavior-y:contain] [scrollbar-gutter:stable];
 }
-.interviewer-workspace .question-set-card > [data-slot="accordion-item"] > .accordion-content > div {
+.interviewer-workspace
+  .question-set-card
+  > [data-slot='accordion-item']
+  > .accordion-content
+  > div {
   @apply p-0;
 }
-.interviewer-workspace[data-theme="dark"] .question-set-list .question-set-card {
+.interviewer-workspace[data-theme='dark']
+  .question-set-list
+  .question-set-card {
   @apply [background:#162238] [border-color:#3b4b65];
 }
-.interviewer-workspace[data-theme="dark"] .question-set-card > [data-slot="accordion-item"] > div > .accordion-header > .accordion-trigger[data-state="open"] {
+.interviewer-workspace[data-theme='dark']
+  .question-set-card
+  > [data-slot='accordion-item']
+  > div
+  > .accordion-header
+  > .accordion-trigger[data-state='open'] {
   @apply [background:#252852];
 }
-.interviewer-workspace[data-theme="dark"] .set-number {
+.interviewer-workspace[data-theme='dark'] .set-number {
   @apply [background:#303462] [color:#c7d2fe];
 }
-.interviewer-workspace[data-theme="dark"] .set-card-meta {
+.interviewer-workspace[data-theme='dark'] .set-card-meta {
   @apply [color:#bdc9da];
 }
-.interviewer-workspace[data-theme="dark"] .set-card-body {
+.interviewer-workspace[data-theme='dark'] .set-card-body {
   @apply [border-color:#3b4b65];
 }
 .interviewer-workspace .accordion-content {
@@ -150,97 +182,168 @@
 .interviewer-workspace .theme-toggle svg {
   @apply shrink-0;
 }
-.interviewer-workspace[data-theme="dark"] {
+.interviewer-workspace[data-theme='dark'] {
   @apply [color-scheme:dark] [background:#0b1120] [color:#e2e8f0];
 }
-.interviewer-workspace[data-theme="dark"] :is(.panel,.stat,.job-card,.modal,.proctor-event) {
+.interviewer-workspace[data-theme='dark']
+  :is(.panel, .stat, .job-card, .modal, .proctor-event) {
   @apply [background:#111b2e] [border-color:#2a3850] [color:#e2e8f0];
 }
-.interviewer-workspace[data-theme="dark"] :is(.sidebar-bottom,.question-preparation,.invitation-panel,.detail-grid,.pill,.proctor-media,.review-placeholder,.review-reply) {
+.interviewer-workspace[data-theme='dark']
+  :is(
+    .sidebar-bottom,
+    .question-preparation,
+    .invitation-panel,
+    .detail-grid,
+    .pill,
+    .proctor-media,
+    .review-placeholder,
+    .review-reply
+  ) {
   @apply [background:#162238] [border-color:#2a3850] [color:#cbd5e1];
 }
-.interviewer-workspace[data-theme="dark"] :is(.logo,.workspace-name,h1,h2,h3,h4,.stat strong,.panel-heading h2,.job-card h3,td strong,.timeline strong,.empty h3) {
+.interviewer-workspace[data-theme='dark']
+  :is(
+    .logo,
+    .workspace-name,
+    h1,
+    h2,
+    h3,
+    h4,
+    .stat strong,
+    .panel-heading h2,
+    .job-card h3,
+    td strong,
+    .timeline strong,
+    .empty h3
+  ) {
   @apply [color:#f1f5f9];
 }
-.interviewer-workspace[data-theme="dark"] :is(.muted,small,.stat > span,.stat small,.job-description,.job-code,.job-meta,.panel-heading p,.timeline p,.timeline code,footer,.sidebar-bottom p,.accordion-content,.question-preparation p,.invitation-panel p,.review-placeholder p,.empty) {
+.interviewer-workspace[data-theme='dark']
+  :is(
+    .muted,
+    small,
+    .stat > span,
+    .stat small,
+    .job-description,
+    .job-code,
+    .job-meta,
+    .panel-heading p,
+    .timeline p,
+    .timeline code,
+    footer,
+    .sidebar-bottom p,
+    .accordion-content,
+    .question-preparation p,
+    .invitation-panel p,
+    .review-placeholder p,
+    .empty
+  ) {
   @apply [color:#bdc9da];
 }
-.interviewer-workspace[data-theme="dark"] :is(.job-code strong,label,td,.proctor-technical,summary) {
+.interviewer-workspace[data-theme='dark']
+  :is(.job-code strong, label, td, .proctor-technical, summary) {
   @apply [color:#cbd5e1];
 }
-.interviewer-workspace[data-theme="dark"] :is(.eyebrow,.accent,.logo-light,.foundation-tag,.empty-icon) {
+.interviewer-workspace[data-theme='dark']
+  :is(.eyebrow, .accent, .logo-light, .foundation-tag, .empty-icon) {
   @apply [color:#a5b4fc];
 }
 @layer base {
-  .interviewer-workspace[data-theme="dark"] button {
+  .interviewer-workspace[data-theme='dark'] button {
     @apply border-indigo-900 bg-indigo-950 text-indigo-100 hover:border-indigo-700 hover:bg-indigo-900;
   }
 }
-.interviewer-workspace[data-theme="dark"] :is(.text-button,.accordion-trigger) {
+.interviewer-workspace[data-theme='dark']
+  :is(.text-button, .accordion-trigger) {
   @apply [color:#c7d2fe];
 }
-.interviewer-workspace[data-theme="dark"] :is(input,textarea,select) {
+.interviewer-workspace[data-theme='dark'] :is(input, textarea, select) {
   @apply [background:#0f172a] [border-color:#3b4b65] [color:#f1f5f9];
 }
-.interviewer-workspace[data-theme="dark"] :is(input,textarea)::placeholder {
+.interviewer-workspace[data-theme='dark'] :is(input, textarea)::placeholder {
   @apply [color:#94a3b8];
 }
-.interviewer-workspace[data-theme="dark"] th {
+.interviewer-workspace[data-theme='dark'] th {
   @apply [background:#162238] [color:#bdc9da] [border-color:#2a3850];
 }
-.interviewer-workspace[data-theme="dark"] :is(td,.job-meta,.table-toolbar,.detail-grid,.proctor-evidence,.session-timeline,.browser-observation,.proctor-attachment.recording-evidence,[data-slot="accordion-item"]) {
+.interviewer-workspace[data-theme='dark']
+  :is(
+    td,
+    .job-meta,
+    .table-toolbar,
+    .detail-grid,
+    .proctor-evidence,
+    .session-timeline,
+    .browser-observation,
+    .proctor-attachment.recording-evidence,
+    [data-slot='accordion-item']
+  ) {
   @apply [border-color:#2a3850];
 }
-.interviewer-workspace[data-theme="dark"] tbody tr:hover {
+.interviewer-workspace[data-theme='dark'] tbody tr:hover {
   @apply [background:#1b2942];
 }
-.interviewer-workspace[data-theme="dark"] .avatar {
+.interviewer-workspace[data-theme='dark'] .avatar {
   @apply [background:#303462] [color:#c7d2fe] [border-color:#111b2e] [box-shadow:0_0_0_1px_#3b4b65];
 }
-.interviewer-workspace[data-theme="dark"] :is(.job-icon,.foundation-tag span,.phase-note) {
+.interviewer-workspace[data-theme='dark']
+  :is(.job-icon, .foundation-tag span, .phase-note) {
   @apply [background:#252852] [border-color:#3b4073] [color:#c7d2fe];
 }
-.interviewer-workspace[data-theme="dark"] .phase-note strong {
+.interviewer-workspace[data-theme='dark'] .phase-note strong {
   @apply [color:#e0e7ff];
 }
-.interviewer-workspace[data-theme="dark"] .status {
+.interviewer-workspace[data-theme='dark'] .status {
   @apply [background:#26344d] [color:#dbe5f4];
 }
-.interviewer-workspace[data-theme="dark"] :is(.status-ready,.status-completed,.success) {
+.interviewer-workspace[data-theme='dark']
+  :is(.status-ready, .status-completed, .success) {
   @apply [background:#133a34] [color:#a7f3d0];
 }
-.interviewer-workspace[data-theme="dark"] :is(.status-in_progress,.status-scoring) {
+.interviewer-workspace[data-theme='dark']
+  :is(.status-in_progress, .status-scoring) {
   @apply [background:#303462] [color:#c7d2fe];
 }
-.interviewer-workspace[data-theme="dark"] :is(.status-submitted,.status-pending,.status-running,.configuration-note) {
+.interviewer-workspace[data-theme='dark']
+  :is(
+    .status-submitted,
+    .status-pending,
+    .status-running,
+    .configuration-note
+  ) {
   @apply [background:#3b3020] [color:#fde68a]!;
 }
-.interviewer-workspace[data-theme="dark"] :is(.status-failed,.status-expired,.error) {
+.interviewer-workspace[data-theme='dark']
+  :is(.status-failed, .status-expired, .error) {
   @apply [background:#442730] [color:#fecdd3];
 }
-.interviewer-workspace[data-theme="dark"] .question-preparation .error {
+.interviewer-workspace[data-theme='dark'] .question-preparation .error {
   @apply [color:#fecdd3];
 }
-.interviewer-workspace[data-theme="dark"] .question-preparation .success {
+.interviewer-workspace[data-theme='dark'] .question-preparation .success {
   @apply [color:#a7f3d0];
 }
-.interviewer-workspace[data-theme="dark"] :is(.blueprint blockquote,.review-reply blockquote) {
+.interviewer-workspace[data-theme='dark']
+  :is(.blueprint blockquote, .review-reply blockquote) {
   @apply [border-color:#6366f1] [color:#cbd5e1];
 }
-.interviewer-workspace[data-theme="dark"] .help-tip-content {
+.interviewer-workspace[data-theme='dark'] .help-tip-content {
   @apply [background:#e2e8f0] [color:#0f172a];
 }
-.interviewer-workspace[data-theme="dark"] .timeline li:before {
+.interviewer-workspace[data-theme='dark'] .timeline li:before {
   @apply [background:#3b4b65];
 }
-.interviewer-workspace[data-theme="dark"] dialog::backdrop {
+.interviewer-workspace[data-theme='dark'] dialog::backdrop {
   @apply [background:#020617b3];
 }
 @media (prefers-reduced-motion: reduce) {
   .accordion-content[data-state] {
     @apply [animation:none];
   }
-  .interviewer-workspace *, .interviewer-workspace *::before, .interviewer-workspace *::after {
+  .interviewer-workspace *,
+  .interviewer-workspace *::before,
+  .interviewer-workspace *::after {
     @apply [transition-duration:0s]!;
   }
 }
@@ -306,10 +409,10 @@
 .interviewer-workspace .job-card {
   @apply flex min-w-0 flex-col rounded-xl border-slate-200 p-6 transition-shadow hover:shadow-md;
 }
-.interviewer-workspace :is(.stat,.job-card,.chart-card) {
+.interviewer-workspace :is(.stat, .job-card, .chart-card) {
   @apply bg-radial-[ellipse_at_top_right] from-indigo-100/55 to-transparent;
 }
-.interviewer-workspace[data-theme="dark"] :is(.stat,.job-card,.chart-card) {
+.interviewer-workspace[data-theme='dark'] :is(.stat, .job-card, .chart-card) {
   @apply bg-radial-[ellipse_at_top_right] from-indigo-500/12 to-transparent;
 }
 .interviewer-workspace .job-icon {

@@ -3,44 +3,85 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import ts from 'typescript';
-const source = readFileSync(new URL('../src/features/interview/proctoring/signals.ts', import.meta.url), 'utf8');
-const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { SustainedSignal, SignalPolicy, faceGeometry } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const source = readFileSync(
+  new URL('../src/features/interview/proctoring/signals.ts', import.meta.url),
+  'utf8',
+);
+const compiled = ts.transpileModule(source, {
+  compilerOptions: {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ES2022,
+  },
+}).outputText;
+const { SustainedSignal, SignalPolicy, faceGeometry } = await import(
+  `data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`
+);
 const neutral = { faces: 1, eyeX: 0.5, eyeY: 0, headX: 0, mouth: 0.02 };
 test('sustained signals reject brief changes, sampling gaps and cooldown repeats', () => {
   const gate = new SustainedSignal(3000, 60000);
-  assert.equal(gate.update(true, 0), null); assert.equal(gate.update(true, 1000), null);
+  assert.equal(gate.update(true, 0), null);
+  assert.equal(gate.update(true, 1000), null);
   assert.equal(gate.update(false, 2000), null);
-  for (const time of [3000, 4000, 5000]) assert.equal(gate.update(true, time), null);
+  for (const time of [3000, 4000, 5000])
+    assert.equal(gate.update(true, time), null);
   assert.equal(gate.update(true, 6000), 3000);
   assert.equal(gate.update(true, 7000), null);
   assert.equal(new SustainedSignal(3000).update(true, 10000), null);
-  const gapped = new SustainedSignal(3000); gapped.update(true, 0); assert.equal(gapped.update(true, 5000), null);
+  const gapped = new SustainedSignal(3000);
+  gapped.update(true, 0);
+  assert.equal(gapped.update(true, 5000), null);
 });
 test('face absence and multiple faces require sustained observations', () => {
-  const policy = new SignalPolicy(); let found = [];
-  for (let time = 0; time <= 5000; time += 1000) found.push(...policy.face({ faces: 0 }, time));
-  assert.deepEqual(found.map(event => event.kind), ['face_missing']);
-  found = []; for (let time = 6000; time <= 9000; time += 1000) found.push(...policy.face({ faces: 2 }, time));
-  assert.deepEqual(found.map(event => event.kind), ['multiple_faces']);
+  const policy = new SignalPolicy();
+  let found = [];
+  for (let time = 0; time <= 5000; time += 1000)
+    found.push(...policy.face({ faces: 0 }, time));
+  assert.deepEqual(
+    found.map((event) => event.kind),
+    ['face_missing'],
+  );
+  found = [];
+  for (let time = 6000; time <= 9000; time += 1000)
+    found.push(...policy.face({ faces: 2 }, time));
+  assert.deepEqual(
+    found.map((event) => event.kind),
+    ['multiple_faces'],
+  );
 });
 test('gaze needs calibration, sustained offset and resets on invalid eyes', () => {
   const policy = new SignalPolicy();
-  for (let i = 0; i < 8; i++) assert.deepEqual(policy.face(neutral, i * 1000), []);
+  for (let i = 0; i < 8; i++)
+    assert.deepEqual(policy.face(neutral, i * 1000), []);
   assert.equal(policy.calibrated, true);
-  let found = []; for (let i = 8; i <= 16; i++) found.push(...policy.face({ ...neutral, eyeX: 0.8 }, i * 1000));
-  assert.deepEqual(found.map(event => event.kind), ['gaze_away']);
-  policy.recalibrate(); assert.equal(policy.calibrated, false);
-  assert.deepEqual(faceGeometry([]), { faces: 0 }); assert.deepEqual(faceGeometry([[]]), { faces: 1 });
+  let found = [];
+  for (let i = 8; i <= 16; i++)
+    found.push(...policy.face({ ...neutral, eyeX: 0.8 }, i * 1000));
+  assert.deepEqual(
+    found.map((event) => event.kind),
+    ['gaze_away'],
+  );
+  policy.recalibrate();
+  assert.equal(policy.calibrated, false);
+  assert.deepEqual(faceGeometry([]), { faces: 0 });
+  assert.deepEqual(faceGeometry([[]]), { faces: 1 });
 });
 test('audio distinguishes speech from possible off-camera speech without identifying speakers', () => {
-  const policy = new SignalPolicy(); let found;
-  for (let i = 0; i <= 6; i++) { policy.face(neutral, i * 1000); found = policy.audio(0.8, i * 1000) ?? found; }
+  const policy = new SignalPolicy();
+  let found;
+  for (let i = 0; i <= 6; i++) {
+    policy.face(neutral, i * 1000);
+    found = policy.audio(0.8, i * 1000) ?? found;
+  }
   assert.equal(found.kind, 'possible_background_speech');
-  const speaking = new SignalPolicy(); let falseFlag = null;
-  for (let i = 0; i <= 8; i++) { speaking.face({ ...neutral, mouth: i % 2 ? 0.3 : 0.02 }, i * 1000); falseFlag ??= speaking.audio(0.9, i * 1000); }
+  const speaking = new SignalPolicy();
+  let falseFlag = null;
+  for (let i = 0; i <= 8; i++) {
+    speaking.face({ ...neutral, mouth: i % 2 ? 0.3 : 0.02 }, i * 1000);
+    falseFlag ??= speaking.audio(0.9, i * 1000);
+  }
   assert.equal(falseFlag, null);
-  const noCamera = new SignalPolicy(); let speech;
+  const noCamera = new SignalPolicy();
+  let speech;
   for (let i = 0; i <= 4; i++) speech = noCamera.audio(0.9, i * 1000) ?? speech;
   assert.equal(speech.kind, 'speech_detected');
 });
@@ -48,7 +89,8 @@ test('fast camera sampling does not finish calibration in 1.4 seconds; blinks ar
   const policy = new SignalPolicy();
   for (let time = 0; time <= 1400; time += 200) policy.face(neutral, time);
   assert.equal(policy.calibrated, false);
-  for (let time = 1600; time <= 7200; time += 200) policy.face(time === 4000 ? { faces: 1 } : neutral, time);
+  for (let time = 1600; time <= 7200; time += 200)
+    policy.face(time === 4000 ? { faces: 1 } : neutral, time);
   assert.equal(policy.calibrated, true);
   policy.recalibrate();
   for (let time = 10000; time <= 11000; time += 200) policy.face(neutral, time);
@@ -59,43 +101,65 @@ test('vertical head movement has its own evidence and brief look-away does not f
   const policy = new SignalPolicy();
   for (let i = 0; i < 8; i++) policy.face({ ...neutral, headY: 0.5 }, i * 1000);
   let events = [];
-  for (let i = 8; i <= 16; i++) events.push(...policy.face({ ...neutral, headY: 0.7 }, i * 1000));
+  for (let i = 8; i <= 16; i++)
+    events.push(...policy.face({ ...neutral, headY: 0.7 }, i * 1000));
   assert.equal(events.length, 1);
   assert.equal(events[0].kind, 'gaze_away');
   assert.ok(events[0].measurements.head_vertical_offset > 0.12);
   const brief = new SignalPolicy();
   for (let i = 0; i < 8; i++) brief.face(neutral, i * 1000);
-  for (let i = 8; i < 12; i++) assert.deepEqual(brief.face({ ...neutral, eyeX: 0.8 }, i * 1000), []);
+  for (let i = 8; i < 12; i++)
+    assert.deepEqual(brief.face({ ...neutral, eyeX: 0.8 }, i * 1000), []);
   assert.deepEqual(brief.face(neutral, 12000), []);
 });
 test('multiple faces plus speech is flagged for review; stale mouths do not imply background speech', () => {
-  const policy = new SignalPolicy(); let event;
-  for (let i = 0; i <= 4; i++) { policy.face({ faces: 2 }, i * 1000); event = policy.audio(0.9, i * 1000) ?? event; }
+  const policy = new SignalPolicy();
+  let event;
+  for (let i = 0; i <= 4; i++) {
+    policy.face({ faces: 2 }, i * 1000);
+    event = policy.audio(0.9, i * 1000) ?? event;
+  }
   assert.equal(event.kind, 'possible_background_speech');
   assert.equal(event.measurements.face_count, 2);
   const stale = new SignalPolicy();
   for (let i = 0; i <= 2; i++) stale.face(neutral, i * 1000);
-  for (let i = 3; i <= 7; i++) { stale.face({ faces: 1 }, i * 1000); assert.equal(stale.audio(0.9, i * 1000), null); }
+  for (let i = 3; i <= 7; i++) {
+    stale.face({ faces: 1 }, i * 1000);
+    assert.equal(stale.audio(0.9, i * 1000), null);
+  }
 });
 test('head turns remain detectable when irises are occluded', () => {
   const policy = new SignalPolicy();
   for (let i = 0; i < 8; i++) policy.face(neutral, i * 1000);
   let events = [];
-  for (let i = 8; i <= 16; i++) events.push(...policy.face({ faces: 1, headX: 0.3 }, i * 1000));
+  for (let i = 8; i <= 16; i++)
+    events.push(...policy.face({ faces: 1, headX: 0.3 }, i * 1000));
   assert.equal(events[0]?.kind, 'gaze_away');
 });
 test('long-running observations stay within the server duration limit', () => {
   const gate = new SustainedSignal(3000);
   let duration;
-  for (let time = 0; time <= 200000; time += 1000) duration = gate.update(true, time) ?? duration;
+  for (let time = 0; time <= 200000; time += 1000)
+    duration = gate.update(true, time) ?? duration;
   assert.equal(duration, 120000);
 });
-const audioSource = readFileSync(new URL('../src/features/interview/proctoring/audio.ts', import.meta.url), 'utf8');
-const audioCompiled = ts.transpileModule(audioSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { SpeechWindow } = await import(`data:text/javascript;base64,${Buffer.from(audioCompiled).toString('base64')}`);
+const audioSource = readFileSync(
+  new URL('../src/features/interview/proctoring/audio.ts', import.meta.url),
+  'utf8',
+);
+const audioCompiled = ts.transpileModule(audioSource, {
+  compilerOptions: {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ES2022,
+  },
+}).outputText;
+const { SpeechWindow } = await import(
+  `data:text/javascript;base64,${Buffer.from(audioCompiled).toString('base64')}`
+);
 test('speech evidence includes triggering audio in a bounded playable PCM WAV', async () => {
   const window = new SpeechWindow(16000);
-  for (let i = 0; i < 5; i++) window.push(new Float32Array(16000).fill(i === 4 ? 0.5 : -0.5), i * 1000);
+  for (let i = 0; i < 5; i++)
+    window.push(new Float32Array(16000).fill(i === 4 ? 0.5 : -0.5), i * 1000);
   const clip = window.capture(4000);
   assert.equal(clip.blob.type, 'audio/wav');
   const bytes = new DataView(await clip.blob.arrayBuffer());
@@ -104,120 +168,259 @@ test('speech evidence includes triggering audio in a bounded playable PCM WAV', 
   assert.equal(bytes.getInt16(44, true), -16384);
   assert.equal(bytes.getInt16(bytes.byteLength - 2, true), 16383);
   assert.equal(window.capture(8000), null);
-  window.clear(); assert.equal(window.capture(4000), null);
+  window.clear();
+  assert.equal(window.capture(4000), null);
 });
 test('overlapping face/voice flags retain their own images and shared clips', async () => {
-  const keys = ['window', 'Worker', 'location', 'performance', 'CustomEvent', 'MediaStream', 'document', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'];
-  const original = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
-  const intervals = []; const timeouts = []; let recovered = 0; let health = '';
-  globalThis.document = {hidden:false};
-  globalThis.setInterval = (callback,ms) => {const entry={callback,ms};intervals.push(entry);return entry;};
-  globalThis.setTimeout = (callback,ms) => {const entry={callback,ms};timeouts.push(entry);return entry;};
+  const keys = [
+    'window',
+    'Worker',
+    'location',
+    'performance',
+    'CustomEvent',
+    'MediaStream',
+    'document',
+    'setInterval',
+    'clearInterval',
+    'setTimeout',
+    'clearTimeout',
+  ];
+  const original = Object.fromEntries(
+    keys.map((key) => [key, globalThis[key]]),
+  );
+  const intervals = [];
+  const timeouts = [];
+  let recovered = 0;
+  let health = '';
+  globalThis.document = { hidden: false };
+  globalThis.setInterval = (callback, ms) => {
+    const entry = { callback, ms };
+    intervals.push(entry);
+    return entry;
+  };
+  globalThis.setTimeout = (callback, ms) => {
+    const entry = { callback, ms };
+    timeouts.push(entry);
+    return entry;
+  };
   globalThis.clearInterval = globalThis.clearTimeout = () => {};
-  let now = 0; const sent = []; const screen = []; const workers = []; let finishClip;
+  let now = 0;
+  const sent = [];
+  const screen = [];
+  const workers = [];
+  let finishClip;
   globalThis.window = new EventTarget();
-  globalThis.CustomEvent = class extends Event { constructor(type, options) { super(type); this.detail = options.detail; } };
+  globalThis.CustomEvent = class extends Event {
+    constructor(type, options) {
+      super(type);
+      this.detail = options.detail;
+    }
+  };
   globalThis.location = { origin: 'http://localhost' };
   globalThis.performance = { now: () => now };
-  globalThis.Worker = class { constructor() { workers.push(this); } postMessage() {} terminate() {} };
-  globalThis.MediaStream = class { constructor(tracks) { this.tracks = tracks; } };
+  globalThis.Worker = class {
+    constructor() {
+      workers.push(this);
+    }
+    postMessage() {}
+    terminate() {}
+  };
+  globalThis.MediaStream = class {
+    constructor(tracks) {
+      this.tracks = tracks;
+    }
+  };
   globalThis.__proctorCaptureTest = {
     snapshot: async () => new Blob(['image'], { type: 'image/jpeg' }),
-    shortClip: () => new Promise(resolve => { finishClip = resolve; }),
+    shortClip: () =>
+      new Promise((resolve) => {
+        finishClip = resolve;
+      }),
   };
-  const moduleUrl = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`;
-  const evidence = moduleUrl('export const snapshot = globalThis.__proctorCaptureTest.snapshot; export const shortClip = globalThis.__proctorCaptureTest.shortClip;');
-  const monitorSource = readFileSync(new URL('../src/features/interview/proctoring/monitor.ts', import.meta.url), 'utf8');
-  const monitor = ts.transpileModule(monitorSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText
-    .replaceAll("'./signals'", JSON.stringify(moduleUrl(compiled)))
+  const moduleUrl = (text) =>
+    `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`;
+  const evidence = moduleUrl(
+    'export const snapshot = globalThis.__proctorCaptureTest.snapshot; export const shortClip = globalThis.__proctorCaptureTest.shortClip;',
+  );
+  const monitorSource = readFileSync(
+    new URL('../src/features/interview/proctoring/monitor.ts', import.meta.url),
+    'utf8',
+  );
+  const monitor = ts
+    .transpileModule(monitorSource, {
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ES2022,
+      },
+    })
+    .outputText.replaceAll("'./signals'", JSON.stringify(moduleUrl(compiled)))
     .replaceAll("'./audio'", JSON.stringify(moduleUrl(audioCompiled)))
     .replaceAll("'./evidence'", JSON.stringify(evidence))
     .replaceAll('import.meta.env.BASE_URL', '"/"');
   let running;
   try {
-    window.addEventListener('interview-media-observation', event => screen.push(event.detail));
+    window.addEventListener('interview-media-observation', (event) =>
+      screen.push(event.detail),
+    );
     const { startMediaMonitor } = await import(moduleUrl(monitor));
     const track = { readyState: 'live' };
-    const stream = { getVideoTracks: () => [track], getAudioTracks: () => [track], getTracks: () => [track] };
-    running = startMediaMonitor({ paused: true }, stream, value => {health=value;}, { enqueue: async (observation, assets) => { sent.push({ observation, assets }); } },()=>{},()=>{recovered++;});
+    const stream = {
+      getVideoTracks: () => [track],
+      getAudioTracks: () => [track],
+      getTracks: () => [track],
+    };
+    running = startMediaMonitor(
+      { paused: true },
+      stream,
+      (value) => {
+        health = value;
+      },
+      {
+        enqueue: async (observation, assets) => {
+          sent.push({ observation, assets });
+        },
+      },
+      () => {},
+      () => {
+        recovered++;
+      },
+    );
     for (now = 0; now <= 5000; now += 1000) {
-      workers[0].onmessage({ data: { type: 'face', at: now, sample: { faces: 0 } } });
-      workers[1].onmessage({ data: { type: 'speech', at: now, probability: 0.9 } });
-      await new Promise(resolve => setImmediate(resolve));
+      workers[0].onmessage({
+        data: { type: 'face', at: now, sample: { faces: 0 } },
+      });
+      workers[1].onmessage({
+        data: { type: 'speech', at: now, probability: 0.9 },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
     }
     finishClip(new Blob(['clip'], { type: 'video/webm' }));
-    await new Promise(resolve => setImmediate(resolve));
-    assert.deepEqual(screen.map(event => event.kind).sort(), ['face_missing', 'possible_background_speech']);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(screen.map((event) => event.kind).sort(), [
+      'face_missing',
+      'possible_background_speech',
+    ]);
     for (const event of screen) {
-      const assets = sent.filter(item => item.observation.id === event.id).flatMap(item => item.assets);
-      assert.deepEqual(assets.map(asset => asset.blob.type).sort(), ['image/jpeg', 'video/webm']);
+      const assets = sent
+        .filter((item) => item.observation.id === event.id)
+        .flatMap((item) => item.assets);
+      assert.deepEqual(assets.map((asset) => asset.blob.type).sort(), [
+        'image/jpeg',
+        'video/webm',
+      ]);
     }
-    workers[0].onmessage({data:{type:'ready'}});
-    now += 6000; intervals.find(timer=>timer.ms===1000).callback();
-    assert.match(health,/Camera analysis unavailable/);
-    timeouts.find(timer=>timer.ms===3000).callback();
-    assert.equal(recovered,1);
+    workers[0].onmessage({ data: { type: 'ready' } });
+    now += 6000;
+    intervals.find((timer) => timer.ms === 1000).callback();
+    assert.match(health, /Camera analysis unavailable/);
+    timeouts.find((timer) => timer.ms === 3000).callback();
+    assert.equal(recovered, 1);
     running.stop();
-    timeouts.find(timer=>timer.ms===3000).callback();
-    assert.equal(recovered,1,'stopped monitoring must not restart');
+    timeouts.find((timer) => timer.ms === 3000).callback();
+    assert.equal(recovered, 1, 'stopped monitoring must not restart');
   } finally {
-    running?.stop(); Object.assign(globalThis, original); delete globalThis.__proctorCaptureTest;
+    running?.stop();
+    Object.assign(globalThis, original);
+    delete globalThis.__proctorCaptureTest;
   }
 });
 test('fractional browser clocks produce integer durations accepted by the API', () => {
-  const policy = new SignalPolicy(); let events = [];
-  for (let i = 0; i <= 26; i++) events.push(...policy.face({ faces: 0 }, 100.33 + i * 200.07));
+  const policy = new SignalPolicy();
+  let events = [];
+  for (let i = 0; i <= 26; i++)
+    events.push(...policy.face({ faces: 0 }, 100.33 + i * 200.07));
   assert.equal(events.length, 1);
   assert.equal(events[0].kind, 'face_missing');
   assert.equal(events[0].measurements.duration_ms, 2000);
   assert.equal(Number.isInteger(events[0].measurements.duration_ms), true);
 });
-const clipboardSource = readFileSync(new URL('../src/features/interview/proctoring/clipboard.ts', import.meta.url), 'utf8');
-const clipboardCompiled = ts.transpileModule(clipboardSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { QuestionClipboard } = await import(`data:text/javascript;base64,${Buffer.from(clipboardCompiled).toString('base64')}`);
+const clipboardSource = readFileSync(
+  new URL('../src/features/interview/proctoring/clipboard.ts', import.meta.url),
+  'utf8',
+);
+const clipboardCompiled = ts.transpileModule(clipboardSource, {
+  compilerOptions: {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ES2022,
+  },
+}).outputText;
+const { QuestionClipboard } = await import(
+  `data:text/javascript;base64,${Buffer.from(clipboardCompiled).toString('base64')}`
+);
 test('only an observed selection from the same current question makes a paste neutral', () => {
-  const clipboard = new QuestionClipboard(); const text = 'Explain Rust ownership.\nGive one example.';
-  assert.equal(clipboard.matches('q1','Rust ownership.',text),false);
-  assert.equal(clipboard.copy('q1','Rust ownership.',text),true);
-  assert.equal(clipboard.matches('q1','Rust ownership.',text),true);
-  assert.equal(clipboard.matches('q2','Rust ownership.',text),false);
-  assert.equal(clipboard.matches('q1','Rust ownership. External solution',text),false);
-  assert.equal(clipboard.copy('q1','Explain Rust ownership.\nGive',text),true);
-  assert.equal(clipboard.matches('q1','Explain Rust ownership. Give',text),true);
-  assert.equal(clipboard.copy('q1','External solution',text),false);
-  assert.equal(clipboard.matches('q1','Rust ownership.',text),false);
-  assert.equal(clipboard.copy('q1',' ',text),false);
-  clipboard.copy('q1','Rust ownership.',text);clipboard.clear();
-  assert.equal(clipboard.matches('q1','Rust ownership.',text),false);
+  const clipboard = new QuestionClipboard();
+  const text = 'Explain Rust ownership.\nGive one example.';
+  assert.equal(clipboard.matches('q1', 'Rust ownership.', text), false);
+  assert.equal(clipboard.copy('q1', 'Rust ownership.', text), true);
+  assert.equal(clipboard.matches('q1', 'Rust ownership.', text), true);
+  assert.equal(clipboard.matches('q2', 'Rust ownership.', text), false);
+  assert.equal(
+    clipboard.matches('q1', 'Rust ownership. External solution', text),
+    false,
+  );
+  assert.equal(
+    clipboard.copy('q1', 'Explain Rust ownership.\nGive', text),
+    true,
+  );
+  assert.equal(
+    clipboard.matches('q1', 'Explain Rust ownership. Give', text),
+    true,
+  );
+  assert.equal(clipboard.copy('q1', 'External solution', text), false);
+  assert.equal(clipboard.matches('q1', 'Rust ownership.', text), false);
+  assert.equal(clipboard.copy('q1', ' ', text), false);
+  clipboard.copy('q1', 'Rust ownership.', text);
+  clipboard.clear();
+  assert.equal(clipboard.matches('q1', 'Rust ownership.', text), false);
 });
 test('live diagnostics show sustained face and voice timers and reset after recovery', () => {
   const policy = new SignalPolicy();
-  policy.face({faces:0},0); policy.face({faces:0},1200);
-  assert.match(policy.summary,/No face: 1.2\/2s/);
-  policy.face({faces:2},1400); policy.face({faces:2},2400);
-  assert.match(policy.summary,/2 faces: 1.0\/2s/);
-  policy.audio(0.9,2400); policy.audio(0.9,3400);
-  assert.match(policy.summary,/possible background speech 1.0\/2s/);
-  policy.face(neutral,3500);policy.audio(0.1,3500);
-  assert.match(policy.summary,/One face/);
-  assert.match(policy.summary,/Speech 10%/);
-  assert.doesNotMatch(policy.summary,/possible background speech/);
+  policy.face({ faces: 0 }, 0);
+  policy.face({ faces: 0 }, 1200);
+  assert.match(policy.summary, /No face: 1.2\/2s/);
+  policy.face({ faces: 2 }, 1400);
+  policy.face({ faces: 2 }, 2400);
+  assert.match(policy.summary, /2 faces: 1.0\/2s/);
+  policy.audio(0.9, 2400);
+  policy.audio(0.9, 3400);
+  assert.match(policy.summary, /possible background speech 1.0\/2s/);
+  policy.face(neutral, 3500);
+  policy.audio(0.1, 3500);
+  assert.match(policy.summary, /One face/);
+  assert.match(policy.summary, /Speech 10%/);
+  assert.doesNotMatch(policy.summary, /possible background speech/);
 });
 test('configured thresholds flag at 2s for faces/voice and 4s for calibrated gaze', () => {
-  for (const [sample,kind] of [[{faces:0},'face_missing'],[{faces:2},'multiple_faces']]) {
-    const policy=new SignalPolicy();
-    for(let now=0;now<2000;now+=200) assert.equal(policy.face(sample,now).length,0);
-    assert.equal(policy.face(sample,2000)[0]?.kind,kind);
+  for (const [sample, kind] of [
+    [{ faces: 0 }, 'face_missing'],
+    [{ faces: 2 }, 'multiple_faces'],
+  ]) {
+    const policy = new SignalPolicy();
+    for (let now = 0; now < 2000; now += 200)
+      assert.equal(policy.face(sample, now).length, 0);
+    assert.equal(policy.face(sample, 2000)[0]?.kind, kind);
   }
-  const voice=new SignalPolicy();
-  for(let now=0;now<2000;now+=200){voice.face({faces:0},now);assert.equal(voice.audio(0.9,now),null);}
-  voice.face({faces:0},2000);assert.equal(voice.audio(0.9,2000)?.kind,'possible_background_speech');
-  const gaze=new SignalPolicy();
-  for(let now=0;now<=8000;now+=200)gaze.face(neutral,now);
-  for(let now=8200;now<12200;now+=200)assert.equal(gaze.face({...neutral,eyeX:0.8},now).length,0);
-  assert.equal(gaze.face({...neutral,eyeX:0.8},12200)[0]?.kind,'gaze_away');
+  const voice = new SignalPolicy();
+  for (let now = 0; now < 2000; now += 200) {
+    voice.face({ faces: 0 }, now);
+    assert.equal(voice.audio(0.9, now), null);
+  }
+  voice.face({ faces: 0 }, 2000);
+  assert.equal(voice.audio(0.9, 2000)?.kind, 'possible_background_speech');
+  const gaze = new SignalPolicy();
+  for (let now = 0; now <= 8000; now += 200) gaze.face(neutral, now);
+  for (let now = 8200; now < 12200; now += 200)
+    assert.equal(gaze.face({ ...neutral, eyeX: 0.8 }, now).length, 0);
+  assert.equal(
+    gaze.face({ ...neutral, eyeX: 0.8 }, 12200)[0]?.kind,
+    'gaze_away',
+  );
   gaze.recalibrate();
-  for(let now=13000;now<=21000;now+=200)gaze.face(neutral,now);
-  for(let now=21200;now<25200;now+=200)assert.equal(gaze.face({...neutral,eyeX:0.8},now).length,0);
-  assert.equal(gaze.face({...neutral,eyeX:0.8},25200)[0]?.kind,'gaze_away');
+  for (let now = 13000; now <= 21000; now += 200) gaze.face(neutral, now);
+  for (let now = 21200; now < 25200; now += 200)
+    assert.equal(gaze.face({ ...neutral, eyeX: 0.8 }, now).length, 0);
+  assert.equal(
+    gaze.face({ ...neutral, eyeX: 0.8 }, 25200)[0]?.kind,
+    'gaze_away',
+  );
 });
