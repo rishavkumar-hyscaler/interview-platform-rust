@@ -187,7 +187,7 @@
 }
 .interviewer-workspace[data-theme='dark']
   :is(.panel, .stat, .job-card, .modal, .proctor-event) {
-  @apply [background:#111b2e] [border-color:#2a3850] [color:#e2e8f0];
+  @apply [background:#0c1423] [border-color:#202c3e] [color:#e2e8f0];
 }
 .interviewer-workspace[data-theme='dark']
   :is(
@@ -351,7 +351,7 @@
   @apply min-h-screen bg-slate-50 text-slate-700;
 }
 .interviewer-workspace .dashboard {
-  @apply mx-auto bg-radial-[ellipse_42rem_18rem_at_top_right] from-indigo-100/65 to-transparent px-8 pb-8 pt-4 workspace-dark:from-indigo-500/12;
+  @apply mx-auto bg-radial-[ellipse_42rem_18rem_at_top_right] from-indigo-100/65 to-transparent px-8 pb-8 pt-4 workspace-dark:from-indigo-500/4;
   @apply [max-width:1600px];
 }
 .interviewer-workspace .page-heading {
@@ -377,7 +377,7 @@
   @apply mb-8 grid grid-cols-2 gap-4 xl:grid-cols-4;
 }
 .interviewer-workspace .stat {
-  @apply relative rounded-xl border-slate-200 bg-white p-5 shadow-sm;
+  @apply relative rounded-2xl border-slate-200 bg-white p-5 shadow-none;
 }
 .interviewer-workspace .stat > span {
   @apply text-control font-normal text-slate-500;
@@ -389,7 +389,7 @@
   @apply text-detail text-slate-500;
 }
 .interviewer-workspace .panel {
-  @apply mb-8 rounded-xl border-slate-200 bg-white shadow-sm;
+  @apply mb-6 rounded-2xl border-slate-200 bg-white shadow-none;
 }
 .interviewer-workspace .panel-heading {
   @apply gap-4 p-6;
@@ -407,19 +407,19 @@
   @apply grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-4 px-6 pb-6;
 }
 .interviewer-workspace .job-card {
-  @apply flex min-w-0 flex-col rounded-xl border-slate-200 p-6 transition-shadow hover:shadow-md;
+  @apply flex min-w-0 flex-col rounded-2xl border-slate-200 p-6 transition-shadow hover:shadow-sm;
 }
 .interviewer-workspace :is(.stat, .job-card, .chart-card) {
-  @apply bg-radial-[ellipse_at_top_right] from-indigo-100/55 to-transparent;
+  @apply bg-radial-[ellipse_at_top_right] from-indigo-100/20 to-transparent;
 }
 .interviewer-workspace[data-theme='dark'] :is(.stat, .job-card, .chart-card) {
-  @apply bg-radial-[ellipse_at_top_right] from-indigo-500/12 to-transparent;
+  @apply bg-radial-[ellipse_at_top_right] from-indigo-500/4 to-transparent;
 }
 .interviewer-workspace .job-icon {
   @apply size-[38px] rounded-xl bg-indigo-50 text-primary;
 }
 .interviewer-workspace .job-card h3 {
-  @apply mb-1 mt-4 text-body leading-snug font-normal text-slate-900;
+  @apply mb-1 mt-4 text-body leading-relaxed font-medium text-slate-800;
 }
 .interviewer-workspace .job-code {
   @apply my-2 text-detail text-slate-500;
@@ -643,5 +643,35 @@ dialog.interviewer-workspace {
 @media (max-width: 640px) {
   .interviewer-workspace .status-shortcuts {
     @apply mx-4;
+  }
+}
+
+/* Sidebar section labels group the navigation, like "Hiring" and "Insights". */
+.interviewer-workspace .nav-group-label {
+  @apply mx-3 mt-4 mb-1 text-detail font-medium text-slate-500 first:mt-1 max-sm:hidden workspace-dark:text-slate-400;
+}
+
+/* Account button shows the interviewer's initials instead of a generic icon. */
+.interviewer-workspace .account-avatar {
+  @apply text-detail font-semibold tracking-wide text-slate-900 workspace-dark:text-slate-100;
+}
+
+/* Small icon in the top-right of each metric card. */
+.interviewer-workspace .stat-icon {
+  @apply text-slate-400 workspace-dark:text-slate-500;
+}
+
+/* Breadcrumb root in the header goes back to the jobs home page. */
+.interviewer-workspace .breadcrumb-root {
+  @apply shrink-0 cursor-pointer rounded border-0 bg-transparent p-0 text-slate-500 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 workspace-dark:text-slate-400 workspace-dark:hover:text-slate-100;
+}
+
+/* Header and page sit in one rounded, bordered card beside the sidebar. */
+@media (min-width: 640px) {
+  .interviewer-workspace .content-card {
+    @apply my-2 mr-2 h-[calc(100dvh-1rem)] overflow-y-auto rounded-xl border border-solid border-slate-200 bg-slate-50 shadow-sm workspace-dark:border-slate-800 workspace-dark:bg-[#0b1220];
+  }
+  .interviewer-workspace .content-card > header {
+    @apply rounded-t-xl;
   }
 }

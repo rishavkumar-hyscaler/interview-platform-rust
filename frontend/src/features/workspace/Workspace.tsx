@@ -28,21 +28,23 @@ import { AuditTable } from './AuditTable';
 import { SessionTimeline } from './SessionTimeline';
 import { ExpandableSection } from './ExpandableSection';
 import {
+  Activity,
   ArrowLeft,
   BriefcaseBusiness,
+  ChevronRight,
+  ClipboardCheck,
   ChartNoAxesColumn,
   ClipboardList,
   Clock,
   Gauge,
   History,
-  Home,
   ListChecks,
   ShieldCheck,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  Send,
   Sun,
-  UserRound,
 } from 'lucide-react';
 import { useWorkspaceTheme } from './useWorkspaceTheme';
 import './workspace.css';
@@ -51,6 +53,7 @@ import { Analytics } from './Analytics';
 import { ReviewAssistant } from './ReviewAssistant';
 import { Assessment } from './Assessment';
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -151,11 +154,19 @@ function Dialog({
     </dialog>
   );
 }
+const initials = (email: string) => {
+  const parts = (email.split('@')[0] ?? '').split(/[._+-]/).filter(Boolean);
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('');
+};
 const navigationShading = [
-  'rounded-r-md rounded-l-none border-0 border-l-2 border-solid border-transparent bg-transparent py-2 text-slate-600',
-  'hover:bg-indigo-500/5 hover:text-slate-900 aria-[current]:border-l-indigo-600 aria-[current]:bg-linear-to-r',
-  'aria-[current]:from-indigo-500/15 aria-[current]:to-transparent aria-[current]:text-slate-950 workspace-dark:border-transparent workspace-dark:bg-transparent',
-  'workspace-dark:text-slate-400 workspace-dark:hover:bg-indigo-400/10 workspace-dark:hover:text-slate-100 workspace-dark:aria-[current]:border-l-indigo-400 workspace-dark:aria-[current]:text-slate-100',
+  'rounded-lg border-0 bg-transparent py-2 text-slate-500 transition-colors',
+  'hover:bg-slate-200/60 hover:text-slate-900 aria-[current]:bg-slate-200/80 aria-[current]:text-slate-950',
+  'workspace-dark:bg-transparent workspace-dark:text-slate-400',
+  'workspace-dark:hover:bg-slate-800/50 workspace-dark:hover:text-slate-100',
+  'workspace-dark:aria-[current]:bg-slate-800/70 workspace-dark:aria-[current]:text-slate-100',
 ].join(' ');
 
 export function Workspace({
@@ -542,138 +553,159 @@ export function Workspace({
     auditSort === 'oldest' ? [...audit.items].reverse() : audit.items;
   return (
     <div
-      className="interviewer-workspace flex min-h-screen [--sidebar-width:clamp(248px,18vw,350px)] bg-slate-50 text-slate-700 max-sm:flex-col workspace-dark:bg-slate-950 workspace-dark:text-slate-100"
+      className="interviewer-workspace flex min-h-screen [--sidebar-width:clamp(248px,17vw,288px)] bg-slate-100 text-slate-700 max-sm:flex-col workspace-dark:bg-[#070b14] workspace-dark:text-slate-100"
       data-theme={theme}
     >
       <aside
         id="interviewer-sidebar"
-        className={`flex flex-col overflow-hidden max-sm:border-b max-sm:border-solid max-sm:p-3 border-indigo-200 bg-indigo-100 sm:fixed sm:inset-y-0 sm:left-0 sm:z-10 sm:overflow-y-auto sm:px-[var(--nav-inset)] sm:after:pointer-events-none sm:after:absolute sm:after:bottom-0 sm:after:top-16 sm:after:right-0 sm:after:w-px sm:after:bg-indigo-200 sm:after:content-[""] workspace-dark:border-slate-800 workspace-dark:bg-slate-900 workspace-dark:sm:after:bg-slate-800 motion-safe:transition-[width,padding] motion-safe:duration-200 motion-safe:ease-out ${
+        className={`flex flex-col overflow-hidden max-sm:border-b max-sm:border-solid max-sm:p-3 border-slate-200 bg-slate-100 sm:fixed sm:inset-y-0 sm:left-0 sm:z-10 sm:overflow-y-auto sm:px-[var(--nav-inset)] workspace-dark:border-slate-800 workspace-dark:bg-[#070b14] motion-safe:transition-[width,padding] motion-safe:duration-200 motion-safe:ease-out ${
           sidebarOpen
             ? 'sm:w-[var(--sidebar-width)] sm:[--nav-inset:1rem] 2xl:[--nav-inset:1.25rem]'
             : 'sm:w-18 sm:[--nav-inset:0.75rem]'
         }`}
       >
         <div
-          className={`flex items-center gap-2 border-b border-indigo-200 pb-3 sm:-mx-[var(--nav-inset)] sm:px-[var(--nav-inset)] sm:border-slate-200 sm:h-16 sm:shrink-0 sm:pb-0 workspace-dark:border-slate-800 ${sidebarOpen ? 'justify-between' : 'justify-center'}`}
+          className={`flex items-center gap-2 sm:h-16 sm:shrink-0 ${sidebarOpen ? 'sm:px-2' : 'justify-center'}`}
         >
-          {sidebarOpen && (
-            <a
-              className="flex min-w-0 items-center gap-2 text-subheading font-semibold tracking-tight"
-              href="#"
-              onClick={(event) => {
-                event.preventDefault();
-                navigateTo('interviewer');
-              }}
-            >
-              <span aria-hidden="true" className="logo-mark shrink-0">
-                i
-              </span>
-              <span className="font-display text-subheading font-semibold tracking-tight uppercase text-primary workspace-dark:text-indigo-400">
-                Interview
-              </span>
-              <span className="text-indigo-500"> / </span>
-            </a>
-          )}
-          <Button
-            aria-label={
-              sidebarOpen ? 'Collapse navigation' : 'Expand navigation'
-            }
-            aria-controls="interview-navigation"
-            aria-expanded={sidebarOpen}
-            className="size-[34px] min-h-[34px] shrink-0 p-0"
-            onClick={() => setSidebarOpen((open) => !open)}
+          <a
+            className="flex min-w-0 items-center gap-3 text-subheading font-semibold tracking-tight"
+            href="#"
+            aria-label="Interview home"
+            onClick={(event) => {
+              event.preventDefault();
+              navigateTo('interviewer');
+            }}
           >
-            {sidebarOpen ? (
-              <PanelLeftClose size={18} aria-hidden="true" />
-            ) : (
-              <PanelLeftOpen size={18} aria-hidden="true" />
+            <span aria-hidden="true" className="logo-mark size-9! shrink-0">
+              i
+            </span>
+            {sidebarOpen && (
+              <span className="flex min-w-0 flex-col leading-tight">
+                <span className="font-display text-control font-semibold tracking-tight text-slate-900 workspace-dark:text-slate-100">
+                  Interview
+                </span>
+                <span className="truncate text-detail font-normal text-slate-500 workspace-dark:text-slate-400">
+                  Hiring workspace
+                </span>
+              </span>
             )}
-          </Button>
+          </a>
         </div>
         <nav
           id="interview-navigation"
-          className="mt-5 flex min-h-0 flex-1 flex-col gap-2 max-sm:mt-3 max-sm:grid max-sm:grid-cols-4"
+          className="mt-3 flex min-h-0 flex-1 flex-col gap-1 max-sm:mt-3 max-sm:grid max-sm:grid-cols-4"
           aria-label="Interview navigation"
         >
           {(
             [
-              ['interviewer', 'Jobs & invitations', 'Jobs', BriefcaseBusiness],
-              ['reviewer', 'Interview results', 'Results', ClipboardList],
+              [
+                'interviewer',
+                'Jobs & invitations',
+                'Jobs',
+                BriefcaseBusiness,
+                'Hiring',
+              ],
+              ['reviewer', 'Interview results', 'Results', ClipboardList, ''],
               [
                 'question-bank',
                 'Question-bank analytics',
                 'Analytics',
                 ChartNoAxesColumn,
+                'Insights',
               ],
-              ['audit', 'Audit trail', 'Audit', History],
+              ['audit', 'Audit trail', 'Audit', History, ''],
             ] as const
-          ).map(([key, label, shortLabel, Icon]) => (
-            <Button
-              key={key}
-              aria-label={label}
-              title={sidebarOpen ? undefined : label}
-              aria-current={
-                view === key ||
-                (view === 'analytics' && key === 'question-bank')
-                  ? 'page'
-                  : undefined
-              }
-              className={`min-h-11 w-full min-w-0 ${navigationShading} text-control font-normal ${sidebarOpen ? 'px-2 sm:justify-start sm:px-3' : 'justify-center px-0'}`}
-              onClick={() => navigateTo(key)}
-            >
-              <span
-                className="inline-grid size-[23px] shrink-0 place-items-center"
-                aria-hidden="true"
-              >
-                <Icon size={16} />
-              </span>
-              {sidebarOpen && (
-                <>
-                  <span className="hidden truncate sm:inline">{label}</span>
-                  <span className="truncate sm:hidden">{shortLabel}</span>
-                </>
+          ).map(([key, label, shortLabel, Icon, group]) => (
+            <Fragment key={key}>
+              {group && sidebarOpen && (
+                <p className="nav-group-label">{group}</p>
               )}
-            </Button>
+              <Button
+                key={key}
+                aria-label={label}
+                title={sidebarOpen ? undefined : label}
+                aria-current={
+                  view === key ||
+                  (view === 'analytics' && key === 'question-bank')
+                    ? 'page'
+                    : undefined
+                }
+                className={`min-h-11 w-full min-w-0 ${navigationShading} text-control font-normal ${sidebarOpen ? 'px-2 sm:justify-start sm:px-3' : 'justify-center px-0'}`}
+                onClick={() => navigateTo(key)}
+              >
+                <span
+                  className="inline-grid size-[23px] shrink-0 place-items-center"
+                  aria-hidden="true"
+                >
+                  <Icon size={16} />
+                </span>
+                {sidebarOpen && (
+                  <>
+                    <span className="hidden truncate sm:inline">{label}</span>
+                    <span className="truncate sm:hidden">{shortLabel}</span>
+                  </>
+                )}
+              </Button>
+            </Fragment>
           ))}
         </nav>
       </aside>
       <div
-        className={`flex min-w-0 flex-1 flex-col motion-safe:transition-[margin-left] motion-safe:duration-200 motion-safe:ease-out ${sidebarOpen ? 'sm:ml-[var(--sidebar-width)]' : 'sm:ml-18'}`}
+        className={`content-card flex min-w-0 flex-1 flex-col motion-safe:transition-[margin-left] motion-safe:duration-200 motion-safe:ease-out ${sidebarOpen ? 'sm:ml-[var(--sidebar-width)]' : 'sm:ml-18'}`}
       >
-        <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-solid border-slate-200 bg-white px-4 text-control text-slate-700 sm:px-6 workspace-dark:border-slate-800 workspace-dark:bg-slate-900 workspace-dark:text-slate-200">
+        <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-solid border-slate-200 bg-white px-4 text-control text-slate-700 sm:px-6 workspace-dark:border-slate-800 workspace-dark:bg-[#0c1322] workspace-dark:text-slate-200">
           <div className="flex min-w-0 items-center gap-3">
-            <nav
-              aria-label="Workspace navigation"
-              className="flex shrink-0 gap-1"
+            <Button
+              aria-label={
+                sidebarOpen ? 'Collapse navigation' : 'Expand navigation'
+              }
+              title={sidebarOpen ? 'Collapse navigation' : 'Expand navigation'}
+              aria-controls="interview-navigation"
+              aria-expanded={sidebarOpen}
+              className="size-[34px] min-h-[34px] shrink-0 p-0 max-sm:hidden"
+              onClick={() => setSidebarOpen((open) => !open)}
             >
+              {sidebarOpen ? (
+                <PanelLeftClose size={18} aria-hidden="true" />
+              ) : (
+                <PanelLeftOpen size={18} aria-hidden="true" />
+              )}
+            </Button>
+            <span
+              aria-hidden="true"
+              className="h-5 w-px shrink-0 bg-slate-200 max-sm:hidden workspace-dark:bg-slate-700"
+            />
+            {viewHistory.length > 1 && (
               <Button
                 type="button"
                 aria-label="Go back"
                 title="Back"
-                disabled={viewHistory.length < 2}
-                className="size-[34px] min-h-[34px] p-0"
+                className="size-[34px] min-h-[34px] shrink-0 p-0"
                 onClick={goBack}
               >
-                <ArrowLeft
-                  size={18}
-                  className="text-violet-700 workspace-dark:text-violet-300"
-                  aria-hidden="true"
-                />
+                <ArrowLeft size={18} aria-hidden="true" />
               </Button>
-              <Button
+            )}
+            <nav
+              aria-label="Breadcrumb"
+              className="flex min-w-0 items-center gap-1.5"
+            >
+              <button
                 type="button"
-                aria-label="Go home"
-                title="Home"
-                className="size-[34px] min-h-[34px] p-0"
+                className="breadcrumb-root"
                 onClick={() => navigateTo('interviewer')}
               >
-                <Home size={18} aria-hidden="true" />
-              </Button>
-            </nav>
-            <span className="hidden truncate sm:inline">
-              Interviews{' '}
-              <span className="muted">
-                /{' '}
+                Interviews
+              </button>
+              <ChevronRight
+                size={14}
+                aria-hidden="true"
+                className="shrink-0 text-slate-400"
+              />
+              <span
+                aria-current="page"
+                className="truncate font-medium text-slate-900 workspace-dark:text-slate-100"
+              >
                 {view === 'analytics' || view === 'question-bank'
                   ? 'Question-bank analytics'
                   : view === 'profile'
@@ -684,7 +716,7 @@ export function Workspace({
                         ? 'Interview results'
                         : 'Jobs & invitations'}
               </span>
-            </span>
+            </nav>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-4">
             <button
@@ -705,11 +737,11 @@ export function Workspace({
               <Moon size={16} aria-hidden="true" />
             </button>
             <Button
-              className="size-[34px] min-h-0 rounded-full p-0"
+              className="account-avatar size-[34px] min-h-0 rounded-full p-0"
               aria-label="Account details"
               popoverTarget="interviewer-account"
             >
-              <UserRound size={17} aria-hidden="true" />
+              <span aria-hidden="true">{initials(account.email) || '?'}</span>
             </Button>
             <div
               ref={accountMenu}
@@ -749,7 +781,10 @@ export function Workspace({
             </div>
           </div>
         </header>
-        <main className="dashboard flex w-full flex-1 flex-col">
+        <main
+          id="workspace-main"
+          className="dashboard flex w-full flex-1 flex-col"
+        >
           {view === 'profile' ? (
             <InterviewerProfile account={account} onLogout={onLogout} />
           ) : analyticsJob ? (
@@ -787,6 +822,7 @@ export function Workspace({
                         'Job descriptions created',
                         summary.daily_roles,
                         'Roles created',
+                        BriefcaseBusiness,
                       ],
                       [
                         'Invitations',
@@ -794,6 +830,7 @@ export function Workspace({
                         'Across all your roles',
                         summary.daily_invitations,
                         'Invitations sent',
+                        Send,
                       ],
                       [
                         'Active sessions',
@@ -801,6 +838,7 @@ export function Workspace({
                         'Ready or in progress. The trend shows interviews started each day.',
                         summary.daily_starts,
                         'Interviews started',
+                        Activity,
                       ],
                       [
                         'Ready for review',
@@ -808,22 +846,32 @@ export function Workspace({
                         'Submitted, scoring, or completed. The trend shows interviews submitted each day.',
                         summary.daily_submissions,
                         'Interviews submitted',
+                        ClipboardCheck,
                       ],
                     ] as const
-                  ).map(([label, value, help, counts, trendLabel], index) => (
-                    <DashboardCard variant="metric" index={index} key={label}>
-                      <span className="flex items-center justify-between gap-2">
-                        {label}
-                        <HelpTip text={help} />
-                      </span>
-                      <AnimatedCount value={loading ? null : value} />
-                      <MetricTrend
-                        counts={counts}
-                        endDate={summary.activity_end_date}
-                        label={trendLabel}
-                      />
-                    </DashboardCard>
-                  ))}
+                  ).map(
+                    ([label, value, help, counts, trendLabel, Icon], index) => (
+                      <DashboardCard variant="metric" index={index} key={label}>
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1">
+                            {label}
+                            <HelpTip text={help} />
+                          </span>
+                          <Icon
+                            size={18}
+                            aria-hidden="true"
+                            className="stat-icon shrink-0"
+                          />
+                        </span>
+                        <AnimatedCount value={loading ? null : value} />
+                        <MetricTrend
+                          counts={counts}
+                          endDate={summary.activity_end_date}
+                          label={trendLabel}
+                        />
+                      </DashboardCard>
+                    ),
+                  )}
                 </div>
               )}
               {loading ? (
@@ -1299,6 +1347,9 @@ export function Workspace({
                             onOpen={() => {
                               navigateTo({ job });
                               window.scrollTo(0, 0);
+                              document
+                                .getElementById('workspace-main')
+                                ?.parentElement?.scrollTo(0, 0);
                             }}
                           />
                         ))}
