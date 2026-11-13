@@ -29,6 +29,13 @@ type Integrity = {
     annotation: null | { decision: string; note: string };
   }[];
 };
+type IntegritySummary = {
+  summary: string;
+  citations: { source_id: string; quote: string }[];
+  sources: { id: string; text: string }[];
+  method: 'ai' | 'deterministic';
+  notice: string;
+};
 type LiveEvent = {
   id: string;
   action: string;
@@ -68,6 +75,12 @@ export function ReviewAssistant({
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
   const [integrity, setIntegrity] = useState<Integrity | null>(null);
+  const [integritySummary, setIntegritySummary] =
+    useState<IntegritySummary | null>(null);
+  const [summaryState, setSummaryState] = useState<
+    'idle' | 'loading' | 'failed'
+  >('idle');
+  const [summaryAttempt, setSummaryAttempt] = useState(0);
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [connection, setConnection] = useState('Connecting to live session…');
   const [selected, setSelected] = useState('');
@@ -162,6 +175,39 @@ export function ReviewAssistant({
       abort.current?.abort();
     };
   }, [session, token]);
+  // Changes whenever observations, media or reviewer decisions change.
+  const evidenceKey = integrity
+    ? integrity.events
+        .map(
+          (event) =>
+            `${event.id}:${event.attachments?.length ?? 0}:${event.annotation?.decision ?? ''}`,
+        )
+        .join('|')
+    : null;
+  useEffect(() => {
+    if (evidenceKey === null) return;
+    const controller = new AbortController();
+    // Live sessions emit bursts of events; summarize once the evidence settles.
+    const timer = setTimeout(() => {
+      setSummaryState('loading');
+      request<IntegritySummary>(
+        `/api/v1/sessions/${session}/integrity/summary`,
+        { signal: controller.signal },
+        token,
+      )
+        .then((result) => {
+          setIntegritySummary(result);
+          setSummaryState('idle');
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setSummaryState('failed');
+        });
+    }, 1500);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [evidenceKey, session, token, summaryAttempt]);
   async function ask(page = 0, prompt = question) {
     if (!prompt.trim()) return;
     const requestId = crypto.randomUUID();
@@ -329,6 +375,52 @@ export function ReviewAssistant({
             <strong>Review priority: {integrity.risk_score}/100</strong>
           </p>
           <p>{integrity.events.length} recorded observations</p>
+          <div className="review-reply" aria-live="polite">
+            <p className="flex items-center gap-2">
+              <strong>
+                {integritySummary?.method === 'deterministic'
+                  ? 'Summary (AI unavailable · built from recorded counts)'
+                  : 'AI summary'}
+              </strong>
+              <HelpTip
+                text={
+                  integritySummary?.notice ??
+                  'One-line summary of the recorded evidence. Not a verdict of cheating.'
+                }
+              />
+            </p>
+            {integritySummary ? (
+              <p>{integritySummary.summary}</p>
+            ) : summaryState === 'loading' ? (
+              <p className="muted">Summarizing integrity evidence…</p>
+            ) : null}
+            {summaryState === 'loading' && integritySummary && (
+              <p className="muted">Updating for new evidence…</p>
+            )}
+            {summaryState === 'failed' && (
+              <p className="flex items-center gap-2">
+                Summary unavailable.
+                <Button
+                  variant="secondary"
+                  onClick={() => setSummaryAttempt((n) => n + 1)}
+                >
+                  Retry
+                </Button>
+              </p>
+            )}
+            {integritySummary && integritySummary.citations.length > 0 && (
+              <ExpandableSection label={<>Cited evidence</>}>
+                <ul>
+                  {integritySummary.citations.map((citation, i) => (
+                    <li key={i}>
+                      “{citation.quote}”
+                      <span className="muted"> · {citation.source_id}</span>
+                    </li>
+                  ))}
+                </ul>
+              </ExpandableSection>
+            )}
+          </div>
           <ProctorEvidence
             label="Potential integrity deviations with media"
             showDecisions

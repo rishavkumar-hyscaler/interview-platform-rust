@@ -32,12 +32,23 @@ pub(crate) struct IntegrityResponse {
     pub notice: String,
 }
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
+pub(crate) struct IntegritySummaryResponse {
+    pub summary: String,
+    pub citations: Vec<Value>,
+    pub sources: Vec<Value>,
+    /// `ai` for a validated model summary, `deterministic` when built from counts.
+    pub method: String,
+    pub fingerprint: String,
+    pub notice: String,
+}
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
 pub(crate) struct ExportResponse {
     pub version: i32,
     pub interview: Value,
     pub questions: Vec<Value>,
     pub events: Vec<Value>,
     pub integrity: IntegrityResponse,
+    pub integrity_summary: Option<IntegritySummaryResponse>,
     pub integrity_weights: Value,
     pub notice: String,
 }

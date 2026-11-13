@@ -440,6 +440,28 @@ pub(crate) async fn memory(
     .fetch_all(&mut **tx)
     .await?)
 }
+pub(crate) async fn integrity_summary(
+    tx: &mut Transaction<'_, Postgres>,
+    session: Uuid,
+    fingerprint: &str,
+) -> Result<Option<Value>> {
+    Ok(sqlx::query_scalar(
+        r#"
+        SELECT metadata
+        FROM audit_events
+        WHERE entity_id = $1
+        AND action = 'integrity.summarized'
+        AND metadata ->> 'fingerprint' = $2
+        ORDER BY created_at DESC,
+            id DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(session)
+    .bind(fingerprint)
+    .fetch_optional(&mut **tx)
+    .await?)
+}
 pub(crate) async fn assessment(
     tx: &mut Transaction<'_, Postgres>,
     session: Uuid,

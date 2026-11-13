@@ -31,6 +31,10 @@ pub(crate) fn routes() -> Router<PgPool> {
         .route("/api/v1/jobs/{job}/analytics", get(analytics))
         .route("/api/v1/metrics", get(metrics))
         .route("/api/v1/sessions/{session}/integrity", get(integrity))
+        .route(
+            "/api/v1/sessions/{session}/integrity/summary",
+            get(integrity_summary),
+        )
         .route("/api/v1/sessions/{session}/annotations", post(annotate))
         .route("/api/v1/sessions/{session}/review", post(chat))
 }
@@ -41,6 +45,14 @@ async fn integrity(
 ) -> Result<Json<IntegrityResponse>> {
     let (owner, _) = authenticate(&pool, &headers).await?;
     response(review_service::integrity(&pool, owner, session).await?)
+}
+async fn integrity_summary(
+    State(pool): State<PgPool>,
+    Path(session): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<IntegritySummaryResponse>> {
+    let (owner, _) = authenticate(&pool, &headers).await?;
+    response(review_service::integrity_summary(&pool, owner, session).await?)
 }
 async fn annotate(
     State(pool): State<PgPool>,

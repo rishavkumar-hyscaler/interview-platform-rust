@@ -6,10 +6,13 @@ use crate::{
     infrastructure::interviewer_transaction,
     repositories::review_repository as repo,
     review::{
-        citations::{Citation, Document, Reply, ground_reply},
+        citations::{Document, Reply, ground_reply},
         performance,
     },
-    services::{auth_service, review_service::exists},
+    services::{
+        auth_service,
+        review_service::{self, exists},
+    },
 };
 use axum::http::StatusCode;
 use serde_json::{Value, json};
@@ -46,6 +49,20 @@ pub(crate) async fn chat_answer(
         ));
     }
     auth_service::require_session(&pool, owner, &session_hash).await?;
+    if input.page.unwrap_or(0) == 0 && input.question.trim() == INTEGRITY_SUMMARY_PROMPT {
+        // Same cited, cached summary the integrity panel shows, kept in conversation memory.
+        let summary = review_service::integrity_summary(&pool, owner, session).await?;
+        let reply = json!({"answer":summary["summary"],"citations":summary["citations"]});
+        let mut tx = interviewer_transaction(&pool, owner).await?;
+        audit(&mut tx, owner, Some(owner), session, "reviewer.message", json!({"conversation":input.conversation,"question":input.question,"reply":reply,"method":format!("integrity_summary_{}",summary["method"].as_str().unwrap_or("unknown"))})).await?;
+        tx.commit().await?;
+        let total = summary["sources"]
+            .as_array()
+            .map_or(0, Vec::len);
+        return Ok(
+            json!({"answer":summary["summary"],"citations":summary["citations"],"sources":summary["sources"],"next_page":null,"evidence_page":0,"total_sources":total}),
+        );
+    }
     let mut tx = interviewer_transaction(&pool, owner).await?;
     exists(&mut tx, session).await?;
     let assessment = repo::assessment(&mut tx, session).await?;
@@ -65,47 +82,6 @@ pub(crate) async fn chat_answer(
         tx.commit().await?;
         return Ok(
             json!({"answer":reply.answer,"citations":reply.citations,"sources":sources,"next_page":null,"evidence_page":0,"total_sources":1}),
-        );
-    }
-    if input.page.unwrap_or(0) == 0 && input.question.trim() == INTEGRITY_SUMMARY_PROMPT {
-        let counts = repo::counts(&mut tx, session).await?;
-        let total: i64 = counts
-            .iter()
-            .map(|(_, count)| count)
-            .sum();
-        let quote = format!("Recorded observations: {total}");
-        let source = Document {
-            id: format!("{session}:integrity-overview"),
-            text: format!(
-                "{quote}\n{}",
-                counts
-                    .iter()
-                    .map(|(kind, count)| format!("{}: {count}", kind.replace('_', " ")))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            ),
-        };
-        let reply = Reply {
-            answer: format!(
-                "The session recorded {total} monitoring observations, including routine activity. Review potential deviations in the evidence list before drawing conclusions."
-            ),
-            citations: vec![Citation {
-                source_id: source.id.clone(),
-                quote,
-            }],
-        };
-        audit(
-            &mut tx,
-            owner,
-            Some(owner),
-            session,
-            "reviewer.message",
-            json!({"conversation":input.conversation,"question":input.question,"reply":reply,"method":"stored_observation_counts"}),
-        )
-        .await?;
-        tx.commit().await?;
-        return Ok(
-            json!({"answer":reply.answer,"citations":reply.citations,"sources":[source],"next_page":null,"evidence_page":0,"total_sources":1}),
         );
     }
     let provider = AiProvider::from_environment()

@@ -1,7 +1,14 @@
 //! Evidence review rules, signed receipt verification, annotations and reports.
 use crate::{
-    ApiError, Result, audit::record as audit, infrastructure::interviewer_transaction,
+    ApiError, Result,
+    audit::record as audit,
+    generation::provider::AiProvider,
+    infrastructure::interviewer_transaction,
     repositories::review_repository as repo,
+    review::{
+        citations::{Document, Reply, ground_reply},
+        integrity_summary as summary,
+    },
 };
 use axum::http::StatusCode;
 use serde_json::{Value, json};
@@ -128,10 +135,118 @@ pub(crate) async fn integrity(pool: &PgPool, owner: Uuid, session: Uuid) -> Resu
     )
 }
 
+const SUMMARY_NOTICE: &str = "One-line summary of recorded observations for prioritizing human review. It is not a verdict of cheating; verify it against the cited evidence.";
+fn summary_response(
+    reply: &Reply,
+    documents: &[Document],
+    fingerprint: &str,
+    method: &str,
+) -> Value {
+    let cited: Vec<&Document> = documents
+        .iter()
+        .filter(|doc| {
+            reply
+                .citations
+                .iter()
+                .any(|c| c.source_id == doc.id)
+        })
+        .collect();
+    json!({"summary":reply.answer,"citations":reply.citations,"sources":cited,"method":method,"fingerprint":fingerprint,"notice":SUMMARY_NOTICE})
+}
+/// AI one-line integrity summary, cached per evidence fingerprint in the audit log.
+/// Falls back to a deterministic line, which is not cached, when the AI is unavailable
+/// or its reply fails citation and format validation.
+pub(crate) async fn integrity_summary(pool: &PgPool, owner: Uuid, session: Uuid) -> Result<Value> {
+    let report = integrity(pool, owner, session).await?;
+    let sources = summary::sources(session, &report);
+    let mut tx = interviewer_transaction(pool, owner).await?;
+    let cached = repo::integrity_summary(&mut tx, session, &sources.fingerprint).await?;
+    tx.commit().await?;
+    if let Some(cached) = cached
+        && let Ok(reply) = serde_json::from_value::<Reply>(
+            json!({"answer":cached["summary"],"citations":cached["citations"]}),
+        )
+    {
+        return Ok(summary_response(
+            &reply,
+            &sources.documents,
+            &sources.fingerprint,
+            "ai",
+        ));
+    }
+    let Ok(provider) = AiProvider::from_environment() else {
+        return Ok(summary_response(
+            &sources.fallback,
+            &sources.documents,
+            &sources.fingerprint,
+            "deterministic",
+        ));
+    };
+    let model_sources: Vec<Value> = sources
+        .documents
+        .iter()
+        .enumerate()
+        .map(|(index, doc)| json!({"id":format!("S{}",index+1),"text":doc.text}))
+        .collect();
+    let started = std::time::Instant::now();
+    let generated = provider
+        .structured::<Reply>(
+            "integrity_summary",
+            summary::INSTRUCTIONS,
+            json!({"sources":model_sources}),
+        )
+        .await
+        .and_then(|mut reply| {
+            ground_reply(&mut reply, &sources.documents)?;
+            summary::one_line(&mut reply)?;
+            Ok(reply)
+        });
+    let reply = match generated {
+        Ok(reply) => reply,
+        Err(error) => {
+            tracing::warn!(operation="review.integrity_summary", %session, reason=%error, "Integrity summary rejected; using deterministic summary");
+            return Ok(summary_response(
+                &sources.fallback,
+                &sources.documents,
+                &sources.fingerprint,
+                "deterministic",
+            ));
+        }
+    };
+    let mut tx = interviewer_transaction(pool, owner).await?;
+    audit(
+        &mut tx,
+        owner,
+        Some(owner),
+        session,
+        "integrity.summarized",
+        json!({"fingerprint":sources.fingerprint,"summary":reply.answer,"citations":reply.citations,"model":provider.model,"prompt_version":summary::PROMPT_VERSION,"duration_ms":started.elapsed().as_millis() as u64}),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(summary_response(
+        &reply,
+        &sources.documents,
+        &sources.fingerprint,
+        "ai",
+    ))
+}
+
 pub(crate) async fn export_report(pool: &PgPool, owner: Uuid, session: Uuid) -> Result<Value> {
     let integrity_report = integrity(pool, owner, session).await?;
+    let sources = summary::sources(session, &integrity_report);
     let mut tx = interviewer_transaction(pool, owner).await?;
     exists(&mut tx, session).await?;
+    // Export never waits on the AI: include the summary only when one matches this evidence.
+    let integrity_summary = repo::integrity_summary(&mut tx, session, &sources.fingerprint)
+        .await?
+        .and_then(|cached| {
+            serde_json::from_value::<Reply>(
+                json!({"answer":cached["summary"],"citations":cached["citations"]}),
+            )
+            .ok()
+        })
+        .map(|reply| summary_response(&reply, &sources.documents, &sources.fingerprint, "ai"));
     let interview = repo::interview(&mut tx, session).await?;
     let questions = repo::questions(&mut tx, session).await?;
     let events = repo::events(&mut tx, session).await?;
@@ -146,7 +261,7 @@ pub(crate) async fn export_report(pool: &PgPool, owner: Uuid, session: Uuid) -> 
     .await?;
     tx.commit().await?;
     Ok(
-        json!({"version":1,"interview":interview,"questions":questions,"events":events,"integrity":integrity_report,"integrity_weights":weights(),"notice":"Scores and browser observations require human review. Identity signals must not influence scoring. Server signatures prove receipt integrity, not completeness or truth of browser telemetry."}),
+        json!({"version":1,"interview":interview,"questions":questions,"events":events,"integrity":integrity_report,"integrity_summary":integrity_summary,"integrity_weights":weights(),"notice":"Scores and browser observations require human review. Identity signals must not influence scoring. Server signatures prove receipt integrity, not completeness or truth of browser telemetry."}),
     )
 }
 pub(crate) async fn analytics(pool: &PgPool, owner: Uuid, job: Uuid) -> Result<Value> {

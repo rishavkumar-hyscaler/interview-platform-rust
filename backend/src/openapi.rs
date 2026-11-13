@@ -188,6 +188,7 @@ fn document() -> Value {
     endpoint!("get" "/api/v1/jobs/{job}/analytics", "Review", staff, "Get question-bank analytics", "200" => json_response(response_schema::<review::AnalyticsResponse>()));
     endpoint!("get" "/api/v1/metrics", "Review", staff, "Get interviewer processing metrics", "200" => json_response(response_schema::<review::MetricsResponse>()));
     endpoint!("get" "/api/v1/sessions/{session}/integrity", "Review", staff, "Get session integrity observations", "200" => json_response(response_schema::<review::IntegrityResponse>()));
+    endpoint!("get" "/api/v1/sessions/{session}/integrity/summary", "Review", staff, "Get the evidence-cited one-line AI integrity summary", "200" => json_response(response_schema::<review::IntegritySummaryResponse>()));
     endpoint!("post" "/api/v1/sessions/{session}/annotations", "Review", staff, "Save a reviewer annotation", "200" => json_response(response_schema::<review::SavedResponse>()),
         "requestBody" => json_body(request_schema::<review::AnnotationRequest>()));
     endpoint!("post" "/api/v1/sessions/{session}/review", "Review", staff, "Stream an answer from the reviewer assistant", "200" => stream(),

@@ -252,11 +252,52 @@ Event IDs prevent duplicates. Server timestamps, receipt chains, signed metadata
 and media hashes detect alteration of received records. Authorized reads verify
 integrity. Signatures do not prove that browser telemetry is truthful or complete.
 Review priority is separate from answer scores; observations require human review.
+The integrity review shows a one-line AI summary that separates reviewer-confirmed,
+suspected and routine observations. The server rejects it unless it is one line and
+quotes the session's observation sources exactly. Summaries are cached in the audit
+log (`integrity.summarized`) per evidence fingerprint and regenerate when observations,
+media or annotations change. If the AI is unavailable, a summary built from counts is
+shown instead and labelled as such. Exports include the summary that matches the
+current evidence, when one exists.
 Face direction and speech checks do not establish attention, identity or cheating.
 
 Recordings are limited to 60 seconds, 15 MB and 12 per session. Proctor evidence has
 separate upload limits. No automatic server-side media retention cleanup is
 implemented; operators must manage retention and backups.
+
+## Bias guardrails
+
+Scores and flags must rest on job-relevant evidence only. Identity signals such as
+name, email, accent, voice, appearance and protected characteristics are kept out
+of AI inputs where possible, and models are told to ignore them where not.
+
+| Stage | Data the AI receives | Guardrail |
+| --- | --- | --- |
+| Blueprint | Job description | Extract only job-relevant competencies, each citing an exact JD quote; ignore identities and protected characteristics (`services/generation/quality.rs`) |
+| Question review | JD, blueprint, draft question | Reject prompts that require protected characteristics or unstated facts |
+| Answer scoring | Question prompt, stored rubric, answer text only | No name, email, media or proctoring data is sent; the prompt says to ignore identity, names, accent and appearance (`services/scoring/rubric.rs`) |
+| Score validation | Model output | The server accepts a score only when criterion IDs match the rubric, points stay in range and awarded points quote the answer exactly |
+| Reviewer chat | Session questions, rubrics, answers, assessment, proctoring events, annotations | No candidate name or email is indexed; the prompt forbids identity-based assessment and reading face geometry as attention, emotion or identity (`services/review_chat_service.rs`) |
+
+Proctoring checks avoid identity inference:
+
+- Face and audio checks run in the browser and report only face counts, head/eye
+  geometry and speech heuristics. There is no face recognition, identity matching,
+  speaker identification or emotion detection.
+- Audio/video recordings are not AI-scored. They need a text transcript for AI
+  scoring; otherwise a human reviews them.
+- Default integrity weights give zero risk to signals that often reflect disability,
+  environment or device rather than misconduct: denied camera or microphone,
+  looking away and detected speech. Operators can change weights with
+  `INTEGRITY_WEIGHTS`.
+- Integrity risk points stay separate from answer scores, and every observation
+  needs human review. Reviewer overrides are logged.
+
+**Limits:** these guardrails come from input minimization, prompt instructions and
+server-side validation. They cannot stop a model reacting to identity cues inside an
+answer, such as a candidate's self-introduction or writing style. No
+disparate-impact audit is performed. Question-bank analytics measure score
+separation, not fairness. Hiring decisions stay with human reviewers.
 
 ## Question-bank analytics
 
