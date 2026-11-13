@@ -50,37 +50,45 @@ pub(crate) async fn chat_answer(
     exists(&mut tx, session).await?;
     let assessment = repo::assessment(&mut tx, session).await?;
     let assessment_source = performance::assessment_source(session, assessment.as_ref());
-    if input.page.unwrap_or(0) == 0 {
-        if let Some(mut reply) =
+    if input.page.unwrap_or(0) == 0
+        && let Some(mut reply) =
             performance::comparison(&input.question, assessment.as_ref(), &assessment_source)
-        {
-            let sources = vec![assessment_source];
-            ground_reply(&mut reply, &sources).map_err(|_| {
-                ApiError(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Stored assessment could not be cited",
-                )
-            })?;
-            audit(&mut tx, owner, Some(owner), session, "reviewer.message", json!({"conversation":input.conversation,"question":input.question,"reply":reply,"method":"stored_competency_scores"})).await?;
-            tx.commit().await?;
-            return Ok(
-                json!({"answer":reply.answer,"citations":reply.citations,"sources":sources,"next_page":null,"evidence_page":0,"total_sources":1}),
-            );
-        }
+    {
+        let sources = vec![assessment_source];
+        ground_reply(&mut reply, &sources).map_err(|_| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Stored assessment could not be cited",
+            )
+        })?;
+        audit(&mut tx, owner, Some(owner), session, "reviewer.message", json!({"conversation":input.conversation,"question":input.question,"reply":reply,"method":"stored_competency_scores"})).await?;
+        tx.commit().await?;
+        return Ok(
+            json!({"answer":reply.answer,"citations":reply.citations,"sources":sources,"next_page":null,"evidence_page":0,"total_sources":1}),
+        );
     }
     if input.page.unwrap_or(0) == 0 && input.question.trim() == INTEGRITY_SUMMARY_PROMPT {
         let counts = repo::counts(&mut tx, session).await?;
-        let total: i64 = counts.iter().map(|(_, count)| count).sum();
+        let total: i64 = counts
+            .iter()
+            .map(|(_, count)| count)
+            .sum();
         let quote = format!("Recorded observations: {total}");
         let source = Document {
             id: format!("{session}:integrity-overview"),
-            text: format!("{quote}\n{}", counts.iter()
-                .map(|(kind, count)| format!("{}: {count}", kind.replace('_', " ")))
-                .collect::<Vec<_>>()
-                .join("\n")),
+            text: format!(
+                "{quote}\n{}",
+                counts
+                    .iter()
+                    .map(|(kind, count)| format!("{}: {count}", kind.replace('_', " ")))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
         };
         let reply = Reply {
-            answer: format!("The session recorded {total} monitoring observations, including routine activity. Review potential deviations in the evidence list before drawing conclusions."),
+            answer: format!(
+                "The session recorded {total} monitoring observations, including routine activity. Review potential deviations in the evidence list before drawing conclusions."
+            ),
             citations: vec![Citation {
                 source_id: source.id.clone(),
                 quote,
@@ -96,7 +104,9 @@ pub(crate) async fn chat_answer(
         )
         .await?;
         tx.commit().await?;
-        return Ok(json!({"answer":reply.answer,"citations":reply.citations,"sources":[source],"next_page":null,"evidence_page":0,"total_sources":1}));
+        return Ok(
+            json!({"answer":reply.answer,"citations":reply.citations,"sources":[source],"next_page":null,"evidence_page":0,"total_sources":1}),
+        );
     }
     let provider = AiProvider::from_environment()
         .map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "AI is not configured"))?;

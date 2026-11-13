@@ -64,7 +64,7 @@ pub(crate) async fn register(pool: &PgPool, input: Credentials) -> Result<Sessio
     })?;
     let user = Uuid::new_v4();
     let token = new_token();
-    let mut tx = interviewer_transaction(&pool, user).await?;
+    let mut tx = interviewer_transaction(pool, user).await?;
     if !repo::create_user(&mut tx, user, &email, &hash).await? {
         return Err(ApiError(
             StatusCode::CONFLICT,
@@ -126,6 +126,18 @@ pub(crate) async fn authenticate_token(pool: &PgPool, token: &str) -> Result<(Uu
 pub(crate) async fn logout(pool: &PgPool, hash: &str) -> Result<()> {
     repo::delete_session(pool, hash).await
 }
+
+/// Revalidate a long-running request before reading or writing its private context.
+pub(crate) async fn require_session(pool: &PgPool, owner: Uuid, hash: &str) -> Result<()> {
+    if repo::user_for_token(pool, hash).await? != Some(owner) {
+        return Err(unauthorized());
+    }
+    Ok(())
+}
+
+pub(crate) async fn interviewer_email(pool: &PgPool, user: Uuid) -> Result<String> {
+    crate::repositories::auth_repository::interviewer_email(pool, user).await
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,16 +156,4 @@ mod tests {
         assert_eq!(a.len(), 64);
         assert_ne!(digest(&a), a);
     }
-}
-
-/// Revalidate a long-running request before reading or writing its private context.
-pub(crate) async fn require_session(pool: &PgPool, owner: Uuid, hash: &str) -> Result<()> {
-    if repo::user_for_token(pool, hash).await? != Some(owner) {
-        return Err(unauthorized());
-    }
-    Ok(())
-}
-
-pub(crate) async fn interviewer_email(pool: &PgPool, user: Uuid) -> Result<String> {
-    crate::repositories::auth_repository::interviewer_email(pool, user).await
 }

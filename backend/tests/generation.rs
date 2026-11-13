@@ -792,8 +792,8 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
         invitation(&pool, recruiter, &app, "/api/v1", id, token),
         invitation(&pool, recruiter, &app, "/api/v1", id, token)
     );
-    assert_eq!(a["session"]["question_set_id"].is_string(), true);
-    assert_eq!(b["session"]["question_set_id"].is_string(), true);
+    assert!(a["session"]["question_set_id"].is_string());
+    assert!(b["session"]["question_set_id"].is_string());
     assert_ne!(
         a["session"]["question_set_id"],
         b["session"]["question_set_id"]
@@ -844,15 +844,13 @@ async fn job_sets_prepare_once_and_are_reused_without_replenishment() {
     );
     let unconfigured = platform_api::router_with_ai(pool.clone(), None);
     let third = invitation(&pool, recruiter, &unconfigured, "/api/v1", id, token).await;
-    assert_eq!(
+    assert!(
         third["session"]["question_set_id"].is_string(),
-        true,
         "existing sets work even with provider offline"
     );
     let fourth = invitation(&pool, recruiter, &app, "/api/v1", id, token).await;
-    assert_eq!(
+    assert!(
         fourth["session"]["question_set_id"].is_string(),
-        true,
         "the fourth candidate reuses one of the three prepared sets"
     );
     let (_, exhausted) = call(&app, "GET", &route, Value::Null, token).await;

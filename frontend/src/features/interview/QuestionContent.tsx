@@ -23,7 +23,7 @@ export function QuestionContent({
 }) {
   const lines = content.replace(/\r\n/g, '\n').split('\n');
   const blocks: ReactNode[] = [];
-  for (let index = 0; index < lines.length;) {
+  for (let index = 0; index < lines.length; ) {
     const line = lines[index];
     if (!line.trim()) {
       index++;

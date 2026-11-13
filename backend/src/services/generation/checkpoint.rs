@@ -80,10 +80,10 @@ pub(super) async fn save(
                 .as_str()
                 .unwrap_or("medium"),
             prompt: &question.prompt,
-            rubric: rubric,
+            rubric,
             competency: &question.competency_id,
             fingerprint: hash,
-            vector: vector,
+            vector,
             model: &context.provider.embedding_model,
             dimensions: context.provider.dimensions as i32,
             set: claim.id,

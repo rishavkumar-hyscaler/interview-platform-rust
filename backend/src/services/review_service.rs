@@ -39,7 +39,10 @@ pub(crate) async fn annotate(
     exists(&mut tx, session).await?;
     let found = repo::observation_with_media_exists(&mut tx, input.event_id, session).await?;
     if !found {
-        return Err(ApiError(StatusCode::NOT_FOUND, "Observation with saved media not found"));
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            "Observation with saved media not found",
+        ));
     }
     audit(
         &mut tx,
@@ -109,7 +112,9 @@ pub(crate) async fn integrity(pool: &PgPool, owner: Uuid, session: Uuid) -> Resu
     let mut score = 0u64;
     for e in &events {
         if e["annotation"]["decision"] != "dismissed"
-            && e["attachments"].as_array().is_some_and(|media| !media.is_empty())
+            && e["attachments"]
+                .as_array()
+                .is_some_and(|media| !media.is_empty())
         {
             score += weights[e["evidence"]["kind"]
                 .as_str()
@@ -121,23 +126,6 @@ pub(crate) async fn integrity(pool: &PgPool, owner: Uuid, session: Uuid) -> Resu
     Ok(
         json!({"risk_score":score.min(100),"weights":weights,"events":events,"summary":format!("{} browser observations; {} weighted risk points. Review the evidence and context before drawing conclusions.",events.len(),score.min(100)),"notice":"Risk points are review priorities, not a probability or verdict of cheating. Confirmed activity means a reviewer confirmed that activity occurred, not cheating."}),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn question_clipboard_actions_have_no_integrity_weight() {
-        let weights = super::weights();
-        for kind in [
-            "copy_from_question",
-            "paste_from_question",
-            "question_context_menu",
-        ] {
-            assert!(crate::proctoring::permitted_question_action(kind));
-            assert_eq!(weights[kind], 0);
-        }
-        assert!(weights["paste"].as_u64().unwrap() > 0);
-    }
 }
 
 pub(crate) async fn export_report(pool: &PgPool, owner: Uuid, session: Uuid) -> Result<Value> {
@@ -189,10 +177,10 @@ pub(crate) async fn validate_live(
 ) -> Result<()> {
     let mut tx = interviewer_transaction(pool, owner).await?;
     exists(&mut tx, session).await?;
-    if let Some(after) = after {
-        if !repo::cursor_exists(&mut tx, after, session).await? {
-            return Err(ApiError(StatusCode::BAD_REQUEST, "Invalid event cursor"));
-        }
+    if let Some(after) = after
+        && !repo::cursor_exists(&mut tx, after, session).await?
+    {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "Invalid event cursor"));
     }
     tx.commit().await?;
     Ok(())
@@ -207,4 +195,21 @@ pub(crate) async fn live_page(
     let rows = repo::live_events(&mut tx, session, after).await?;
     tx.commit().await?;
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn question_clipboard_actions_have_no_integrity_weight() {
+        let weights = super::weights();
+        for kind in [
+            "copy_from_question",
+            "paste_from_question",
+            "question_context_menu",
+        ] {
+            assert!(crate::proctoring::permitted_question_action(kind));
+            assert_eq!(weights[kind], 0);
+        }
+        assert!(weights["paste"].as_u64().unwrap() > 0);
+    }
 }

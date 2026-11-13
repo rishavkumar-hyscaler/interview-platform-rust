@@ -68,7 +68,7 @@ pub(crate) async fn upload(
         ));
     }
     let mime = mime(content_type, bytes)?;
-    let hash = hex::encode(Sha256::digest(&bytes));
+    let hash = hex::encode(Sha256::digest(bytes));
     let mut task = crate::observability::TaskLog::start("recording.upload", session);
     finalize_due_session(&mut tx, owner, session).await?;
     let old = repo::recording(&mut tx, recording, session).await?;
@@ -109,7 +109,7 @@ pub(crate) async fn upload(
                 "Recording storage is unavailable",
             )
         })?;
-    let created = match write_file(&file, &bytes).await {
+    let created = match write_file(&file, bytes).await {
         Ok(()) => true,
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             let size = tokio::fs::metadata(&file)
@@ -141,7 +141,7 @@ pub(crate) async fn upload(
                             "Unable to recover interrupted upload",
                         )
                     })?;
-                write_file(&file, &bytes)
+                write_file(&file, bytes)
                     .await
                     .map_err(|_| {
                         ApiError(
@@ -254,18 +254,6 @@ pub(crate) async fn read_asset(file: PathBuf, metadata: Value, recording: Uuid) 
         etag,
     })
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn rejects_spoofed_recording_types() {
-        assert!(mime("video/webm", b"this is executable text").is_err());
-        assert_eq!(
-            mime("video/webm", &[0x1a, 0x45, 0xdf, 0xa3, 0]).unwrap(),
-            "video/webm"
-        );
-    }
-}
 
 pub(crate) async fn remove_session_media(owner: Uuid, session: Uuid) {
     let directory = root()
@@ -277,5 +265,17 @@ pub(crate) async fn remove_session_media(owner: Uuid, session: Uuid) {
         Err(error) => {
             tracing::error!(%session, %error, "Job deletion could not remove session media")
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn rejects_spoofed_recording_types() {
+        assert!(mime("video/webm", b"this is executable text").is_err());
+        assert_eq!(
+            mime("video/webm", &[0x1a, 0x45, 0xdf, 0xa3, 0]).unwrap(),
+            "video/webm"
+        );
     }
 }

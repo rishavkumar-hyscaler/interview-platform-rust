@@ -172,7 +172,7 @@ async fn checkpoint(
                 kind: chunk.kind,
                 content: &chunk.text,
                 hash: &chunk.hash,
-                vector: vector,
+                vector,
                 model: &provider.embedding_model,
                 dimensions: provider.dimensions as i32,
             },

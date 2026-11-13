@@ -126,8 +126,10 @@ pub(crate) async fn candidate_for_token(pool: &PgPool, hash: &str) -> Result<Opt
 }
 
 pub(crate) async fn interviewer_email(pool: &PgPool, user: Uuid) -> Result<String> {
-    Ok(sqlx::query_scalar("SELECT email FROM users WHERE id = $1 AND role = 'interviewer'")
-        .bind(user)
-        .fetch_one(pool)
-        .await?)
+    Ok(
+        sqlx::query_scalar("SELECT email FROM users WHERE id = $1 AND role = 'interviewer'")
+            .bind(user)
+            .fetch_one(pool)
+            .await?,
+    )
 }

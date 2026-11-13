@@ -155,18 +155,6 @@ pub(crate) async fn list(
         next_cursor,
     })
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn job_codes_are_normalized_and_bounded() {
-        assert_eq!(normalize_job_code("  be-2026_01 ").unwrap(), "BE-2026_01");
-        for code in ["", " ", "_BAD", "BAD ID", "../BAD", "é123"] {
-            assert!(normalize_job_code(code).is_err());
-        }
-        assert!(normalize_job_code(&"A".repeat(65)).is_err());
-    }
-}
 
 pub(crate) async fn delete(pool: &PgPool, owner: Uuid, job: Uuid) -> Result<()> {
     let mut tx = interviewer_transaction(pool, owner).await?;
@@ -178,4 +166,16 @@ pub(crate) async fn delete(pool: &PgPool, owner: Uuid, job: Uuid) -> Result<()> 
     }
 
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn job_codes_are_normalized_and_bounded() {
+        assert_eq!(normalize_job_code("  be-2026_01 ").unwrap(), "BE-2026_01");
+        for code in ["", " ", "_BAD", "BAD ID", "../BAD", "é123"] {
+            assert!(normalize_job_code(code).is_err());
+        }
+        assert!(normalize_job_code(&"A".repeat(65)).is_err());
+    }
 }

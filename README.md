@@ -178,11 +178,12 @@ Run checks appropriate to the change:
 ```bash
 # backend/
 cargo fmt --all -- --check
-cargo check
+cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
 
 # frontend/
 npm run lint
+npm run format:check   # npm run format to fix
 npm run build
 ```
 

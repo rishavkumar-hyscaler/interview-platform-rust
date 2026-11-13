@@ -909,7 +909,7 @@ async fn invitations_require_a_completed_matching_set_and_rejections_leave_no_ro
     let (status, invited) = call(&app, "POST", &route, input.clone(), token).await;
     assert_eq!(status, StatusCode::CREATED);
     assert!(!invited["session"]["question_set_id"].is_null());
-    assert_eq!(invited["session"]["question_set_id"].is_string(), true);
+    assert!(invited["session"]["question_set_id"].is_string());
     // Replaying a successful request recovers its existing link even if availability changes.
     let mut tx = interviewer_transaction(&pool, user)
         .await

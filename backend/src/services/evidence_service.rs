@@ -45,7 +45,7 @@ fn wave_format(bytes: &[u8]) -> Result<&'static str> {
             && bytes[32..40] == [2, 0, 16, 0, b'd', b'a', b't', b'a']
             && (8000..=96000).contains(&rate)
             && size > 0
-            && size % 2 == 0
+            && size.is_multiple_of(2)
             && size <= rate * 2 * 3
             && bytes.len() == 44 + size
             && u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize == bytes.len() - 8
@@ -102,7 +102,7 @@ pub(crate) async fn upload(
             "Invalid capture timestamp",
         ));
     }
-    let hash = hex::encode(Sha256::digest(&bytes));
+    let hash = hex::encode(Sha256::digest(bytes));
     let mut task = crate::observability::TaskLog::start("proctor.evidence.upload", session);
     repo::lock_session(&mut tx, session).await?;
     let old = repo::existing(&mut tx, asset, session).await?;
@@ -182,7 +182,7 @@ pub(crate) async fn upload(
                 )
             })?;
     }
-    if media::write_file(&file, &bytes)
+    if media::write_file(&file, bytes)
         .await
         .is_err()
     {

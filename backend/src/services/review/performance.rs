@@ -117,7 +117,7 @@ mod tests {
                 .contains("React: 80.00%; Rust: 80.00%")
         );
         assert_eq!(best.citations.len(), 2);
-        super::super::citations::ground_reply(&mut best, &[source.clone()]).unwrap();
+        super::super::citations::ground_reply(&mut best, std::slice::from_ref(&source)).unwrap();
         let worst = comparison("which skill was weakest?", Some(&assessment), &source).unwrap();
         assert!(worst.answer.contains("SQL: 40.00%"));
         assert!(

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Observations } from './proctoring/observations';
 type DeviceState =
-  'waiting' | 'requesting' | 'enabled' | 'denied' | 'unavailable' | 'off';
+  | 'waiting'
+  | 'requesting'
+  | 'enabled'
+  | 'denied'
+  | 'unavailable'
+  | 'off';
 export function useInterviewDevices(
   session: string | undefined,
   active: boolean,

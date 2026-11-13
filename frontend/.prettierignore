@@ -1,0 +1,5 @@
+dist
+node_modules
+public/proctoring
+package-lock.json
+tsconfig.tsbuildinfo

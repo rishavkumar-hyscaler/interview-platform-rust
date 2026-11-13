@@ -90,11 +90,13 @@ export function evidenceQueue(
             } catch (error) {
               // A submitted session rejects event replays. The attachment endpoint still
               // verifies the previously received event before accepting any late media.
-              if (!(
-                error instanceof ApiError &&
-                error.status === 409 &&
-                record.assets.length
-              ))
+              if (
+                !(
+                  error instanceof ApiError &&
+                  error.status === 409 &&
+                  record.assets.length
+                )
+              )
                 throw error;
             }
           }
