@@ -82,35 +82,142 @@ for manual resharing; automatic email delivery is not connected.
 
 ## Architecture
 
-```text
-backend/src/
-  app.rs             Central router and HTTP policies
-  main.rs / lib.rs   Startup / application exports
-  controllers/       HTTP extraction and response DTO mapping
-  services/          Business rules, transactions and workflows
-  repositories/      SQLx queries and database projections
-  models/ / dto/     Internal types / API contracts
-  ai/                Shared Rig integration
-  workers/           Generation, scoring, embeddings and expiry loops
-  infrastructure.rs  Database pools and transaction-local ownership context
-  access.rs          Authentication and scoped access
+The app is a **modular monolith**: one React frontend, one Rust backend process,
+PostgreSQL with pgvector, private media storage and an external AI provider.
 
-frontend/src/
-  components/        Shared UI components
-  features/          Candidate room and interviewer workspace
+```mermaid
+flowchart TB
+    subgraph Browser
+        C[Candidate room]
+        I[Interviewer workspace]
+        P[Local face/audio analysis]
+        Q[IndexedDB upload queue]
+        C --> P --> Q
+    end
+    subgraph Backend[Rust backend]
+        API[Axum router and middleware]
+        CTRL[Controllers and DTOs]
+        SVC[Services]
+        REPO[Repositories / SQLx]
+        W[Tokio background workers]
+        AI[Rig AI integration]
+        API --> CTRL --> SVC --> REPO
+        W --> SVC --> AI
+    end
+    C -->|HTTP requests| API
+    I -->|HTTP requests| API
+    Q -->|Events and media uploads| API
+    API -->|SSE updates and chat| I
+    C <-->|WebRTC screen/camera video| I
+    REPO --> DB[(PostgreSQL + pgvector)]
+    SVC --> MEDIA[Private media storage]
+    AI --> LLM[Configured AI provider]
 ```
 
-One Cargo package and one executable (`platform-api`). Tokio runs asynchronous
-workers inside that process. Durable task state/checkpoints live in PostgreSQL.
-Controllers → services → repositories keep HTTP, business rules and SQL separate.
-Database RLS scopes rows to the authenticated interviewer; candidate access is
-restricted to the invitation's session.
+### Backend layers
 
-The frontend uses React, TanStack Query, Tailwind and shared shadcn-style components.
-MediaPipe runs face/audio checks locally in browser workers. SSE delivers live
-updates/chat; WebRTC carries on-demand screen/camera video with authenticated
-HTTP signaling. Remote networks may require TURN. Signaling is currently in-memory
-and requires one backend instance.
+```text
+Request → router/middleware → controller → service → repository → PostgreSQL
+```
+
+| File/folder under `backend/src/` | Responsibility |
+| --- | --- |
+| `main.rs` / `lib.rs` | Startup, shutdown / application exports |
+| `app.rs` | Central router composition, HTTP policies and error normalization |
+| `controllers/` | HTTP extraction, authentication and response DTO mapping |
+| `dto/` | Explicit API request and response contracts |
+| `services/` | Business rules, transactions and workflows |
+| `repositories/` | Parameterized SQLx queries and database projections |
+| `models/` | Internal data structures |
+| `ai/` | Rig adapters for structured output, streaming, embeddings and transport |
+| `workers/` | Generation, scoring, embeddings and expiry loops |
+| `infrastructure.rs` | Database pools, ownership-scoped transactions and tracing |
+| `access.rs` | Authentication and scoped authorization |
+| `invitations.rs` | Invitation cryptography and evidence-signing key derivation |
+| `openapi.rs` | API documentation, enabled in debug builds |
+
+One Cargo package contains a binary crate (`main.rs`) and library crate (`lib.rs`),
+with one executable, `platform-api`. Service folders and workers are modules, not
+separate executables. Controllers map internal results to API response DTOs.
+
+The SQLx pool allows up to 10 connections. Cloning `PgPool` shares that pool rather
+than creating another one. Database RLS scopes rows using transaction-local
+interviewer context; candidate access is restricted to the invitation's session.
+
+### Frontend modules
+
+| File/folder under `frontend/src/` | Responsibility |
+| --- | --- |
+| `main.tsx` | Entry point, authentication and candidate/interviewer experiences |
+| `features/interview/` | Invitation access, devices, timer, questions, autosave, fullscreen and recordings |
+| `features/interview/proctoring/` | Browser signals, local inference, evidence capture and upload recovery |
+| `features/workspace/` | Jobs, invitations, results, analytics, audit, assessment and reviewer chat |
+| `features/live-screen/` | Candidate WebRTC sender, interviewer viewer and signaling |
+| `components/ui/` | Shared buttons, cards, inputs, pagination, toolbars and accordions |
+| `queryClient.ts` | TanStack Query server-data cache configuration |
+| `api.ts` / `transport.ts` | Requests, authentication headers, cancellation, timeouts and logging |
+| `session.ts` | Frontend session handling |
+
+React renders the UI; feature API modules communicate with the backend. Tailwind
+and shared shadcn-style components provide reusable styling. MediaPipe performs
+face/audio checks locally in browser workers.
+
+### Background processing
+
+Four asynchronous Tokio loops run alongside HTTP in the same process:
+
+| Worker | Work |
+| --- | --- |
+| Generation | Prepare job blueprints and candidate questions/reference answers |
+| Scoring | Grade submitted answers and aggregate competency results |
+| Embeddings | Build searchable session evidence vectors |
+| Expiry | Finalize interviews whose deadlines have passed |
+
+Task state and checkpoints live in PostgreSQL. Workers share the pool and shutdown
+signal; they do not create an operating-system thread for every candidate.
+
+### Main pipelines
+
+**Preparation:** create job → save fixed duration → background blueprint preparation
+→ invite candidate → generate and validate fresh private questions incrementally
+→ publish invitation link when preparation completes.
+
+**Interview:** validate invitation → device checks and fullscreen → server-controlled
+timer → fetch question → revision-safe autosave → navigation/adaptive selection
+→ manual submission or deadline expiry.
+
+**Scoring and retrieval:** submitted interview → rubric grading → validate criterion
+IDs, points and answer quotes → competency profile → evidence text chunks
+→ embeddings → pgvector. Reviewer questions retrieve session-scoped sources,
+stream an AI reply, validate citations and save the accepted conversation.
+Image pixels are not embedded; event and attachment metadata provide textual evidence.
+
+**Proctoring:** browser events/local inference → sustained-condition detection
+→ observation and relevant snapshot/clip → IndexedDB queue → backend upload
+→ scoped event/media storage → signed receipt records and media hashes
+→ interviewer evidence view → logged reviewer annotations.
+
+### Communication and storage boundaries
+
+| Mechanism | Purpose |
+| --- | --- |
+| HTTP | API calls, autosave, uploads and WebRTC signaling |
+| SSE | Live reviewer updates and streamed chat |
+| WebRTC | On-demand candidate screen/camera video; no microphone audio in live viewing |
+| IndexedDB | Temporary browser-side evidence upload recovery |
+| PostgreSQL / pgvector | Application records, durable tasks and evidence vectors |
+| Private media directory | Screenshot and recording bytes; database stores their references |
+
+WebRTC reuses the candidate's screen/camera tracks. Authenticated HTTP polling
+exchanges offers/answers; video travels between peers or through TURN when needed,
+not through the application API. Signaling rooms are in memory, require one backend
+instance and are lost on restart.
+
+Security boundaries include authentication, ownership checks, RLS, parameterized
+queries, request validation and authorized media access. AI prompts treat supplied
+content as untrusted data; scores and citations are validated server-side. Signed
+receipts detect alteration of received records, not dishonest or omitted browser
+telemetry. Request/task logs provide traceable IDs and durations.
 
 ## Database
 
