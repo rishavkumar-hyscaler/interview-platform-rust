@@ -69,6 +69,11 @@ and an API reverse proxy or a configured `VITE_API_BASE_URL`.
 2. **Invite candidate:** reuse the saved blueprint and duration; generate a fresh,
    private question set and reference answers. Publish the invitation link only
    after preparation completes. Saved questions survive retries.
+   Each set's seed gives every question its own framing, phrasing voice, setting
+   and numeric parameters (`services/generation/variation.rs`), so candidates for
+   the same JD get paraphrased, re-parameterized tasks. Scenario and code prompts
+   must use at least one assigned value, and exact and semantic duplicates of
+   earlier JD questions are still rejected. The applied variation is audited.
 3. **Take interview:** fullscreen room, text/code answers, revision-safe autosave,
    resume and server-controlled deadline. Optional audio/video answer recordings
    are available. The timer continues through refreshes and disconnections.
@@ -186,11 +191,15 @@ signal; they do not create an operating-system thread for every candidate.
 timer → fetch question → revision-safe autosave → navigation/adaptive selection
 → manual submission or deadline expiry.
 
-**Scoring and retrieval:** submitted interview → rubric grading → validate criterion
+**Scoring and retrieval:** submitted interview → rubric grading (streamed) → validate criterion
 IDs, points and answer quotes → competency profile → evidence text chunks
 → embeddings → pgvector. Reviewer questions retrieve session-scoped sources,
 stream an AI reply, validate citations and save the accepted conversation.
 Image pixels are not embedded; event and attachment metadata provide textual evidence.
+While each answer is graded, `GET /api/v1/sessions/{id}/assessment/stream` (SSE)
+sends the criterion rationale as the model writes it, marked unverified, then a
+`scored` event once that grade passes validation. The feed lives in the worker's
+process; the stored assessment stays authoritative.
 
 **Proctoring:** browser events/local inference → sustained-condition detection
 → observation and relevant snapshot/clip → IndexedDB queue → backend upload
@@ -352,8 +361,8 @@ Request/task logs include IDs and durations. Normal `cargo run` disables Console
 
 ## Current limits
 
-- Scoring publishes validated per-question results; true token-by-token scoring
-  rationale streaming remains pending. Reviewer chat supports token streaming.
+- Live scoring rationale is in-process: with several API replicas, a reviewer on a
+  different replica than the scoring worker sees only the final assessment.
 - Adaptive selection chooses from prepared questions; code answers are not executed.
 - Reviewer retrieval is session-scoped and citations are validated. Matching quotes
   do not guarantee correct interpretation; AI scoring still needs human oversight.

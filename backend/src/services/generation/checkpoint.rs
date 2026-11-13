@@ -4,6 +4,7 @@ use super::{
     pipeline::Preparation,
     quality::QuestionReview,
     types::{Question, fingerprint, vector_text},
+    variation::Variation,
 };
 use crate::infrastructure::interviewer_transaction;
 use crate::repositories::generation_workflow_repository as repo;
@@ -15,6 +16,7 @@ pub(super) async fn save(
     question: &Question,
     review: &QuestionReview,
     embedding: &[f32],
+    variation: &Variation,
 ) -> anyhow::Result<()> {
     let claim = context.claim;
     let mut tx = interviewer_transaction(context.pool, claim.recruiter).await?;
@@ -93,7 +95,7 @@ pub(super) async fn save(
     let total = context.planned_total;
     let complete = context.position == total;
     repo::advance_checkpoint(&mut tx, claim.id, claim.token, complete).await?;
-    repo::record_question(&mut tx,Uuid::new_v4(),claim.recruiter,claim.id,json!({"actor":"worker","position":context.position,"total":total,"prompt_version":PROMPT_VERSION})).await?;
+    repo::record_question(&mut tx,Uuid::new_v4(),claim.recruiter,claim.id,json!({"actor":"worker","position":context.position,"total":total,"prompt_version":PROMPT_VERSION,"variation":variation,"parameterized":variation.applied(&question.prompt)})).await?;
     if complete {
         crate::services::invitation_service::publish_prepared(&mut tx, claim.recruiter, claim.id)
             .await

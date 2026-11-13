@@ -4,12 +4,32 @@ import { HelpTip } from './HelpTip';
 import { BrowserObservations } from './BrowserObservations';
 import { useEffect, useState } from 'react';
 import { request } from '../../api';
+import { loggedFetch } from '../../transport';
+import { startTask } from '../../observability';
 type Criterion = {
   criterion_id: string;
   points: number;
   evidence: string;
   reasoning: string;
 };
+type LiveCriterion = Partial<Criterion>;
+type ScoredQuestion = {
+  question_id: string;
+  position: number;
+  competency_id: string;
+  score: number | null;
+  max_score: number;
+  criteria: Criterion[];
+};
+type LiveEvent =
+  | {
+      type: 'rationale';
+      position: number;
+      criteria: LiveCriterion[];
+    }
+  | { type: 'scored'; position: number; result: ScoredQuestion }
+  | { type: 'rejected'; position: number }
+  | { type: 'finished'; success: boolean };
 type Report = {
   configured: boolean;
   state: string;
@@ -63,6 +83,18 @@ export function Assessment({
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const [retrying, setRetrying] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  const [drafting, setDrafting] = useState<{
+    position: number;
+    criteria: LiveCriterion[];
+  } | null>(null);
+  const [scored, setScored] = useState<ScoredQuestion[]>([]);
+  const scoring =
+    !!report &&
+    report.configured &&
+    !report.assessment &&
+    !report.failed &&
+    ['submitted', 'scoring'].includes(report.state);
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
@@ -94,7 +126,80 @@ export function Assessment({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [session, token, retry]);
+  }, [session, token, retry, refresh]);
+  // Rationale streams while each answer is graded. It is unverified until the
+  // server validates the evidence quotes; the polled report stays authoritative.
+  useEffect(() => {
+    if (!scoring) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    async function connect() {
+      const requestId = crypto.randomUUID();
+      const finishTask = startTask('assessment.stream', requestId);
+      try {
+        const response = await loggedFetch(
+          `/api/v1/sessions/${session}/assessment/stream`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'X-Request-ID': requestId,
+            },
+            signal: controller.signal,
+          },
+        );
+        if (!response.ok || !response.body)
+          throw new Error('Live scoring unavailable');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (!controller.signal.aborted) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder
+            .decode(value, { stream: true })
+            .replaceAll('\r\n', '\n');
+          let end: number;
+          while ((end = buffer.indexOf('\n\n')) >= 0) {
+            const block = buffer.slice(0, end);
+            buffer = buffer.slice(end + 2);
+            const data = block
+              .split('\n')
+              .filter((line) => line.startsWith('data:'))
+              .map((line) => line.slice(5).trimStart())
+              .join('\n');
+            if (!data) continue;
+            const event = JSON.parse(data) as LiveEvent;
+            if (event.type === 'rationale')
+              setDrafting({
+                position: event.position,
+                criteria: event.criteria,
+              });
+            else if (event.type === 'scored') {
+              setDrafting(null);
+              setScored((previous) => [
+                ...previous.filter((q) => q.position !== event.position),
+                event.result,
+              ]);
+            } else if (event.type === 'rejected') setDrafting(null);
+            else {
+              setDrafting(null);
+              setRefresh((value) => value + 1);
+            }
+          }
+        }
+        finishTask(controller.signal.aborted ? 'cancelled' : 'succeeded');
+      } catch {
+        finishTask(controller.signal.aborted ? 'cancelled' : 'failed');
+      }
+      if (!controller.signal.aborted)
+        timer = setTimeout(() => void connect(), 3000);
+    }
+    void connect();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [scoring, session, token]);
   async function retryScoring() {
     if (retrying) return;
     setRetrying(true);
@@ -240,6 +345,45 @@ export function Assessment({
                     ? 'Scoring saved answers against the stored rubrics…'
                     : 'Scoring begins after the interview is submitted.'}
             </p>
+          )}
+          {scoring && (scored.length > 0 || drafting) && (
+            <div className="live-scoring" aria-live="polite">
+              <h4>
+                Live scoring{' '}
+                <HelpTip text="Rationale appears while the model writes it. Points only count after the server checks every evidence quote against the answer; the final assessment replaces this view." />
+              </h4>
+              {[...scored]
+                .sort((a, b) => a.position - b.position)
+                .map((q) => (
+                  <p key={q.question_id}>
+                    Question {q.position} · {q.competency_id} ·{' '}
+                    {q.score ?? 'Needs human review'}/{q.max_score} · evidence
+                    checked
+                  </p>
+                ))}
+              {drafting && (
+                <article>
+                  <strong>
+                    Question {drafting.position} · writing rationale
+                    (unverified)…
+                  </strong>
+                  {drafting.criteria.map((c, index) => (
+                    <div key={c.criterion_id ?? index}>
+                      <p>
+                        <em>{c.criterion_id ?? 'criterion'}</em>
+                        {c.points != null && ` · ${c.points} points proposed`}
+                      </p>
+                      {c.reasoning && <p className="preserve">{c.reasoning}</p>}
+                      {c.evidence && (
+                        <blockquote className="preserve">
+                          {c.evidence}
+                        </blockquote>
+                      )}
+                    </div>
+                  ))}
+                </article>
+              )}
+            </div>
           )}
           {!report.assessment && report.last_failure && (
             <p className="configuration-note">

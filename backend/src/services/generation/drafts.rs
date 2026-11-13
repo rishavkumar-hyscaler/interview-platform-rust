@@ -3,6 +3,7 @@ use super::{
     pipeline::Preparation,
     quality,
     types::{PromptSet, QuestionPrompt, QuestionSet, fingerprint, vector_text},
+    variation::{self, Variation},
 };
 use crate::infrastructure::interviewer_transaction;
 use crate::repositories::generation_workflow_repository as repo;
@@ -21,7 +22,7 @@ pub(super) async fn prepare(
     context: &Preparation<'_>,
     mut excluded: Vec<String>,
     initial_feedback: &str,
-) -> anyhow::Result<(QuestionSet, quality::Review, Vec<Vec<f32>>)> {
+) -> anyhow::Result<(QuestionSet, quality::Review, Vec<Vec<f32>>, Variation)> {
     let diagnostics = super::diagnostics::Scope {
         pool: context.pool.clone(),
         owner: context.claim.recruiter,
@@ -50,7 +51,11 @@ pub(super) async fn prepare(
     let mut cached_embedding: Option<(String, Vec<f32>)> = None;
     // A duplicate replacement does not consume the one content repair.
     // Never exceed three drafts or regenerate saved questions.
+    let kind = context.blueprint.slots[0].kind.clone();
+    // Worker retries and duplicate replacements move to a fresh variation.
+    let mut round = context.claim.attempts.max(0) as u32 * 3;
     for attempt in 1..=3 {
+        let variation = variation::for_slot(context.claim.seed, context.position, &kind, round);
         tracing::info!(event = "task.phase", phase = "question.generate", attempt);
         let response = context.provider.structured::<QuestionSet>(
             "interview_questions", quality::QUESTION_INSTRUCTIONS,
@@ -58,7 +63,7 @@ pub(super) async fn prepare(
                 "positions":[context.position],"seed":context.claim.seed,"attempt":context.claim.attempts,
                 "draft_attempt":attempt,"duration_minutes":context.duration,"planned_scope":context.planned_scope,
                 "expected_output_format":quality::question_format(&context.blueprint.slots[0], context.duration),
-                "excluded_questions":excluded,"repair_feedback":feedback,"previous_draft":previous})
+                "variation":variation,"excluded_questions":excluded,"repair_feedback":feedback,"previous_draft":previous})
         ).await;
         let checked = async {
             let questions = response?;
@@ -88,6 +93,7 @@ pub(super) async fn prepare(
                     .collect(),
             };
             prompts.validate(context.blueprint, context.duration)?;
+            variation.check(&prompts.questions[0].prompt)?;
             if excluded
                 .iter()
                 .any(|old| fingerprint(old) == fingerprint(&prompts.questions[0].prompt))
@@ -121,7 +127,7 @@ pub(super) async fn prepare(
                 context.position,
             )
             .await?;
-            Ok::<_, anyhow::Error>((questions, review, vectors))
+            Ok::<_, anyhow::Error>((questions, review, vectors, variation.clone()))
         }
         .await;
         match checked {
@@ -141,6 +147,9 @@ pub(super) async fn prepare(
                 let fatal = error
                     .downcast_ref::<super::provider::ProviderFailure>()
                     .is_some_and(|failure| !failure.retryable);
+                if error.is::<DuplicateQuestion>() {
+                    round += 1;
+                }
                 let exhausted = if error.is::<DuplicateQuestion>() {
                     let used = duplicate_replaced;
                     duplicate_replaced = true;

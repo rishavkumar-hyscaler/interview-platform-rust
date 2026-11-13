@@ -180,6 +180,7 @@ fn document() -> Value {
     endpoint!("post" "/api/v1/jobs/{job}/question-sets", "Generation", staff, "Retry failed question set generation", "202" => json_response(response_schema::<generation::PendingResponse>()));
     endpoint!("get" "/api/v1/sessions/{session}/assessment", "Assessment", staff, "Get scoring results and status", "200" => json_response(response_schema::<scoring::AssessmentResponse>()));
     endpoint!("post" "/api/v1/sessions/{session}/assessment/retry", "Assessment", staff, "Retry scoring", "200" => json_response(response_schema::<scoring::RetryResponse>()));
+    endpoint!("get" "/api/v1/sessions/{session}/assessment/stream", "Assessment", staff, "Stream unverified scoring rationale as it is produced", "200" => stream());
     endpoint!("get" "/api/v1/sessions/{session}/rag", "Retrieval", staff, "Get evidence indexing status", "200" => json_response(response_schema::<rag::IndexStatusResponse>()));
     endpoint!("post" "/api/v1/sessions/{session}/rag", "Retrieval", staff, "Retry evidence indexing", "200" => json_response(response_schema::<rag::RetryResponse>()));
     endpoint!("get" "/api/v1/sessions/{session}/live", "Review", staff, "Stream live audit events", "200" => stream(),

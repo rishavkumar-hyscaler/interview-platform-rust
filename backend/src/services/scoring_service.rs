@@ -25,6 +25,15 @@ pub(crate) async fn report(pool: &PgPool, owner: Uuid, session: Uuid) -> Result<
         observations,
     })
 }
+/// Session state for the live scoring feed; also proves the reviewer may read it.
+pub(crate) async fn state(pool: &PgPool, owner: Uuid, session: Uuid) -> Result<String> {
+    let mut tx = interviewer_transaction(pool, owner).await?;
+    let state = repo::state(&mut tx, session, false)
+        .await?
+        .ok_or(ApiError(StatusCode::NOT_FOUND, "Session not found"))?;
+    tx.commit().await?;
+    Ok(state)
+}
 pub(crate) async fn retry(pool: &PgPool, owner: Uuid, session: Uuid) -> Result<()> {
     let mut tx = interviewer_transaction(pool, owner).await?;
     let state = repo::state(&mut tx, session, true).await?;

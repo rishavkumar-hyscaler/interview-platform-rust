@@ -1,4 +1,5 @@
 //! Assessment HTTP interface, worker orchestration and rubric rules.
+pub(crate) mod live;
 mod recovery;
 #[cfg(test)]
 mod rig_tests;

@@ -9,7 +9,7 @@ use sqlx::PgPool;
 use tracing::Instrument;
 use uuid::Uuid;
 
-use super::rubric::{competency_profile, evaluate};
+use super::rubric::{competency_profile, evaluate_streaming};
 pub async fn process_next(pool: &PgPool, provider: &AiProvider) -> anyhow::Result<bool> {
     let owners: Vec<Uuid> = repo::interviewers(pool).await?;
     for owner in owners {
@@ -61,6 +61,7 @@ pub async fn process_next(pool: &PgPool, provider: &AiProvider) -> anyhow::Resul
         let current: Value = repo::current_claim(&mut tx, session).await?;
         if current["claim"] != json!(claim) {
             tx.commit().await?;
+            super::live::finished(session, false);
             return Ok(true);
         }
         let success = result.is_ok();
@@ -93,6 +94,7 @@ pub async fn process_next(pool: &PgPool, provider: &AiProvider) -> anyhow::Resul
             }
         }
         tx.commit().await?;
+        super::live::finished(session, success);
         task.finish(success);
         return Ok(true);
     }
@@ -117,14 +119,26 @@ async fn assess(
         let reused = cached.is_some();
         let score = match cached {
             Some(score) => score,
-            None => evaluate(provider, question)
-                .await
-                .map_err(|error| super::recovery::QuestionFailure {
-                    position: question["position"]
-                        .as_u64()
-                        .unwrap_or(0),
-                    reason: super::recovery::safe_reason(&error),
-                })?,
+            None => {
+                let position = question["position"]
+                    .as_u64()
+                    .unwrap_or(0);
+                let mut feed = super::live::QuestionFeed::start(session, position);
+                match evaluate_streaming(provider, question, |delta| feed.push(delta)).await {
+                    Ok(score) => {
+                        feed.scored(&score);
+                        score
+                    }
+                    Err(error) => {
+                        feed.rejected();
+                        return Err(super::recovery::QuestionFailure {
+                            position,
+                            reason: super::recovery::safe_reason(&error),
+                        }
+                        .into());
+                    }
+                }
+            }
         };
         scores.push(score);
         let mut tx = interviewer_transaction(pool, owner).await?;

@@ -2,7 +2,7 @@
 pub mod provider;
 mod quality;
 pub mod types;
-pub(crate) const PROMPT_VERSION: &str = "jd-questions-v6";
+pub(crate) const PROMPT_VERSION: &str = "jd-questions-v7";
 
 pub(crate) mod bank;
 mod checkpoint;
@@ -10,6 +10,7 @@ mod diagnostics;
 mod drafts;
 mod pipeline;
 mod plan;
+mod variation;
 pub(crate) mod worker;
 pub use crate::controllers::generation_controller::routes;
 pub async fn process_next(

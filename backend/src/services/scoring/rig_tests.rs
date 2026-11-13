@@ -1,5 +1,5 @@
 //! Local-only scoring contract checks; never read .env or call a live model.
-use super::rubric::{evaluate, valid_checkpoint};
+use super::rubric::{evaluate, evaluate_streaming, valid_checkpoint};
 use crate::generation::provider::{AiProvider, ProviderFailure};
 use axum::{Json, Router, http::StatusCode, routing::post};
 use serde_json::{Value, json};
@@ -178,4 +178,92 @@ async fn scoring_provider_failures_and_cancellation_do_not_add_retries() {
     );
     server.abort();
     assert_eq!(requests.lock().unwrap().len(), 1);
+}
+
+async fn streaming_mock(output: Value) -> (AiProvider, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route("/v1/responses", post(move |Json(request): Json<Value>| {
+        let output = output.to_string();
+        async move {
+            assert_eq!(request["stream"], true);
+            assert_eq!(request["text"]["format"]["name"], "rubric_grade");
+            let mut wire = String::new();
+            for (index, part) in output.as_bytes().chunks(7).enumerate() {
+                let delta = String::from_utf8_lossy(part);
+                wire.push_str(&format!("data: {}\n\n", json!({"type":"response.output_text.delta","item_id":"msg_score","output_index":0,"content_index":0,"sequence_number":index,"delta":delta})));
+            }
+            wire.push_str(&format!("data: {}\n\n", json!({"type":"response.completed","sequence_number":100000,"response":{"id":"resp_score","object":"response","created_at":0,"model":"gpt-5-mini","status":"completed","output":[]}})));
+            (StatusCode::OK, [("content-type", "text/event-stream")], wire)
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .unwrap();
+    });
+    let provider = AiProvider::new(
+        base,
+        "dummy-local-key".into(),
+        "unused-local-key".into(),
+        "gpt-5-mini".into(),
+        "unused".into(),
+    )
+    .unwrap();
+    (provider, server)
+}
+
+#[tokio::test]
+async fn streamed_rationale_arrives_before_the_validated_score() {
+    let (provider, server) = streaming_mock(grade()).await;
+    let mut streamed = String::new();
+    let mut partial_seen = false;
+    let score = evaluate_streaming(&provider, &question(), |delta| {
+        streamed.push_str(delta);
+        let progress = super::live::progress(&streamed);
+        partial_seen |= progress.len() == 1
+            && progress[0]["reasoning"]
+                .as_str()
+                .is_some_and(|text| !text.is_empty() && text != "Identifies references.");
+    })
+    .await
+    .unwrap();
+    server.abort();
+    assert!(partial_seen, "rationale text was not visible mid-stream");
+    assert_eq!(streamed, grade().to_string());
+    assert_eq!(score["score"], 3);
+    assert!(valid_checkpoint(&score, &question()));
+}
+
+#[tokio::test]
+async fn streamed_grade_still_rejects_invented_evidence() {
+    let mut invented = grade();
+    invented["criteria"][0]["evidence"] = json!("not in the answer");
+    let (provider, server) = streaming_mock(invented).await;
+    let error = evaluate_streaming(&provider, &question(), |_| {})
+        .await
+        .unwrap_err();
+    server.abort();
+    assert_eq!(error.to_string(), "Evidence must quote the answer exactly");
+}
+
+#[tokio::test]
+async fn broken_stream_falls_back_to_one_blocking_request() {
+    // The JSON-only mock cannot stream, so the grade comes from the fallback.
+    let (provider, requests, server) = mock(StatusCode::OK, grade(), Duration::ZERO).await;
+    let score = evaluate_streaming(&provider, &question(), |_| {})
+        .await
+        .unwrap();
+    server.abort();
+    assert_eq!(score["score"], 3);
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0]["stream"], true);
+    assert!(
+        requests[1]
+            .get("stream")
+            .is_none_or(|v| v == false)
+    );
 }

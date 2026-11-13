@@ -138,10 +138,17 @@ pub(super) async fn prepare(
             total
         );
         let prepared = async {
-            let (questions, review, vectors) =
+            let (questions, review, vectors, variation) =
                 super::drafts::prepare(&context, excluded.clone(), &initial_feedback).await?;
             let question = &questions.questions[0];
-            super::checkpoint::save(&context, question, &review.questions[0], &vectors[0]).await?;
+            super::checkpoint::save(
+                &context,
+                question,
+                &review.questions[0],
+                &vectors[0],
+                &variation,
+            )
+            .await?;
             Ok::<_, anyhow::Error>(question.prompt.clone())
         };
         let prompt=match tokio::time::timeout(std::time::Duration::from_secs(seconds),prepared).await {
