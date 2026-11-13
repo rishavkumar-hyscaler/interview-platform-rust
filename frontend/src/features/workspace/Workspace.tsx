@@ -32,8 +32,12 @@ import {
   BriefcaseBusiness,
   ChartNoAxesColumn,
   ClipboardList,
+  Clock,
+  Gauge,
   History,
   Home,
+  ListChecks,
+  ShieldCheck,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
@@ -66,12 +70,28 @@ import {
 } from './api';
 
 const reviewSections = [
-  ['overview', 'Job & session'],
-  ['questions', 'Questions & rubrics'],
-  ['assessment', 'Assessment'],
-  ['evidence', 'Evidence & assistant'],
-  ['timeline', 'Session timeline'],
+  ['overview', 'Job & session', BriefcaseBusiness],
+  ['questions', 'Questions & rubrics', ListChecks],
+  ['assessment', 'Assessment', Gauge],
+  ['evidence', 'Evidence & assistant', ShieldCheck],
+  ['timeline', 'Session timeline', Clock],
 ] as const;
+/** Quick status filters for the results table, in workflow order. */
+const statusShortcuts = [
+  ['all', 'All'],
+  ['in_progress', 'In progress'],
+  ['submitted', 'Submitted'],
+  ['scoring', 'Scoring'],
+  ['completed', 'Completed'],
+] as const;
+const elapsed = (from: string | null, until: string | null) => {
+  const ms = from && until ? Date.parse(until) - Date.parse(from) : NaN;
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const minutes = Math.round(ms / 60000);
+  return minutes < 60
+    ? `${minutes} min`
+    : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+};
 type ReviewSection = (typeof reviewSections)[number][0];
 
 const JOBS_PER_PAGE = 6;
@@ -1140,6 +1160,30 @@ export function Workspace({
                           </>
                         }
                       />
+                      <div
+                        className="status-shortcuts"
+                        role="group"
+                        aria-label="Quick status filter for this page"
+                      >
+                        {statusShortcuts.map(([state, label]) => {
+                          const count =
+                            state === 'all'
+                              ? sessions.items.length
+                              : sessions.items.filter((s) => s.state === state)
+                                  .length;
+                          return (
+                            <button
+                              key={state}
+                              type="button"
+                              aria-pressed={filter === state}
+                              onClick={() => setFilter(state)}
+                            >
+                              {label}
+                              <span className="count">{count}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                       {visible.length ? (
                         <div className="table-scroll flex-1">
                           <table>
@@ -1157,7 +1201,20 @@ export function Workspace({
                             </thead>
                             <tbody>
                               {visible.map((s) => (
-                                <tr key={s.id}>
+                                <tr
+                                  key={s.id}
+                                  className="clickable-row"
+                                  onClick={(event) => {
+                                    // The View button handles its own click and keyboard use.
+                                    if (
+                                      !busy &&
+                                      !(event.target as HTMLElement).closest(
+                                        'button, a',
+                                      )
+                                    )
+                                      inspect(s.id);
+                                  }}
+                                >
                                   <td>
                                     <strong>{s.candidate_name}</strong>
                                     <small>{s.candidate_email}</small>
@@ -1591,8 +1648,13 @@ export function Workspace({
                 >
                   {selected.candidate_name}
                 </h2>
-                <p className="m-0! truncate text-control text-slate-500 workspace-dark:text-slate-400">
-                  {selected.candidate_email}
+                <p className="m-0! flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-control text-slate-500 workspace-dark:text-slate-400">
+                  <Status state={selected.state} />
+                  <span className="truncate">{selected.candidate_email}</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="truncate">
+                    {selected.job_title} ({selected.job_code})
+                  </span>
                 </p>
               </div>
               <button
@@ -1608,7 +1670,7 @@ export function Workspace({
                 aria-label="Session sections"
                 className="flex min-w-0 gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-3 md:flex-col md:border-r md:border-b-0 workspace-dark:border-slate-700 workspace-dark:bg-slate-900"
               >
-                {reviewSections.map(([id, label]) => (
+                {reviewSections.map(([id, label, Icon]) => (
                   <button
                     key={id}
                     type="button"
@@ -1619,8 +1681,9 @@ export function Workspace({
                         .getElementById('session-review-content')
                         ?.scrollTo(0, 0);
                     }}
-                    className={`shrink-0 whitespace-nowrap px-3 text-left text-control font-medium ${navigationShading}`}
+                    className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap px-3 text-left text-control font-medium ${navigationShading}`}
                   >
+                    <Icon size={15} aria-hidden="true" className="shrink-0" />
                     {label}
                   </button>
                 ))}
@@ -1636,8 +1699,7 @@ export function Workspace({
                   hidden={reviewSection !== 'overview'}
                   aria-label="Job and session"
                 >
-                  <Status state={selected.state} />
-                  <h3>{selected.job_title}</h3>
+                  <h3 className="mt-0!">{selected.job_title}</h3>
                   <p className="job-code">
                     Job ID: <strong>{selected.job_code}</strong>
                   </p>
@@ -1657,6 +1719,12 @@ export function Workspace({
                     <div>
                       <small>Submitted</small>
                       <strong>{date(selected.submitted_at)}</strong>
+                    </div>
+                    <div>
+                      <small>Time taken</small>
+                      <strong>
+                        {elapsed(selected.started_at, selected.submitted_at)}
+                      </strong>
                     </div>
                   </div>
                   {error && (

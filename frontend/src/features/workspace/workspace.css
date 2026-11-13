@@ -585,3 +585,63 @@ dialog.interviewer-workspace {
 .interviewer-workspace .audit-filter-actions {
   @apply flex items-center gap-2 whitespace-nowrap;
 }
+
+/* Status badges: a leading dot keeps state readable at a glance, not by colour alone. */
+.interviewer-workspace .status {
+  @apply inline-flex items-center gap-1.5;
+}
+.interviewer-workspace .status::before {
+  @apply size-1.5 shrink-0 rounded-full bg-current opacity-80 content-[''];
+}
+.interviewer-workspace :is(.status-invited, .status-preparing) {
+  @apply bg-slate-100 text-slate-700;
+}
+.interviewer-workspace .status-preparation_failed,
+.interviewer-workspace .status-expired {
+  @apply bg-rose-50 text-rose-700;
+}
+.interviewer-workspace[data-theme='dark']
+  :is(.status-invited, .status-preparing) {
+  @apply [background:#26344d] [color:#dbe5f4];
+}
+.interviewer-workspace[data-theme='dark'] .status-preparation_failed {
+  @apply [background:#442730] [color:#fecdd3];
+}
+
+/* Quick status filter above the results table. */
+.interviewer-workspace .status-shortcuts {
+  @apply mx-5 mb-3 flex flex-wrap gap-2;
+}
+.interviewer-workspace .status-shortcuts button {
+  @apply inline-flex min-h-8 items-center gap-2 rounded-full border border-solid border-slate-200 bg-white px-3 py-1 text-detail font-medium text-slate-600 transition-colors hover:border-indigo-300 hover:text-slate-900;
+}
+.interviewer-workspace .status-shortcuts button[aria-pressed='true'] {
+  @apply border-indigo-500 bg-indigo-50 text-indigo-800;
+}
+.interviewer-workspace .status-shortcuts .count {
+  @apply min-w-5 rounded-full bg-slate-100 px-1.5 text-center tabular-nums text-slate-600;
+}
+.interviewer-workspace .status-shortcuts button[aria-pressed='true'] .count {
+  @apply bg-indigo-100 text-indigo-800;
+}
+.interviewer-workspace[data-theme='dark'] .status-shortcuts button {
+  @apply [background:#111b2e] [border-color:#2a3850] [color:#cbd5e1];
+}
+.interviewer-workspace[data-theme='dark']
+  .status-shortcuts
+  button[aria-pressed='true'] {
+  @apply [background:#252852] [border-color:#818cf8] [color:#e0e7ff];
+}
+.interviewer-workspace[data-theme='dark'] .status-shortcuts .count {
+  @apply [background:#26344d] [color:#dbe5f4];
+}
+
+/* Whole results row opens the session; the View button stays for keyboard users. */
+.interviewer-workspace tbody tr.clickable-row {
+  @apply cursor-pointer;
+}
+@media (max-width: 640px) {
+  .interviewer-workspace .status-shortcuts {
+    @apply mx-4;
+  }
+}
