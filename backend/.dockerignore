@@ -1,0 +1,8 @@
+# Only these files are needed to compile. Secrets and evidence never enter context.
+**
+!Cargo.toml
+!Cargo.lock
+!src/
+!src/**
+!migrations/
+!migrations/**

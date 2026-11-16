@@ -1,0 +1,12 @@
+# Bootstrap once with cluster administrator access, not the deployment role.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: interview-gp3
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer

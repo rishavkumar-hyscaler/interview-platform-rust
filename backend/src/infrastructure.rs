@@ -42,11 +42,25 @@ pub async fn connect_for_migrations() -> anyhow::Result<PgPool> {
 }
 
 async fn connect_url(url: &str) -> anyhow::Result<PgPool> {
+    let max_connections = positive_setting("DB_MAX_CONNECTIONS", 10)?;
+    let acquire_timeout = positive_setting("DB_ACQUIRE_TIMEOUT_SECONDS", 5)?;
     Ok(PgPoolOptions::new()
-        .max_connections(10)
-        .acquire_timeout(std::time::Duration::from_secs(5))
+        .max_connections(max_connections)
+        .acquire_timeout(std::time::Duration::from_secs(u64::from(acquire_timeout)))
         .connect(url)
         .await?)
+}
+
+fn positive_setting(name: &str, default: u32) -> anyhow::Result<u32> {
+    let value = match std::env::var(name) {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => return Ok(default),
+        Err(_) => anyhow::bail!("{name} must contain a positive integer"),
+    };
+    match value.parse::<u32>() {
+        Ok(number) if number > 0 => Ok(number),
+        _ => anyhow::bail!("{name} must contain a positive integer"),
+    }
 }
 
 pub async fn interviewer_transaction(
