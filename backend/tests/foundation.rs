@@ -48,11 +48,7 @@ async fn authentication_and_tenant_isolation() {
     assert_eq!(std::env::var("ALLOW_REGISTRATION").as_deref(), Ok("true"));
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(
-            &std::env::var("RUNTIME_DATABASE_URL")
-                .or_else(|_| std::env::var("DATABASE_URL"))
-                .unwrap(),
-        )
+        .connect(&std::env::var("DATABASE_URL").unwrap())
         .await
         .unwrap();
     let bypass: bool = sqlx::query_scalar(

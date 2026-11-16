@@ -1,3 +1,4 @@
+mod common;
 use axum::{
     Router,
     body::{Body, to_bytes},
@@ -49,13 +50,14 @@ async fn setup(pool: &PgPool, app: &Router, owner: &Value) -> (Value, Vec<Uuid>)
         .unwrap()
         .parse()
         .unwrap();
-    let(s,job)=call(app,"POST","/api/v1/jobs",json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Interview room test","description":"Build reliable applications in Rust and PostgreSQL.","request_key":Uuid::new_v4()}),token).await;
+    let(s,job)=call(app,"POST","/api/v1/jobs",json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Interview room test","description":"Build reliable applications in Rust and PostgreSQL.","preparation_duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
     assert_eq!(s, StatusCode::CREATED);
     let job: Uuid = job["id"]
         .as_str()
         .unwrap()
         .parse()
         .unwrap();
+    common::seed_set(pool, user, job, 30).await;
     let ids = vec![Uuid::new_v4(), Uuid::new_v4()];
     let mut tx = interviewer_transaction(pool, user)
         .await
@@ -76,9 +78,42 @@ async fn setup(pool: &PgPool, app: &Router, owner: &Value) -> (Value, Vec<Uuid>)
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    let(s,invite)=call(app,"POST",&format!("/api/v1/jobs/{job}/invitations"),json!({"candidate_name":"Room test candidate","candidate_email":"room-test@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
-    assert_eq!(s, StatusCode::CREATED);
+    let(s,mut invite)=call(app,"POST",&format!("/api/v1/jobs/{job}/invitations"),json!({"candidate_name":"Room test candidate","candidate_email":"room-test@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
+    assert_eq!(s, StatusCode::ACCEPTED);
+    common::publish_fixture(pool, user, &mut invite).await;
     (invite, ids)
+}
+
+async fn score_until_attempt(
+    pool: &PgPool,
+    provider: &platform_api::generation::provider::AiProvider,
+    owner: Uuid,
+    session: Uuid,
+    expected: i64,
+) {
+    for _ in 0..128 {
+        let mut tx = interviewer_transaction(pool, owner)
+            .await
+            .unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_events WHERE entity_id=$1 AND action='assessment.started'",
+        )
+        .bind(session)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        if count >= expected {
+            return;
+        }
+        assert!(
+            platform_api::scoring::process_next(pool, provider)
+                .await
+                .unwrap(),
+            "scoring queue stopped before this session was processed"
+        );
+    }
+    panic!("this session was not scored");
 }
 
 #[tokio::test]
@@ -86,7 +121,7 @@ async fn setup(pool: &PgPool, app: &Router, owner: &Value) -> (Value, Vec<Uuid>)
 async fn blank_answers_are_zero_scoring_is_idempotent_and_private() {
     platform_api::infrastructure::load_environment().unwrap();
     let pool = PgPoolOptions::new()
-        .connect(&std::env::var("RUNTIME_DATABASE_URL").unwrap())
+        .connect(&std::env::var("DATABASE_URL").unwrap())
         .await
         .unwrap();
     let app = platform_api::router_with_ai(pool.clone(), None);
@@ -153,7 +188,10 @@ async fn blank_answers_are_zero_scoring_is_idempotent_and_private() {
     .await;
     assert_eq!(risk["events"].as_array().unwrap().len(), 1);
     assert_eq!(risk["events"][0]["chain_status"], "valid_server_receipt");
-    assert_eq!(risk["risk_score"], 2);
+    assert_eq!(
+        risk["risk_score"], 0,
+        "an observation without media is not an integrity deviation"
+    );
     assert_eq!(
         call(
             &app,
@@ -164,7 +202,7 @@ async fn blank_answers_are_zero_scoring_is_idempotent_and_private() {
         )
         .await
         .0,
-        StatusCode::OK
+        StatusCode::NOT_FOUND
     );
     let (_, risk) = call(
         &app,
@@ -306,7 +344,7 @@ async fn blank_answers_are_zero_scoring_is_idempotent_and_private() {
 async fn failed_scoring_retries_promptly_and_reuses_validated_checkpoints() {
     platform_api::infrastructure::load_environment().unwrap();
     let pool = PgPoolOptions::new()
-        .connect(&std::env::var("RUNTIME_DATABASE_URL").unwrap())
+        .connect(&std::env::var("DATABASE_URL").unwrap())
         .await
         .unwrap();
     let app = platform_api::router_with_ai(pool.clone(), None);
@@ -341,11 +379,7 @@ async fn failed_scoring_retries_promptly_and_reuses_validated_checkpoints() {
         "mock".into(),
     )
     .unwrap();
-    assert!(
-        platform_api::scoring::process_next(&pool, &provider)
-            .await
-            .unwrap()
-    );
+    score_until_attempt(&pool, &provider, owner_id, session, 1).await;
     let path = format!("/api/v1/sessions/{session}/assessment");
     let (_, report) = call(&app, "GET", &path, Value::Null, token).await;
     assert_eq!(report["state"], "submitted");
@@ -355,20 +389,14 @@ async fn failed_scoring_retries_promptly_and_reuses_validated_checkpoints() {
         report["last_failure"]["reason"],
         "AI service connection failed or timed out"
     );
-    assert!(
-        !platform_api::scoring::process_next(&pool, &provider)
-            .await
-            .unwrap(),
-        "backoff prevents a hot loop"
+    let (_, delayed) = call(&app, "GET", &path, Value::Null, token).await;
+    assert_eq!(
+        delayed["attempts"], 1,
+        "backoff preserves this session's first attempt"
     );
     // Wait only the short retry delay; the original started claim remains fresh.
     tokio::time::sleep(std::time::Duration::from_secs(16)).await;
-    assert!(
-        platform_api::scoring::process_next(&pool, &provider)
-            .await
-            .unwrap(),
-        "explicit failure must not hold a 15 minute lease"
-    );
+    score_until_attempt(&pool, &provider, owner_id, session, 2).await;
     let mut tx = interviewer_transaction(&pool, owner_id)
         .await
         .unwrap();
@@ -391,11 +419,7 @@ async fn failed_scoring_retries_promptly_and_reuses_validated_checkpoints() {
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    assert!(
-        platform_api::scoring::process_next(&pool, &provider)
-            .await
-            .unwrap()
-    );
+    score_until_attempt(&pool, &provider, owner_id, session, 3).await;
     let (_, report) = call(&app, "GET", &path, Value::Null, token).await;
     assert_eq!(report["state"], "completed");
     let mut tx = interviewer_transaction(&pool, owner_id)

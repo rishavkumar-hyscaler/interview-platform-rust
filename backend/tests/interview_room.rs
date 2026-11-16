@@ -1,3 +1,4 @@
+mod common;
 use axum::{
     Router,
     body::{Body, to_bytes},
@@ -49,13 +50,14 @@ async fn setup(pool: &PgPool, app: &Router, owner: &Value) -> (Value, Vec<Uuid>)
         .unwrap()
         .parse()
         .unwrap();
-    let(s,job)=call(app,"POST","/api/v1/jobs",json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Interview room test","description":"Build reliable applications in Rust and PostgreSQL.","request_key":Uuid::new_v4()}),token).await;
+    let(s,job)=call(app,"POST","/api/v1/jobs",json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Interview room test","description":"Build reliable applications in Rust and PostgreSQL.","preparation_duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
     assert_eq!(s, StatusCode::CREATED);
     let job: Uuid = job["id"]
         .as_str()
         .unwrap()
         .parse()
         .unwrap();
+    common::seed_set(pool, user, job, 30).await;
     let ids = vec![Uuid::new_v4(), Uuid::new_v4()];
     let mut tx = interviewer_transaction(pool, user)
         .await
@@ -76,8 +78,9 @@ async fn setup(pool: &PgPool, app: &Router, owner: &Value) -> (Value, Vec<Uuid>)
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    let(s,invite)=call(app,"POST",&format!("/api/v1/jobs/{job}/invitations"),json!({"candidate_name":"Room test candidate","candidate_email":"room-test@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
-    assert_eq!(s, StatusCode::CREATED);
+    let(s,mut invite)=call(app,"POST",&format!("/api/v1/jobs/{job}/invitations"),json!({"candidate_name":"Room test candidate","candidate_email":"room-test@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
+    assert_eq!(s, StatusCode::ACCEPTED);
+    common::publish_fixture(pool, user, &mut invite).await;
     (invite, ids)
 }
 #[tokio::test]
@@ -86,11 +89,7 @@ async fn timed_room_saves_resume_conflicts_and_deadlines_are_enforced() {
     platform_api::infrastructure::load_environment().unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(6)
-        .connect(
-            &std::env::var("RUNTIME_DATABASE_URL")
-                .or_else(|_| std::env::var("DATABASE_URL"))
-                .unwrap(),
-        )
+        .connect(&std::env::var("DATABASE_URL").unwrap())
         .await
         .unwrap();
     let app = platform_api::router_with_ai(pool.clone(), None);

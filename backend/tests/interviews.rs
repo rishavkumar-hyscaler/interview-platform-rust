@@ -1,3 +1,4 @@
+mod common;
 use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
@@ -47,11 +48,7 @@ async fn database() -> PgPool {
     assert_eq!(std::env::var("ALLOW_REGISTRATION").as_deref(), Ok("true"));
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect(
-            &std::env::var("RUNTIME_DATABASE_URL")
-                .or_else(|_| std::env::var("DATABASE_URL"))
-                .unwrap(),
-        )
+        .connect(&std::env::var("DATABASE_URL").unwrap())
         .await
         .unwrap();
     let bypass: bool = sqlx::query_scalar(
@@ -64,6 +61,7 @@ async fn database() -> PgPool {
     pool
 }
 async fn ready_set(pool: &PgPool, owner: Uuid, job: Uuid, duration: i32) {
+    common::seed_set(pool, owner, job, duration).await;
     let mut tx = interviewer_transaction(pool, owner)
         .await
         .unwrap();
@@ -103,7 +101,7 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
     let other = outsider["token"].as_str().unwrap();
     assert_eq!(recruiter_account["role"], "interviewer");
     let base = "/api/v1".to_string();
-    let job_input = json!({"job_code":"  be-2026-001  ","title":"Backend engineer","description":"Build reliable Rust APIs and PostgreSQL services.","request_key":Uuid::new_v4()});
+    let job_input = json!({"job_code":"  be-2026-001  ","title":"Backend engineer","preparation_duration_minutes":30,"description":"Build reliable Rust APIs and PostgreSQL services.","request_key":Uuid::new_v4()});
     let (status, job) = call(
         &app,
         "POST",
@@ -175,7 +173,7 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
         StatusCode::CONFLICT
     );
     // Another job exercises cursor ordering and pagination without offset drift.
-    let (_,second)=call(&app,"POST",&format!("{base}/jobs"),json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Frontend engineer","description":"Build accessible React interfaces and browser integrations.","request_key":Uuid::new_v4()}),token).await;
+    let (_,second)=call(&app,"POST",&format!("{base}/jobs"),json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Frontend engineer","preparation_duration_minutes":30,"description":"Build accessible React interfaces and browser integrations.","request_key":Uuid::new_v4()}),token).await;
     let (_, page) = call(
         &app,
         "GET",
@@ -224,8 +222,9 @@ async fn interview_lifecycle_is_scoped_idempotent_and_audited() {
     .await;
     let invitation = json!({"candidate_name":"Candidate A","candidate_email":"candidate@example.test","duration_minutes":30,"request_key":Uuid::new_v4()});
     let path = format!("{base}/jobs/{}/invitations", job["id"].as_str().unwrap());
-    let (status, invite) = call(&app, "POST", &path, invitation.clone(), token).await;
-    assert_eq!(status, StatusCode::CREATED);
+    let (status, mut invite) = call(&app, "POST", &path, invitation.clone(), token).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    common::publish_fixture(&pool, recruiter, &mut invite).await;
     let id = invite["session"]["id"]
         .as_str()
         .unwrap();
@@ -478,7 +477,7 @@ async fn concurrent_workers_expire_once_and_tenant_foreign_keys_hold() {
         .as_str()
         .unwrap();
     let base = "/api/v1".to_string();
-    let (_,job)=call(&app,"POST",&format!("{base}/jobs"),json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Expiry test","description":"A role for testing durable expiry and tenant boundaries.","request_key":Uuid::new_v4()}),token).await;
+    let (_,job)=call(&app,"POST",&format!("{base}/jobs"),json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Expiry test","preparation_duration_minutes":5,"description":"A role for testing durable expiry and tenant boundaries.","request_key":Uuid::new_v4()}),token).await;
     ready_set(
         &pool,
         recruiter,
@@ -490,7 +489,8 @@ async fn concurrent_workers_expire_once_and_tenant_foreign_keys_hold() {
         5,
     )
     .await;
-    let (_,invite)=call(&app,"POST",&format!("{base}/jobs/{}/invitations",job["id"].as_str().unwrap()),json!({"candidate_name":"Expiry candidate","candidate_email":"expiry@example.test","duration_minutes":5,"request_key":Uuid::new_v4()}),token).await;
+    let (_,mut invite)=call(&app,"POST",&format!("{base}/jobs/{}/invitations",job["id"].as_str().unwrap()),json!({"candidate_name":"Expiry candidate","candidate_email":"expiry@example.test","duration_minutes":5,"request_key":Uuid::new_v4()}),token).await;
+    common::publish_fixture(&pool, recruiter, &mut invite).await;
     let id: Uuid = invite["session"]["id"]
         .as_str()
         .unwrap()
@@ -641,7 +641,7 @@ async fn legacy_invitation_replacement_is_explicit_scoped_and_preserves_expiry()
         .as_str()
         .unwrap();
     let base = "/api/v1".to_string();
-    let (_,job)=call(&app,"POST",&format!("{base}/jobs"),json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Legacy link test","description":"A job description used for testing safe invitation recovery.","request_key":Uuid::new_v4()}),token).await;
+    let (_,job)=call(&app,"POST",&format!("{base}/jobs"),json!({"job_code":format!("TEST-{}",Uuid::new_v4()),"title":"Legacy link test","preparation_duration_minutes":30,"description":"A job description used for testing safe invitation recovery.","request_key":Uuid::new_v4()}),token).await;
     ready_set(
         &pool,
         recruiter,
@@ -653,7 +653,8 @@ async fn legacy_invitation_replacement_is_explicit_scoped_and_preserves_expiry()
         30,
     )
     .await;
-    let (_,invite)=call(&app,"POST",&format!("{base}/jobs/{}/invitations",job["id"].as_str().unwrap()),json!({"candidate_name":"Legacy candidate","candidate_email":"legacy@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
+    let (_,mut invite)=call(&app,"POST",&format!("{base}/jobs/{}/invitations",job["id"].as_str().unwrap()),json!({"candidate_name":"Legacy candidate","candidate_email":"legacy@example.test","duration_minutes":30,"request_key":Uuid::new_v4()}),token).await;
+    common::publish_fixture(&pool, recruiter, &mut invite).await;
     let id: Uuid = invite["session"]["id"]
         .as_str()
         .unwrap()
@@ -821,7 +822,7 @@ async fn concurrent_job_ids_are_unique_and_case_insensitive() {
     let app = platform_api::router_with_ai(pool.clone(), None);
     let owner = account(&app).await;
     let token = owner["token"].as_str().unwrap();
-    let input = |code: &str| json!({"job_code":code,"title":"Concurrent code test","description":"A sufficiently detailed job description for concurrency tests.","request_key":Uuid::new_v4()});
+    let input = |code: &str| json!({"job_code":code,"title":"Concurrent code test","preparation_duration_minutes":30,"description":"A sufficiently detailed job description for concurrency tests.","request_key":Uuid::new_v4()});
     let (a, b) = tokio::join!(
         call(&app, "POST", "/api/v1/jobs", input("race-001"), token),
         call(&app, "POST", "/api/v1/jobs", input("RACE-001"), token)
@@ -833,103 +834,4 @@ async fn concurrent_job_ids_are_unique_and_case_insensitive() {
     let (_, jobs) = call(&app, "GET", "/api/v1/jobs", Value::Null, token).await;
     assert_eq!(jobs["items"].as_array().unwrap().len(), 1);
     assert_eq!(jobs["items"][0]["job_code"], "RACE-001");
-}
-
-#[tokio::test]
-#[ignore = "requires migrated PostgreSQL and restricted runtime credentials"]
-async fn invitations_require_a_completed_matching_set_and_rejections_leave_no_rows() {
-    let pool = database().await;
-    let app = platform_api::router_with_ai(pool.clone(), None);
-    let owner = account(&app).await;
-    let token = owner["token"].as_str().unwrap();
-    let user: Uuid = owner["user_id"]
-        .as_str()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let (_,job)=call(&app,"POST","/api/v1/jobs",json!({"job_code":format!("INVITE-GATE-{}",Uuid::new_v4()),"title":"Prepared invitations only","description":"Build reliable applications with Rust and PostgreSQL.","request_key":Uuid::new_v4()}),token).await;
-    let job_id: Uuid = job["id"]
-        .as_str()
-        .unwrap()
-        .parse()
-        .unwrap();
-    let route = format!("/api/v1/jobs/{job_id}/invitations");
-    let email = format!("{}@example.test", Uuid::new_v4());
-    let input = json!({"candidate_name":"Prepared candidate","candidate_email":email,"duration_minutes":30,"request_key":Uuid::new_v4()});
-    for state in ["pending", "running", "failed", "completed"] {
-        let mut tx = interviewer_transaction(&pool, user)
-            .await
-            .unwrap();
-        sqlx::query("UPDATE question_sets SET status=$2 WHERE job_id=$1")
-            .bind(job_id)
-            .bind(state)
-            .execute(&mut *tx)
-            .await
-            .unwrap();
-        tx.commit().await.unwrap();
-        let (status, body) = call(&app, "POST", &route, input.clone(), token).await;
-        assert_eq!(
-            status,
-            StatusCode::CONFLICT,
-            "empty or incomplete sets cannot be invited"
-        );
-        assert!(
-            body["error"]
-                .as_str()
-                .unwrap()
-                .contains("No completed question set")
-        );
-    }
-    let mut tx = interviewer_transaction(&pool, user)
-        .await
-        .unwrap();
-    let sessions: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM interview_sessions WHERE job_id=$1")
-            .bind(job_id)
-            .fetch_one(&mut *tx)
-            .await
-            .unwrap();
-    let candidates: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE email=$1")
-        .bind(&email)
-        .fetch_one(&mut *tx)
-        .await
-        .unwrap();
-    let tokens:i64=sqlx::query_scalar("SELECT count(*) FROM auth_sessions WHERE interviewer_id=$1 AND interview_session_id IS NOT NULL").bind(user).fetch_one(&mut *tx).await.unwrap();
-    assert_eq!((sessions, candidates, tokens), (0, 0, 0));
-    tx.commit().await.unwrap();
-    ready_set(&pool, user, job_id, 30).await;
-    let mut wrong_duration = input.clone();
-    wrong_duration["duration_minutes"] = json!(10);
-    assert_eq!(
-        call(&app, "POST", &route, wrong_duration, token)
-            .await
-            .0,
-        StatusCode::CONFLICT
-    );
-    let (status, invited) = call(&app, "POST", &route, input.clone(), token).await;
-    assert_eq!(status, StatusCode::CREATED);
-    assert!(!invited["session"]["question_set_id"].is_null());
-    assert!(invited["session"]["question_set_id"].is_string());
-    // Replaying a successful request recovers its existing link even if availability changes.
-    let mut tx = interviewer_transaction(&pool, user)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE question_sets SET status='failed' WHERE job_id=$1")
-        .bind(job_id)
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    tx.commit().await.unwrap();
-    let (status, replayed) = call(&app, "POST", &route, input.clone(), token).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(replayed["invitation_token"], invited["invitation_token"]);
-    let mut another = input;
-    another["request_key"] = json!(Uuid::new_v4());
-    assert_eq!(
-        call(&app, "POST", &route, another, token)
-            .await
-            .0,
-        StatusCode::CONFLICT
-    );
-    pool.close().await;
 }

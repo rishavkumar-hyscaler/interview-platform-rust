@@ -228,11 +228,11 @@ async fn ready_now(pool: &PgPool, owner: Uuid, session: Uuid) {
     tx.commit().await.unwrap();
 }
 #[tokio::test]
-#[ignore = "requires disposable RAG_TEST_DATABASE_URL and localhost mock"]
+#[ignore = "requires disposable DATABASE_URL and localhost mock"]
 async fn durable_embeddings_reuse_checkpoints_recover_and_remain_session_scoped() {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
-        .connect(&std::env::var("RAG_TEST_DATABASE_URL").expect("Use a disposable database"))
+        .connect(&std::env::var("DATABASE_URL").expect("Use a disposable database"))
         .await
         .unwrap();
     let bypass: bool = sqlx::query_scalar(

@@ -32,12 +32,7 @@ pub fn init_tracing() {
 }
 
 pub async fn connect() -> anyhow::Result<PgPool> {
-    let url = std::env::var("RUNTIME_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL"))?;
-    connect_url(&url).await
-}
-
-pub async fn connect_for_migrations() -> anyhow::Result<PgPool> {
-    let url = std::env::var("MIGRATION_DATABASE_URL").or_else(|_| std::env::var("DATABASE_URL"))?;
+    let url = std::env::var("DATABASE_URL")?;
     connect_url(&url).await
 }
 

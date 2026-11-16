@@ -15,7 +15,8 @@ Preserve existing `.env` files; use the examples only for initial setup.
 cd backend
 cp -n .env.example .env
 # Configure database credentials and AI settings before continuing.
-cargo run -- --migrate
+# Override DATABASE_URL with the database owner's URL for migrations only.
+DATABASE_URL='postgres://postgres:replace_me@localhost:5432/interview-platform' cargo run -- --migrate
 cargo run
 ```
 
@@ -68,9 +69,7 @@ See [backend/.env.example](backend/.env.example) and
 
 | Setting | Purpose |
 | --- | --- |
-| `DATABASE_URL` | Migration connection; also the runtime fallback |
-| `RUNTIME_DATABASE_URL` | Restricted application connection |
-| `MIGRATION_DATABASE_URL` | Optional migration connection override |
+| `DATABASE_URL` | Only database setting; use restricted credentials for the API, owner credentials for migrations |
 | `FRONTEND_ORIGIN` | Exact allowed frontend origin |
 | `ALLOW_REGISTRATION` | Enables interviewer registration when `true` |
 | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` | OpenAI-compatible generation/scoring provider |
@@ -366,9 +365,21 @@ npm run format:check   # npm run format to fix
 npm run build
 ```
 
-Database integration tests require a dedicated disposable database; some are ignored
-by default. Use local AI mocks for routine verification. Representative real-device,
-provider and network acceptance testing remains necessary.
+Regular tests need no PostgreSQL. For database integration tests, use a migrated
+disposable database and the restricted `platform_app` role. They insert and delete
+data; do not point them at the main development or production database.
+
+```bash
+# backend/ — use your disposable database's URL and a test-only invitation key.
+DATABASE_URL='postgres://platform_app:replace_me@localhost:5432/interview-test' \
+ALLOW_REGISTRATION=true \
+INVITATION_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 \
+cargo test --tests --locked -- --ignored --test-threads=1
+```
+
+GitHub Actions supplies `DATABASE_URL` for its temporary PostgreSQL container;
+it never uses your local `.env` or Neon database. AI tests use local mocks.
+Representative provider, real-device and network acceptance checks remain necessary.
 
 Optional Tokio Console:
 

@@ -5,7 +5,7 @@ async fn main() -> anyhow::Result<()> {
     platform_api::infrastructure::load_environment()?;
     platform_api::infrastructure::init_tracing();
     if std::env::args().any(|arg| arg == "--migrate") {
-        let pool = platform_api::infrastructure::connect_for_migrations().await?;
+        let pool = platform_api::infrastructure::connect().await?;
         sqlx::migrate!("./migrations")
             .run(&pool)
             .await?;

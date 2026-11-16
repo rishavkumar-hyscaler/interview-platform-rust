@@ -66,7 +66,7 @@ Create private files **outside the checkout**, with permissions `600`. Do not
 commit them, upload them as CI artifacts, or print their contents. Runtime file keys:
 
 ```text
-RUNTIME_DATABASE_URL
+DATABASE_URL
 INVITATION_ENCRYPTION_KEY
 LLM_PROVIDER
 LLM_BASE_URL
@@ -86,7 +86,10 @@ under `WEBRTC_ICE_SERVERS` for remote live viewing; TURN service is not provisio
 by this deployment. Values returned to the browser must not be long-lived privileged
 TURN credentials.
 
-The separate migration file contains only `MIGRATION_DATABASE_URL`. Then run:
+Both processes use the single setting `DATABASE_URL`. The separate migration
+Secret sets it to the owner connection; the runtime Secret sets it to the
+restricted `platform_app` connection. The owner credential is never injected into
+the API pod. The migration file therefore contains only `DATABASE_URL`. Then run:
 
 ```bash
 kubectl -n interview-platform create secret generic backend-runtime \
