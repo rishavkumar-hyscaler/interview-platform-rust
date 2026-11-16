@@ -25,6 +25,10 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 10
     env:
       DATABASE_URL: postgres://platform_app:local_app_password@localhost:5432/interview
+      # All test URLs target the disposable service container, never Neon.
+      RUNTIME_DATABASE_URL: postgres://platform_app:local_app_password@localhost:5432/interview
+      TEST_DATABASE_URL: postgres://platform_app:local_app_password@localhost:5432/interview
+      RAG_TEST_DATABASE_URL: postgres://platform_app:local_app_password@localhost:5432/interview
       ALLOW_REGISTRATION: "true"
       INVITATION_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000" # Test only
     steps:
