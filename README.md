@@ -39,6 +39,21 @@ backend address. If needed, start Vite with `npm run dev -- --port 5174`.
 Proctoring models are prepared automatically before dev/build; the first run needs
 network access. Restart Vite after environment changes.
 
+## Deploy frontend to Vercel
+
+Import the Git repository in Vercel and set **Root Directory** to `frontend`.
+The included `frontend/vercel.json` configures installation, build and output.
+Model downloads run automatically during the build and require network access.
+
+Set `VITE_API_BASE_URL` to the public HTTPS backend origin, without `/api` or a
+trailing slash. Do not add database credentials or AI keys to Vercel's frontend
+variables. Redeploy after changing the API URL because Vite embeds it at build time.
+
+The frontend can be published before the backend, but sign-in and interview flows
+will remain unavailable until a reachable API is configured. Vite's local API proxy
+does not run on Vercel. Once the backend is available, allow the exact frontend
+origin through its `FRONTEND_ORIGIN` setting.
+
 ## Configuration
 
 See [backend/.env.example](backend/.env.example) and
