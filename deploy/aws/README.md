@@ -120,10 +120,11 @@ and sets a 300-second idle timeout for streaming. Verify SSE and media uploads.
 
 ## 5. GitHub Actions and AWS OIDC
 
-The existing Rust CI runs first. On `main`, a release container is published to
+The existing Rust CI runs first. On the repository's default branch (`master` in
+this repository), a release container is published to
 GHCR, then deployment runs only if `BACKEND_DEPLOY_ENABLED=true`.
 
-Create a GitHub environment named `production` restricted to `main`. Add the
+Create a GitHub environment named `production` restricted to the default branch. Add the
 GitHub OIDC provider to AWS IAM and a deployment role with `eks:DescribeCluster`
 scoped to this cluster. Its trust policy must require audience `sts.amazonaws.com`
 and this repository's exact production-environment subject. GitHub's legacy
