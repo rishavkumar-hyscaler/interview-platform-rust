@@ -2,8 +2,8 @@
 
 Vercel serves the frontend, Neon hosts PostgreSQL, and one EC2 instance runs the
 published backend image plus Caddy for HTTPS. No Kubernetes, ALB or NAT gateway is
-needed for this initial public-subnet deployment. This is a manual deployment;
-the existing GitHub pipeline continues testing and publishing the image.
+needed for this initial public-subnet deployment. Choose the automatic GitHub Actions setup below, or the manual alternative.
+The pipeline tests and publishes the image before deploying.
 
 ## 1. Launch the instance
 
@@ -96,3 +96,71 @@ load balancers, NAT gateways and disks); this setup does not remove them.
 
 Next steps: automate this working deployment through GitHub Actions, then move the
 same image to single-node Kubernetes or EKS when needed.
+
+## Automatic deployment with GitHub Actions (SSM)
+
+After this one-time setup, pushes affecting backend/deployment files on the default
+branch run tests → publish image → deploy EC2 → check public HTTPS readiness.
+There is no Git clone, SSH key or manual `.env` editing on EC2 in this mode.
+The workflow sends its checked-out Compose/scripts to `/opt/interview-platform`.
+
+### One-time AWS setup
+
+1. Install AWS CLI v2, Python 3 and `flock` (util-linux) on EC2 alongside Docker.
+   Ensure SSM Agent is installed/running and the instance appears **Online** in
+   Systems Manager managed nodes. Ubuntu installations may use the snap service
+   `snap.amazon-ssm-agent.amazon-ssm-agent.service`. The instance needs outbound
+   HTTPS to Systems Manager, Parameter Store, image registries, Neon and AI APIs.
+2. Attach an EC2 instance-profile role with `AmazonSSMManagedInstanceCore`.
+   Add `ssm:GetParameter` permission for only these two parameter ARNs. If using
+   a customer-managed KMS key, add `kms:Decrypt` for that key as well.
+3. In Systems Manager → Parameter Store, create two **SecureString** parameters
+   in the EC2 region (paste multiline `KEY=value` contents privately):
+   - `/interview-platform/production/runtime`: application runtime settings from
+     the manual setup above, including restricted-role `DATABASE_URL` and AI keys.
+   - `/interview-platform/production/migrations`: only owner-role `DATABASE_URL`.
+   Do not put credentials in workflow variables or Run Command parameters.
+   The instance writes these settings to root-only files under
+   `/opt/interview-platform/config`; Docker receives only the corresponding file.
+4. Configure GitHub OIDC and a role trusted by this repository's protected
+   `production` environment. The role needs `ssm:SendCommand` scoped to your EC2
+   instance ARN and `arn:aws:ssm:REGION::document/AWS-RunShellScript`, plus
+   `ssm:GetCommandInvocation` on `*` (this read action has no resource-level scope).
+   GitHub does not need permission to read application parameters. Run Command
+   executes as root, so protect branch pushes and production deployment access.
+5. Make the GHCR backend package public, or configure root's Docker registry
+   login on EC2 once with a read-only package credential. No registry credential
+   is passed through the deployment command.
+6. Configure API DNS and ports 80/443 as above. SSM needs no inbound SSH rule.
+
+Add these **GitHub repository variables** (Settings → Secrets and variables →
+Actions → Variables):
+
+| Variable | Value |
+| --- | --- |
+| `BACKEND_DEPLOY_TARGET` | `ec2` |
+| `BACKEND_DEPLOY_ENABLED` | `true` only after setup is complete |
+| `AWS_REGION` | `ap-southeast-2` for the current instance |
+| `AWS_DEPLOY_ROLE_ARN` | GitHub OIDC deployment role ARN |
+| `EC2_INSTANCE_ID` | Your EC2 instance ID (`i-...`), not its public IP |
+| `API_HOST` | API domain without scheme/path |
+| `EC2_RUNTIME_PARAMETER` | `/interview-platform/production/runtime` |
+| `EC2_MIGRATION_PARAMETER` | `/interview-platform/production/migrations` |
+
+EKS variables are not required for this target. Leave deployment disabled until
+the parameters, IAM permissions, SSM connectivity and domain are ready. Set both
+`BACKEND_DEPLOY_TARGET=ec2` and the enable switch; without the target the existing
+EKS path remains selected for backward compatibility.
+
+The pipeline waits for the SSM command and fails if deployment or public readiness
+fails. Detailed command output stays in Systems Manager rather than being copied
+into GitHub logs. Parameter changes take effect on the next deployment; they do
+not themselves trigger GitHub Actions. Keep changes within Parameter Store size
+limits. Only one release should run at a time; the remote script also uses a lock.
+Do not manually start competing deployments or cancel an active migration.
+
+The manual instructions earlier remain an alternative, not prerequisites for the
+automatic route. Avoid mixing manual and automated deployments: they use different
+working directories. If migrating an existing manual installation, preserve its
+named volumes (same Compose project name), stop its containers first, and verify
+all media remains available.

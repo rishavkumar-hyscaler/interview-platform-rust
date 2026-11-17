@@ -59,13 +59,13 @@ origin through its `FRONTEND_ORIGIN` setting.
 
 Start with the [single EC2 guide](deploy/aws/ec2/README.md): Docker Compose runs
 the backend and Caddy HTTPS proxy, using Neon and the existing Vercel frontend.
-The existing CI publishes the image; EC2 deployment is manual initially.
+GitHub Actions can deploy to EC2 through Systems Manager after one-time AWS setup.
 
 The EKS deployment, Neon setup, GitHub Actions OIDC configuration,
 TLS, persistent media and rollback steps are in [the deployment guide](deploy/aws/README.md).
 Existing backend CI must pass before an immutable container image is published.
 EKS deployment stays disabled until `BACKEND_DEPLOY_ENABLED=true` is configured
-in GitHub. Leave it disabled when using EC2.
+in GitHub. For EC2, also set `BACKEND_DEPLOY_TARGET=ec2` as described in its guide.
 
 ## Configuration
 

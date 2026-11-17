@@ -86,7 +86,7 @@ jobs:
 
   deploy:
     needs: publish
-    if: vars.BACKEND_DEPLOY_ENABLED == 'true'
+    if: vars.BACKEND_DEPLOY_ENABLED == 'true' && vars.BACKEND_DEPLOY_TARGET != 'ec2'
     runs-on: ubuntu-latest
     environment: production
     concurrency:
@@ -125,3 +125,36 @@ jobs:
             --output rendered
       - name: Deploy to EKS
         run: bash deploy/aws/deploy.sh rendered
+
+  deploy-ec2:
+    needs: publish
+    if: vars.BACKEND_DEPLOY_ENABLED == 'true' && vars.BACKEND_DEPLOY_TARGET == 'ec2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    concurrency:
+      group: backend-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate to AWS with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Deploy to EC2 through Systems Manager
+        env:
+          IMAGE: ${{ needs.publish.outputs.image }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          API_HOST: ${{ vars.API_HOST }}
+          EC2_RUNTIME_PARAMETER: ${{ vars.EC2_RUNTIME_PARAMETER }}
+          EC2_MIGRATION_PARAMETER: ${{ vars.EC2_MIGRATION_PARAMETER }}
+        run: python3 deploy/aws/ec2/send-deploy.py
+      - name: Verify public API readiness
+        env:
+          API_HOST: ${{ vars.API_HOST }}
+        run: curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 20 "https://${API_HOST}/health/ready"
