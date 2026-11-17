@@ -1,0 +1,6 @@
+{$API_HOST} {
+    reverse_proxy backend:8080 {
+        # Forward streaming responses without buffering.
+        flush_interval -1
+    }
+}

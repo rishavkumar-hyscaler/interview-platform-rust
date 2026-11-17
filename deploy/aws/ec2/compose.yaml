@@ -1,0 +1,71 @@
+name: interview-platform
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to the published GHCR image}
+    restart: unless-stopped
+    env_file:
+      - ${RUNTIME_ENV_FILE:?Set RUNTIME_ENV_FILE to a private absolute path}
+    environment:
+      BIND_ADDRESS: 0.0.0.0:8080
+      MEDIA_STORAGE_DIR: /data/media
+      FRONTEND_ORIGIN: https://interview-platform-rust-two.vercel.app
+      DB_MAX_CONNECTIONS: "5"
+      DB_ACQUIRE_TIMEOUT_SECONDS: "30"
+    volumes:
+      - media:/data/media
+    expose:
+      - "8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 20s
+    logging: *logging
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      API_HOST: ${API_HOST:?Set API_HOST to your API domain}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    logging: *logging
+
+  migrate:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE}
+    profiles:
+      - tools
+    env_file:
+      - ${MIGRATION_ENV_FILE:?Set MIGRATION_ENV_FILE to a private absolute path}
+    command:
+      - --migrate
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *logging
+
+volumes:
+  media:
+  caddy_data:
+  caddy_config:

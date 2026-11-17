@@ -55,12 +55,17 @@ will remain unavailable until a reachable API is configured. Vite's local API pr
 does not run on Vercel. Once the backend is available, allow the exact frontend
 origin through its `FRONTEND_ORIGIN` setting.
 
-## Deploy backend to AWS Kubernetes
+## Deploy backend to AWS
+
+Start with the [single EC2 guide](deploy/aws/ec2/README.md): Docker Compose runs
+the backend and Caddy HTTPS proxy, using Neon and the existing Vercel frontend.
+The existing CI publishes the image; EC2 deployment is manual initially.
 
 The EKS deployment, Neon setup, GitHub Actions OIDC configuration,
 TLS, persistent media and rollback steps are in [the deployment guide](deploy/aws/README.md).
 Existing backend CI must pass before an immutable container image is published.
-Deployment stays disabled until `BACKEND_DEPLOY_ENABLED=true` is configured in GitHub.
+EKS deployment stays disabled until `BACKEND_DEPLOY_ENABLED=true` is configured
+in GitHub. Leave it disabled when using EC2.
 
 ## Configuration
 
