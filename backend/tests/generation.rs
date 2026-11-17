@@ -380,6 +380,45 @@ async fn prepare_blueprint(pool: &PgPool, provider: &AiProvider, owner: Uuid, jo
     }
     panic!("blueprint did not complete");
 }
+/// A worker tick may claim a blueprint or another queued set first.
+/// Stop after this set changes state; do not consume its automatic retries.
+async fn process_candidate_attempt(
+    pool: &PgPool,
+    provider: &AiProvider,
+    owner: Uuid,
+    session: Uuid,
+) {
+    async fn state(pool: &PgPool, owner: Uuid, session: Uuid) -> (String, i32) {
+        let mut tx = interviewer_transaction(pool, owner)
+            .await
+            .unwrap();
+        let state = sqlx::query_as(
+            "SELECT q.status, q.attempts FROM question_sets q \
+             JOIN interview_sessions s ON s.question_set_id=q.id WHERE s.id=$1",
+        )
+        .bind(session)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        state
+    }
+
+    let initial = state(pool, owner, session).await;
+    for _ in 0..64 {
+        assert!(
+            process_next(pool, provider)
+                .await
+                .unwrap(),
+            "worker queue stopped before candidate {session} was processed"
+        );
+        if state(pool, owner, session).await != initial {
+            return;
+        }
+    }
+    panic!("candidate {session} was not processed within 64 worker ticks");
+}
+
 async fn schedule_candidate(
     pool: &PgPool,
     provider: &AiProvider,
@@ -888,11 +927,7 @@ async fn candidate_invitation_waits_for_its_own_questions() {
             .0,
         StatusCode::CONFLICT
     );
-    assert!(
-        process_next(&pool, &provider)
-            .await
-            .unwrap()
-    );
+    process_candidate_attempt(&pool, &provider, user, session.parse().unwrap()).await;
     let (_, progress) = call(
         &app,
         "GET",
@@ -937,11 +972,7 @@ async fn candidate_invitation_waits_for_its_own_questions() {
     tx.commit().await.unwrap();
     mock.malformed
         .store(7, Ordering::SeqCst);
-    assert!(
-        process_next(&pool, &provider)
-            .await
-            .unwrap()
-    );
+    process_candidate_attempt(&pool, &provider, user, second_uuid).await;
     let generation_route = format!("/api/v1/sessions/{second_id}/generation");
     let (_, failed) = call(&app, "GET", &generation_route, Value::Null, token).await;
     assert_eq!(failed["status"], "failed");
@@ -966,11 +997,7 @@ async fn candidate_invitation_waits_for_its_own_questions() {
     mock.malformed
         .store(0, Ordering::SeqCst);
     mock.variant.store(4, Ordering::SeqCst);
-    assert!(
-        process_next(&pool, &provider)
-            .await
-            .unwrap()
-    );
+    process_candidate_attempt(&pool, &provider, user, second_uuid).await;
     let second_id = second["session"]["id"]
         .as_str()
         .unwrap();
