@@ -36,11 +36,12 @@ def main():
     }
     folder = Path(__file__).resolve().parent
     commands = ["set -eu", "umask 077", "mkdir -p /opt/interview-platform"]
-    for name in ["compose.yaml", "Caddyfile", "deploy.sh", "remote-deploy.sh"]:
+    for name in ["compose.yaml", "Caddyfile", "deploy.sh", "remote-deploy.sh", "bootstrap.sh"]:
         encoded = base64.b64encode((folder / name).read_bytes()).decode()
         commands.append(
             f"printf %s {shlex.quote(encoded)} | base64 -d > /opt/interview-platform/{name}"
         )
+    commands.append("bash /opt/interview-platform/bootstrap.sh --from-ssm")
     exports = " ".join(f"{key}={shlex.quote(value)}" for key, value in settings.items())
     commands.append(f"env {exports} bash /opt/interview-platform/remote-deploy.sh")
     result = aws(

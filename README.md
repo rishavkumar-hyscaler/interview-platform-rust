@@ -67,6 +67,22 @@ Start with the [single EC2 guide](deploy/aws/ec2/README.md): Docker Compose runs
 the backend and Caddy HTTPS proxy, using Neon and the existing Vercel frontend.
 GitHub Actions can deploy to EC2 through Systems Manager after one-time AWS setup.
 
+```text
+GitHub Actions
+  │ Access keys + DeployInterviewPlatformEC2 policy
+  ▼
+Systems Manager sends deployment command
+  ▼
+EC2 instance
+  │ interview-platform-ec2-role
+  ▼
+Reads Parameter Store → pulls image → runs backend
+```
+
+The deployment user's policy lets GitHub send commands to the designated instance.
+The EC2 role lets the server communicate with Systems Manager and read its private
+configuration from Parameter Store. Access keys stay in GitHub Secrets.
+
 The EKS deployment, Neon setup, GitHub Actions OIDC configuration,
 TLS, persistent media and rollback steps are in [the deployment guide](deploy/aws/README.md).
 Existing backend CI must pass before an immutable container image is published.

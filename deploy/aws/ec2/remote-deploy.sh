@@ -1,7 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export PATH="/usr/local/bin:/usr/bin:/bin:/snap/bin:${PATH:-}"
 umask 077
 cd /opt/interview-platform
+
+for executable in aws docker python3 flock; do
+    if ! command -v "$executable" >/dev/null 2>&1; then
+        echo "Missing prerequisite: $executable. Run deploy/aws/ec2/bootstrap.sh on this EC2 instance first." >&2
+        exit 1
+    fi
+done
+if ! docker compose version >/dev/null 2>&1; then
+    echo 'Docker Compose plugin is missing. Run deploy/aws/ec2/bootstrap.sh first.' >&2
+    exit 1
+fi
 
 # SSM commands run as root. Serialize deployments even if a runner disconnects.
 exec 9>/opt/interview-platform/deploy.lock

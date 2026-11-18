@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # EC2 User Data, or run once with: sudo bash bootstrap.sh
 set -euo pipefail
+export PATH="/usr/local/bin:/usr/bin:/bin:/snap/bin:${PATH:-}"
 if [[ "$(id -u)" != 0 ]]; then
   echo 'Run with sudo, or paste this script into EC2 User Data.' >&2
   exit 1
@@ -11,12 +12,17 @@ if [[ "$ID" != ubuntu || "$(uname -m)" != x86_64 ]]; then
   exit 1
 fi
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y ca-certificates curl unzip python3 util-linux gnupg
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-chmod a+r /etc/apt/keyrings/docker.asc
-cat > /etc/apt/sources.list.d/docker.sources <<DOCKER
+# Install only missing tools; later deployments reuse the installed packages.
+if ! command -v curl >/dev/null || ! command -v unzip >/dev/null || \
+   ! command -v python3 >/dev/null || ! command -v flock >/dev/null; then
+  apt-get -o DPkg::Lock::Timeout=180 update
+  apt-get -o DPkg::Lock::Timeout=180 install -y ca-certificates curl unzip python3 util-linux
+fi
+if ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+  cat > /etc/apt/sources.list.d/docker.sources <<DOCKER
 Types: deb
 URIs: https://download.docker.com/linux/ubuntu
 Suites: ${UBUNTU_CODENAME:-$VERSION_CODENAME}
@@ -24,8 +30,9 @@ Components: stable
 Architectures: amd64
 Signed-By: /etc/apt/keyrings/docker.asc
 DOCKER
-apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  apt-get -o DPkg::Lock::Timeout=180 update
+  apt-get -o DPkg::Lock::Timeout=180 install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+fi
 systemctl enable --now docker
 if ! command -v aws >/dev/null; then
   bootstrap_tmp="$(mktemp -d)"
@@ -34,6 +41,8 @@ if ! command -v aws >/dev/null; then
   unzip -q "$bootstrap_tmp/awscliv2.zip" -d "$bootstrap_tmp"
   "$bootstrap_tmp/aws/install"
 fi
+# Never restart the agent executing this Run Command.
+if [[ "${1:-}" != --from-ssm ]]; then
 # Avoid installing a second SSM Agent when the deb service is already present.
 if systemctl list-unit-files amazon-ssm-agent.service --no-legend | grep -q '^amazon-ssm-agent.service'; then
   systemctl enable --now amazon-ssm-agent
@@ -45,6 +54,7 @@ else
   fi
   snap start --enable amazon-ssm-agent
   snap restart amazon-ssm-agent
+fi
 fi
 docker --version
 docker compose version

@@ -106,8 +106,8 @@ The workflow sends its checked-out Compose/scripts to `/opt/interview-platform`.
 
 ### One-time AWS setup
 
-1. Install AWS CLI v2, Python 3 and `flock` (util-linux) on EC2 alongside Docker.
-   Ensure SSM Agent is installed/running and the instance appears **Online** in
+1. The pipeline automatically installs missing Docker/Compose, AWS CLI v2,
+   Python 3 and `flock` using `bootstrap.sh` before deployment. Ensure SSM Agent is installed/running and the instance appears **Online** in
    Systems Manager managed nodes. Ubuntu installations may use the snap service
    `snap.amazon-ssm-agent.amazon-ssm-agent.service`. The instance needs outbound
    HTTPS to Systems Manager, Parameter Store, image registries, Neon and AI APIs.
@@ -189,3 +189,8 @@ rerun it on an already initialized instance. User Data execution logs are in
 `/var/log/cloud-init-output.log`. Agent installation cannot repair missing IAM
 permissions: the instance profile still needs `AmazonSSMManagedInstanceCore`
 and the scoped Parameter Store permissions described above.
+
+The automatic SSM deployment sends `bootstrap.sh` with the deployment files and
+runs it before reading Parameter Store. It installs missing prerequisites and
+skips restarting SSM Agent while a Run Command is active. SSM connectivity and
+the instance role must already work; this step cannot bootstrap an offline agent.
