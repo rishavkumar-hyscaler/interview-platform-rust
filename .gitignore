@@ -2,3 +2,6 @@
 
 /backend/storage/
 /original_requirement.md
+
+# Private local Kubernetes configuration.
+/deploy/local/*.env

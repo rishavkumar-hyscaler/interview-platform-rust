@@ -40,6 +40,12 @@ backend address. If needed, start Vite with `npm run dev -- --port 5174`.
 Proctoring models are prepared automatically before dev/build; the first run needs
 network access. Restart Vite after environment changes.
 
+## Run on local Kubernetes
+
+Use the [Minikube guide](deploy/local/README.md) to run the backend in local
+Kubernetes with persistent evidence storage, a migration Job and health probes.
+The existing AWS deployment configuration remains available for future use.
+
 ## Deploy frontend to Vercel
 
 Import the Git repository in Vercel and set **Root Directory** to `frontend`.

@@ -53,8 +53,8 @@ on EC2 before pulling. Public repository visibility does not imply a public imag
 
 ## 3. Deploy
 
-Leave GitHub `BACKEND_DEPLOY_ENABLED` unset or false: that switch currently starts
-**EKS** deployment. CI and image publishing still run normally.
+For manual deployment, leave GitHub `BACKEND_DEPLOY_ENABLED` unset or false.
+For automatic EC2 deployment, use the settings below.
 
 From the repository root on EC2:
 
@@ -122,12 +122,25 @@ The workflow sends its checked-out Compose/scripts to `/opt/interview-platform`.
    Do not put credentials in workflow variables or Run Command parameters.
    The instance writes these settings to root-only files under
    `/opt/interview-platform/config`; Docker receives only the corresponding file.
-4. Configure GitHub OIDC and a role trusted by this repository's protected
-   `production` environment. The role needs `ssm:SendCommand` scoped to your EC2
-   instance ARN and `arn:aws:ssm:REGION::document/AWS-RunShellScript`, plus
-   `ssm:GetCommandInvocation` on `*` (this read action has no resource-level scope).
-   GitHub does not need permission to read application parameters. Run Command
-   executes as root, so protect branch pushes and production deployment access.
+4. Create a dedicated IAM user named `interview-platform-github-deploy-user`,
+   without console access or administrator policies. Attach the inline policy in
+   [deploy-user-policy.json](deploy-user-policy.json). It is scoped to the current
+   EC2 instance/account/region; adjust those public identifiers if the instance
+   changes. The user can send shell commands to that instance and poll results.
+   It cannot directly read application parameters or create AWS infrastructure.
+   SSM shell commands execute as root and can access instance-held secrets, so
+   these deployment credentials grant control of that specific server.
+   An organization SCP can still deny these actions; access keys do not override it.
+   Create an access key for this user and store it directly in GitHub's
+   **Settings → Environments → production → Environment secrets**:
+   - `AWS_ACCESS_KEY_ID`
+   - `AWS_SECRET_ACCESS_KEY`
+   Do not paste keys into source, repository variables, chat, or EC2 env files.
+   Restrict the production environment to the default branch (`master`) and
+   protect repository writes. Rotate keys by replacing the GitHub secrets and
+   deactivating the old key after a successful deployment.
+   EC2 deployment uses these keys directly: no OIDC provider, role assumption,
+   trust policy, or `AWS_DEPLOY_ROLE_ARN` is required for this target.
 5. Make the GHCR backend package public, or configure root's Docker registry
    login on EC2 once with a read-only package credential. No registry credential
    is passed through the deployment command.
@@ -141,7 +154,6 @@ Actions → Variables):
 | `BACKEND_DEPLOY_TARGET` | `ec2` |
 | `BACKEND_DEPLOY_ENABLED` | `true` only after setup is complete |
 | `AWS_REGION` | `ap-southeast-2` for the current instance |
-| `AWS_DEPLOY_ROLE_ARN` | GitHub OIDC deployment role ARN |
 | `EC2_INSTANCE_ID` | Your EC2 instance ID (`i-...`), not its public IP |
 | `API_HOST` | API domain without scheme/path |
 | `EC2_RUNTIME_PARAMETER` | `/interview-platform/production/runtime` |
