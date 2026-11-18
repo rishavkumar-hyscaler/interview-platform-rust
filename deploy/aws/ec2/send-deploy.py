@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import sys
 import time
 
 
@@ -74,4 +75,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except subprocess.CalledProcessError as error:
+        # AWS CLI stderr contains the service error; the command arguments contain
+        # the entire encoded deployment payload and obscure the useful diagnosis.
+        message = (error.stderr or "AWS CLI failed without an error message").strip()
+        print(f"AWS deployment request failed:\n{message}", file=sys.stderr)
+        sys.exit(1)

@@ -176,3 +176,16 @@ automatic route. Avoid mixing manual and automated deployments: they use differe
 working directories. If migrating an existing manual installation, preserve its
 named volumes (same Compose project name), stop its containers first, and verify
 all media remains available.
+
+## Automatic prerequisite installation
+
+For a new Ubuntu x86-64 instance, paste the complete contents of `bootstrap.sh`
+into **Launch instance → Advanced details → User data**. Attach the EC2 instance
+profile during launch. The script installs Docker/Compose, AWS CLI, Python and
+starts SSM Agent. It contains no application secrets and does not deploy the app.
+For an existing instance, run the same script once using `sudo bash bootstrap.sh`
+through SSH or EC2 Instance Connect. Updating User Data alone does not normally
+rerun it on an already initialized instance. User Data execution logs are in
+`/var/log/cloud-init-output.log`. Agent installation cannot repair missing IAM
+permissions: the instance profile still needs `AmazonSSMManagedInstanceCore`
+and the scoped Parameter Store permissions described above.
