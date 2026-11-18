@@ -14,7 +14,9 @@ pub fn init_tracing() {
     let filter =
         tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
     let logs = tracing_subscriber::fmt::layer()
-        .json()
+        .compact()
+        .with_ansi(false)
+        .with_target(false)
         .with_filter(filter);
     let subscriber = tracing_subscriber::registry();
     #[cfg(feature = "tokio-console")]

@@ -63,6 +63,9 @@ origin through its `FRONTEND_ORIGIN` setting.
 
 ## Deploy backend to AWS
 
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the complete deployment revision guide,
+resource inventory, IAM responsibilities, configuration and troubleshooting.
+
 Start with the [single EC2 guide](deploy/aws/ec2/README.md): Docker Compose runs
 the backend and Caddy HTTPS proxy, using Neon and the existing Vercel frontend.
 GitHub Actions can deploy to EC2 through Systems Manager after one-time AWS setup.

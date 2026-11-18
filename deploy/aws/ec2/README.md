@@ -194,3 +194,8 @@ The automatic SSM deployment sends `bootstrap.sh` with the deployment files and
 runs it before reading Parameter Store. It installs missing prerequisites and
 skips restarting SSM Agent while a Run Command is active. SSM connectivity and
 the instance role must already work; this step cannot bootstrap an offline agent.
+
+Backend logs use compact single-line text by default, without terminal escape
+codes. Each request has one completion record with method, safe route, request ID,
+status and duration. Request-start records require debug logging. Request bodies, credentials and query strings are
+not added to request logs.

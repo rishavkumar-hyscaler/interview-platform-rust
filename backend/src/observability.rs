@@ -25,7 +25,7 @@ pub(crate) async fn request_log(request: Request, next: Next) -> Response {
     let span = tracing::info_span!("http_request", %request_id, %method, %route);
     async move {
         let started = Instant::now();
-        tracing::info!(event = "request.started");
+        tracing::debug!(event = "request.started");
         let mut response = next.run(request).await;
         response.headers_mut().insert(
             "x-request-id",
